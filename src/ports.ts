@@ -33,7 +33,7 @@ export interface FlowPort {
     thumbnail(arn: string): Promise<Buffer | undefined>;
 }
 
-// ---- denpachan のメトリクスの受信口 (docs/stream-test-automation.md §3.2 の channels メッセージ) ----
+// ---- denpachan のメトリクスの受信口 (設計書 §3.2 の channels メッセージ) ----
 
 export interface ReceiverChannel {
     ch: number;

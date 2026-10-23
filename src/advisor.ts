@@ -1,4 +1,4 @@
-// SRT の latency の推奨値と判定 (docs/stream-test-automation.md §3.1、§6)。
+// SRT の latency の推奨値と判定 (設計書 §3.1、§6)。
 // denpachan の src/worker/srt_advisor.h と同じ規則を、MediaConnect の 1 秒ごとのメトリクスに当てはめる:
 //   推奨値 = 窓の中の RTT の最大 × 倍率 (ロス率で決まる)。窓の中に回復できなかったパケットがあれば今の 1.5 倍以上。
 //   下限 20 ms、10 ms 単位に切り上げる。

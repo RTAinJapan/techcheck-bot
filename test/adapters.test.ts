@@ -23,7 +23,7 @@ describe("denpachan の受信口のクライアント", () => {
 
     it("engine の channels の形 (null、メッセージのオブジェクト) をそろえる", async () => {
         const { normalizeChannel } = await import("../src/adapters/receiver.js");
-        // engine (src/engine/metrics_view.cpp) が送る形: 止まっているチャンネル
+        // denpachan の engine (src/engine/metrics_view.cpp) が送る形: 止まっているチャンネル
         const stopped = normalizeChannel({
             ch: 7, name: "CH7", enabled: false, inUse: true, testSlot: true, status: "stopped",
             source: { protocol: "srt", mode: "caller", host: "mc.example", port: 5000, peer: "", connectedSec: 0 },

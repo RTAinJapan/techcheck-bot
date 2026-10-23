@@ -1,4 +1,4 @@
-// 配信者に向けた文言 (日本語 / 英語)。docs/stream-test-automation.md §4.3。
+// 配信者に向けた文言 (日本語 / 英語)。設計書 §4.3。
 // messages/ja.yaml と messages/en.yaml に同じキーで置く。キーが片方にしか無ければ起動しない。
 
 import { readFileSync } from "node:fs";

@@ -1,8 +1,10 @@
 # techcheck bot (配信テストの Discord bot)
 
-イベント前の配信テストを Discord で進める bot。設計は [docs/stream-test-automation.md](../../docs/stream-test-automation.md)。
+イベント前の配信テストを Discord で進める bot。
 
-> このフォルダは、あとで別のリポジトリに移す。フォルダごと移せば動くように、denpachan の本体のコードには依存しない (denpachan とはメトリクスの受信口の WebSocket だけでやりとりする)。
+- **設計書**: [denpachan の docs/stream-test-automation.md](https://github.com/RTAinJapan/denpachan/blob/main/docs/stream-test-automation.md)。コードのコメントの「設計書 §x」は、この文書の節を指す。
+- 受信には [denpachan](https://github.com/RTAinJapan/denpachan) を使う。bot と denpachan は、denpachan のメトリクスの受信口 (WebSocket) だけでやりとりする。
+- はじめは denpachan のリポジトリの `bot/techcheck/` で作った。そのときのコミットの履歴を引き継いでいる。
 
 ## できること
 
@@ -18,7 +20,7 @@ Node.js 22.13 以上 (SQLite は Node 付属の `node:sqlite` を使う)。
 
 ```sh
 npm ci
-cp config.example.yaml config.yaml   # 書き換える
+cp config.example.yaml config.yaml   # 書き換える (項目は設計書 §4.1 の表)
 npm run build
 npm start                            # または node dist/src/index.js path/to/config.yaml
 ```
@@ -36,18 +38,20 @@ npm test          # 外 (Discord、AWS、denpachan、シート) を偽物にし�
 npm run typecheck
 ```
 
+CI (`.github/workflows/ci.yml`) でも、型の確認・試験・ビルドを回す。
+
 ## 実物で確かめていないこと
 
 - CloudWatch のメトリクスのディメンション名 (`FlowARN`) と 1 秒の粒度で取れること。AWS のドキュメントの記述どおりにしてあるが、実際のアカウントで一度確かめる (`src/adapters/aws.ts`)。
 - `DescribeFlowSourceMetadata` の `StreamType` と `FrameRate` の実際の値の形。
-- denpachan のメトリクスの受信口は別の PR で作っている。`channels` メッセージの形は設計書 §3.2 に合わせてある。
+- denpachan のメトリクスの受信口と実際に繋いだ動作。`channels` メッセージの形は denpachan の `src/engine/metrics_view.cpp` に合わせて試験している。
 
 ## 構成
 
 | ファイル | 内容 |
 | --- | --- |
 | `src/service.ts` | テストの進行 (受付、待ちの列、枠、案内、映像の判定、latency の調整、RTMP、チェック、終わり)。1 秒ごとの `tick()` で進める |
-| `src/advisor.ts` | latency の推奨値と判定 (denpachan の `srt_advisor.h` と同じ規則) |
+| `src/advisor.ts` | latency の推奨値と判定 (denpachan の `src/worker/srt_advisor.h` と同じ規則) |
 | `src/checks.ts` | チェックの既定の手順と、音声のレベルによる参考の判定 |
 | `src/record.ts` | シートの 1 行と webhook の本文 |
 | `src/config.ts` | 設定ファイルの読み込みと検証 |

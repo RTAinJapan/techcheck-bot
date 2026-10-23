@@ -1,4 +1,4 @@
-# 配信テストの bot の設定 (docs/stream-test-automation.md §4.1 の表)。config.yaml にコピーして書き換える。
+# 配信テストの bot の設定 (設計書 §4.1 の表)。config.yaml にコピーして書き換える。
 # 秘密 (トークン、パスフレーズ、キー、webhook の URL) は ${環境変数名} で環境変数から読める。
 
 discord:
@@ -62,4 +62,4 @@ i18n:
 db:
   path: ./techcheck.db
 
-# judge、timeouts、checks は省けば既定値 (docs/stream-test-automation.md §4.1、§7.1)
+# judge、timeouts、checks は省けば既定値 (設計書 §4.1、§7.1)

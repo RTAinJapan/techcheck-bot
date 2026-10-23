@@ -1,4 +1,4 @@
-// MediaConnect と CloudWatch (docs/stream-test-automation.md §3.1)。
+// MediaConnect と CloudWatch (設計書 §3.1)。
 // CloudWatch のメトリクスは名前空間 AWS/MediaConnect、ディメンション FlowARN (フローの source は 1 つ) で、1 秒の粒度で取る。
 
 import { CloudWatchClient, GetMetricDataCommand, type MetricDataQuery } from "@aws-sdk/client-cloudwatch";

@@ -1,4 +1,4 @@
-// Google スプレッドシート (docs/stream-test-automation.md §8)。サービスアカウントで Sheets API v4 を直接呼ぶ。
+// Google スプレッドシート (設計書 §8)。サービスアカウントで Sheets API v4 を直接呼ぶ。
 // シートはサービスアカウントのメールアドレスに編集の権限を共有しておく。
 
 import { JWT } from "google-auth-library";

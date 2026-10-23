@@ -1,8 +1,8 @@
 {
-  "name": "denpachan-techcheck-bot",
+  "name": "techcheck-bot",
   "version": "0.1.0",
   "private": true,
-  "description": "配信テスト (techcheck) を進める Discord bot。docs/stream-test-automation.md の設計",
+  "description": "配信テスト (techcheck) を進める Discord bot。設計は denpachan の docs/stream-test-automation.md",
   "type": "module",
   "engines": {
     "node": ">=22.13"
@@ -25,5 +25,9 @@
     "@types/node": "^22.20.5",
     "tsx": "^4.23.15",
     "typescript": "^5.9.3"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/RTAinJapan/techcheck-bot.git"
   }
 }

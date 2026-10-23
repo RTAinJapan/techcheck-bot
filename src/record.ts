@@ -1,4 +1,4 @@
-// シートの 1 行 (docs/stream-test-automation.md §8) と、webhook の通知 (§5.5) を作る。どちらも運営向けなので日本語。
+// シートの 1 行 (設計書 §8) と、webhook の通知 (§5.5) を作る。どちらも運営向けなので日本語。
 
 import type { CheckStep } from "./config.js";
 import type { Session } from "./session.js";

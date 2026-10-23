@@ -1,4 +1,4 @@
-// 結果の通知の Discord webhook (docs/stream-test-automation.md §5.5)。
+// 結果の通知の Discord webhook (設計書 §5.5)。
 // URL が未設定なら何もしない。429 と 5xx は Retry-After に従って 3 回までやり直す。
 
 import type { WebhookPort } from "../ports.js";

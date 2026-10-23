@@ -1,4 +1,4 @@
-// 設定ファイル (config.yaml) の読み込みと検証。項目は docs/stream-test-automation.md §4.1 の表のとおり。
+// 設定ファイル (config.yaml) の読み込みと検証。項目は設計書 §4.1 の表のとおり。
 // 秘密は `${環境変数名}` で環境変数から読める。
 
 import { readFileSync } from "node:fs";

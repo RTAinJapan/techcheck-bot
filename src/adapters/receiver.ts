@@ -1,4 +1,4 @@
-// denpachan のメトリクスの受信口 (docs/stream-test-automation.md §3.2) の WebSocket クライアント。
+// denpachan のメトリクスの受信口 (設計書 §3.2) の WebSocket クライアント。
 // Node の WebSocket (ヘッダを付けられない) を使うので、トークンは ?token= で渡す。切れたら 2 秒後から繋ぎ直す。
 
 import type { ReceiverChannel, ReceiverPort } from "../ports.js";

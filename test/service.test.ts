@@ -1,4 +1,4 @@
-// テストの流れ (docs/stream-test-automation.md §5.0) を、偽物の外の口で 1 秒ずつ進めて確かめる。
+// テストの流れ (設計書 §5.0) を、偽物の外の口で 1 秒ずつ進めて確かめる。
 
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
