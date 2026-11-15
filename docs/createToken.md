@@ -107,8 +107,8 @@ bot は、bot 専用の IAM ユーザーのアクセスキーで動く。
         "mediaconnect:DescribeFlowSourceThumbnail"
       ],
       "Resource": [
-        "arn:aws:mediaconnect:ap-northeast-1:123456789012:flow:1-AAAA:runner-a",
-        "arn:aws:mediaconnect:ap-northeast-1:123456789012:flow:1-BBBB:runner-b"
+        "arn:aws:mediaconnect:ap-northeast-1:123456789012:flow:1-AAAA:runner-a★環境に合わせて修正",
+        "arn:aws:mediaconnect:ap-northeast-1:123456789012:flow:1-BBBB:runner-b★環境に合わせて修正"
       ]
     },
     {
@@ -121,7 +121,7 @@ bot は、bot 専用の IAM ユーザーのアクセスキーで動く。
       "Sid": "TechcheckSelfCheck",
       "Effect": "Allow",
       "Action": "iam:SimulatePrincipalPolicy",
-      "Resource": "arn:aws:iam::123456789012:user/techcheck-bot"
+      "Resource": "arn:aws:iam::123456789012:user/techcheck-bot★環境に合わせて修正"
     }
   ]
 }
