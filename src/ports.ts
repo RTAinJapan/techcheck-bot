@@ -78,6 +78,29 @@ export interface StillPort {
     fromRecording(file: string, atSec: number): Promise<Buffer>;
 }
 
+// ---- Discord のボイスチャンネル (マイクの声の録音) ----
+
+export interface VoiceRecording {
+    file: string;
+    /** 届いた音声のパケットの数。0 なら、声が届いていない (ミュート、入力デバイスの間違いなど) */
+    packets: number;
+    bytes: number;
+    /** 届いた音の長さ (ミリ秒)。Discord は無音の間は送らないので、話していた時間に近い */
+    audioMs: number;
+    /** 音量 (dBFS)。ffmpeg で測れなかったときは無い */
+    maxDb?: number;
+    meanDb?: number;
+    /** 振り切れた (0 dBFS に達した) サンプルの割合 (%)。大きいと音が割れている */
+    clippedPct?: number;
+}
+
+export interface VoicePort {
+    /** 配信者が今いる VC の ID (いなければ undefined) */
+    channelOf(userId: string): Promise<string | undefined>;
+    /** VC に入り、userId の声を seconds 秒録って、file (.ogg) に書く */
+    record(channelId: string, userId: string, file: string, seconds: number): Promise<VoiceRecording>;
+}
+
 // ---- DNS ----
 
 export interface DnsPort {

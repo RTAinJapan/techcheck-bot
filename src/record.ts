@@ -36,6 +36,8 @@ export const sheetColumns = [
     "音声のメモ",
     "配信者のメモ",
     "スレッド",
+    // 列は後ろに足す (前に足すと、すでに書いてあるシートの列がずれる)
+    "マイクの録音 (VC)",
 ] as const;
 
 /** 後日の音声の判定で書き換える列 (0 始まり) */
@@ -86,6 +88,19 @@ export function describeChecks(s: Session, checks: CheckStep[]): string {
         .join(" / ");
 }
 
+/** マイクの声の録音 (Discord のボイスチャンネル) の欄: ファイルと、声の長さ・音量。あとで運営が聞くための手がかり */
+export function describeVoice(s: Session): string {
+    const v = s.voice;
+    if (!v) return "";
+    if (v.skipped) return "マイクは使わない";
+    if (!v.file) return "";
+    const parts = [`声 ${Math.round((v.audioMs ?? 0) / 1000)} 秒`];
+    if (v.maxDb !== undefined) parts.push(`最大 ${v.maxDb} dB`);
+    if (v.meanDb !== undefined) parts.push(`平均 ${v.meanDb} dB`);
+    if (v.clippedPct) parts.push(`振り切れ ${v.clippedPct} %`);
+    return `${v.file} (${parts.join("、")})`;
+}
+
 export function buildRow(s: Session, checks: CheckStep[], result: "done" | "aborted", threadUrl: string): (string | number)[] {
     const m = s.summary;
     const row: Record<(typeof sheetColumns)[number], string | number> = {
@@ -121,6 +136,7 @@ export function buildRow(s: Session, checks: CheckStep[], result: "done" | "abor
         音声のメモ: "",
         配信者のメモ: s.memo ?? "",
         スレッド: threadUrl,
+        "マイクの録音 (VC)": describeVoice(s),
     };
     return sheetColumns.map((c) => row[c]);
 }

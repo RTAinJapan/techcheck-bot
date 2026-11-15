@@ -392,6 +392,135 @@ describe("denpachan の受信の設定を bot が入れる (denpachan.configure)
     });
 });
 
+describe("マイクの声の録音 (ボイスチャンネル)", () => {
+    const voiceOn = "voice: { enabled: true }\n";
+    /** 既定の 5 手順を通して、6 つ目 (マイクの録音) が出るところまで進める */
+    async function toVoiceStep(extra = voiceOn) {
+        const w = makeWorld(extra);
+        const { thread } = await startAndStream(w);
+        await passChecks(w, thread);
+        return { w, thread };
+    }
+
+    it("既定では手順に無い。voice.enabled で、最後の手順として足す", async () => {
+        assert.equal(makeWorld().config.checks.some((c) => c.kind === "voice"), false);
+        const { w, thread } = await toVoiceStep();
+        const prompt = w.chat.lastPost(thread)!;
+        assert.match(prompt.content, /手順 6\/6[\s\S]*ボイスチャンネルに入り/);
+        assert.deepEqual(prompt.buttons?.map((b) => b.label), ["始める", "マイクは使わない"]);
+    });
+
+    it("ボイスチャンネルに入って「始める」を押すと録音し、ファイルと音量をシートに残す", async () => {
+        const { w, thread } = await toVoiceStep();
+        // 入る前に押したら、入るよう促す
+        assert.match((await press(w, thread, "step-start")).ephemeral!, /ボイスチャンネルに入ってから/);
+        assert.equal(w.voice.calls.length, 0);
+        w.voice.where.U1 = "VC-1";
+        await press(w, thread, "step-start");
+        await w.flush();
+        assert.deepEqual({ ...w.voice.calls[0], file: "" }, { channelId: "VC-1", userId: "U1", file: "", seconds: 15 });
+        assert.match(w.voice.calls[0]!.file, /^voice-dir\/2026-11-01-12-\d\d Runner_A U1\.ogg$/);
+        const texts = w.chat.texts(thread);
+        assert.ok(texts.some((x) => x.includes("録音しています。15 秒ほど")));
+        assert.ok(texts.some((x) => x.includes("録音しました (声が 10 秒ぶん届きました)")));
+        assert.match(w.chat.lastPost(thread)!.content, /確認はすべて終わりました/);
+        await w.service.complete(sessionIdOf(w, thread), "");
+        const row = w.sheet.rows[0]!;
+        assert.match(String(row.at(-1)), /^voice-dir\/.*U1\.ogg \(声 10 秒、最大 -6 dB、平均 -24 dB\)$/);
+        assert.match(String(row[25]), /voice: OK \(-24 dB\)/);
+    });
+
+    it("声が届かなければ直し方を出し、やり直せる。音が割れていれば伝える", async () => {
+        const { w, thread } = await toVoiceStep();
+        w.voice.where.U1 = "VC-1";
+        w.voice.next = { packets: 0, bytes: 0, audioMs: 0 };
+        await press(w, thread, "step-start");
+        await w.flush();
+        assert.match(w.chat.lastPost(thread)!.content, /声が届いていません。Discord でミュートになっていないか/);
+        await press(w, thread, "step-retry");
+        w.voice.next = { packets: 400, bytes: 50_000, audioMs: 8_000, maxDb: 0, meanDb: -12, clippedPct: 0.24 };
+        await press(w, thread, "step-start");
+        await w.flush();
+        assert.ok(w.chat.texts(thread).some((x) => x.includes("録音しました") && x.includes("音が割れているところがあります")));
+        assert.equal(w.voice.calls.length, 2);
+    });
+
+    it("マイクを使わない人は飛ばせる", async () => {
+        const { w, thread } = await toVoiceStep();
+        await press(w, thread, "voice-skip");
+        assert.ok(w.chat.texts(thread).some((x) => x.includes("マイクの確認は飛ばします")));
+        assert.match(w.chat.lastPost(thread)!.content, /確認はすべて終わりました/);
+        await w.service.complete(sessionIdOf(w, thread), "");
+        assert.equal(w.sheet.rows[0]!.at(-1), "マイクは使わない");
+        assert.equal(w.voice.calls.length, 0);
+    });
+
+    it("bot の側の問題で録れなかったら、運営に知らせて、そのまま次へ進める", async () => {
+        const { w, thread } = await toVoiceStep();
+        w.voice.where.U1 = "VC-1";
+        w.voice.error = "VC に入れませんでした (bot に、その VC の「チャンネルを表示」と「接続」の権限があるかを確かめてください。状態: signalling)";
+        await press(w, thread, "step-start");
+        await w.flush();
+        assert.ok(w.chat.opsLog.some((l) => l.includes("マイクの声を録音できませんでした: Runner A") && l.includes("「接続」の権限")));
+        assert.ok(w.chat.texts(thread).some((x) => x.includes("こちらの都合で録音できませんでした")));
+        assert.match(w.chat.lastPost(thread)!.content, /確認はすべて終わりました/);
+    });
+
+    it("入るボイスチャンネルを決めてあれば、案内に出し、別の所にいたら促す", async () => {
+        const { w, thread } = await toVoiceStep('voice: { enabled: true, channelId: "VC-9" }\n');
+        assert.match(w.chat.lastPost(thread)!.content, /入るボイスチャンネル: <#VC-9>/);
+        w.voice.where.U1 = "VC-1";
+        assert.match((await press(w, thread, "step-start")).ephemeral!, /案内したボイスチャンネル \(<#VC-9>\) に入ってから/);
+        w.voice.where.U1 = "VC-9";
+        await press(w, thread, "step-start");
+        await w.flush();
+        assert.equal(w.voice.calls[0]!.channelId, "VC-9");
+    });
+
+    it("録音は同時に 1 人だけ (bot は同時に 1 つのボイスチャンネルにしか入れない)", async () => {
+        const w = makeWorld(voiceOn, twoSlotsYaml);
+        const U2local = { id: "U2", displayName: "Runner B" };
+        await w.service.start(U1, "C-test", undefined, "ja");
+        await w.service.start(U2local, "C-test", undefined, "ja");
+        await w.flush();
+        w.flow.sampleAt = (t) => goodSample(t);
+        await w.run(140, () => {
+            w.rx.live(7);
+            w.rx.live(6);
+        });
+        const [t1, t2] = w.chat.threads.map((t) => t.id);
+        // 2 人とも、5 手順を通す (それぞれのチャンネルの音で)
+        for (const [thread, user, ch] of [
+            [t1!, U1, 7],
+            [t2!, U2local, 6],
+        ] as const) {
+            const audio = (peak: number) => () => {
+                w.rx.live(7, { peak: ch === 7 ? peak : -80 });
+                w.rx.live(6, { peak: ch === 6 ? peak : -80 });
+            };
+            await press(w, thread, "step-start", user);
+            await w.run(18, audio(-20));
+            for (let i = 0; i < 3; i++) {
+                await press(w, thread, "step-start", user);
+                await w.run(13, audio(-80));
+            }
+            await press(w, thread, "yes", user);
+        }
+        w.voice.where.U1 = "VC-1";
+        w.voice.where.U2 = "VC-2";
+        let release!: () => void;
+        w.voice.gate = new Promise<void>((r) => (release = r));
+        await press(w, t1!, "step-start", U1);
+        assert.match((await press(w, t2!, "step-start", U2local)).ephemeral!, /ほかの方の録音中です/);
+        release();
+        await w.flush();
+        w.voice.gate = undefined;
+        await press(w, t2!, "step-start", U2local);
+        await w.flush();
+        assert.deepEqual(w.voice.calls.map((c) => c.userId), ["U1", "U2"]);
+    });
+});
+
 describe("latency の調整と RTMP", () => {
     function lossy(from: number, until: number) {
         return (t: number): SrtSample => ({ ...goodSample(t), notRecovered: t >= from && t < until ? 2 : 0 });

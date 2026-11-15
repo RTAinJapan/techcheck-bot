@@ -5,7 +5,7 @@ import { describe, it } from "node:test";
 import { parseFrameRate } from "../src/adapters/aws.js";
 import { DiscordWebhook, retryAfterMs } from "../src/adapters/webhook.js";
 import { advise, multiplierFor, nextLatency, verdictFor, type SrtSample } from "../src/advisor.js";
-import { defaultChecks, evaluateAudioStep } from "../src/checks.js";
+import { defaultChecks, evaluateAudioStep, voiceStep } from "../src/checks.js";
 import { ConfigError, expandEnv, parseConfig } from "../src/config.js";
 import { I18n, checkParity, langFromLocale } from "../src/i18n.js";
 import { buildRow, columnLetter, formatRecPos, sheetColumns } from "../src/record.js";
@@ -197,6 +197,15 @@ describe("config", () => {
         const ok = parseConfig(`${baseYaml.replace("    passphrase: pass-a\n", "    passphrase: pass-a\n    output: sub\n")}denpachan: { configure: true }\n`, {});
         assert.equal(ok.flows[0]!.output, "sub");
         assert.equal(testConfig().denpachan.configure, false, "既定は false");
+    });
+    it("voice の手順は voice.enabled が要る。有効なら既定の手順の最後に入る", () => {
+        const custom = `checks: ${JSON.stringify([voiceStep])}\n`;
+        assert.throws(() => parseConfig(baseYaml + custom, {}), /voice の手順を使うには、voice\.enabled を true/);
+        assert.equal(parseConfig(`${baseYaml}voice: { enabled: true }\n${custom}`, {}).checks.length, 1);
+        const on = parseConfig(`${baseYaml}voice: { enabled: true }\n`, {});
+        assert.deepEqual(on.checks.map((c) => c.id), [...defaultChecks.map((c) => c.id), "voice"]);
+        assert.equal(on.voice.dir, "./voice");
+        assert.equal(defaultChecks.some((c) => c.kind === "voice"), false, "既定の手順そのものは変えない");
     });
     it("quiet の手順の前に silence が要る", () => {
         const yaml = `${baseYaml}checks:\n  - { id: q, kind: quiet, seconds: 5, text: { ja: a, en: a }, failHint: { ja: b, en: b } }\n`;

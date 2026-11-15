@@ -4,7 +4,7 @@
 import { readFileSync } from "node:fs";
 import { parse as parseYaml } from "yaml";
 import { z } from "zod";
-import { defaultChecks } from "./checks.js";
+import { defaultChecks, voiceStep } from "./checks.js";
 
 const nonEmpty = z.string().min(1);
 /**
@@ -22,7 +22,8 @@ export const checkStepSchema = z.object({
     id: nonEmpty,
     // sound: 音が載ることを期待 / silence: 静かにする (ノイズの大きさを測る) / quiet: 載らないことを期待 (基準は silence)
     // confirm: 静止画を見て はい / いいえ / reconnect: 配信を止めて始め直す
-    kind: z.enum(["sound", "silence", "quiet", "confirm", "reconnect"]),
+    // voice: Discord のボイスチャンネルで話してもらい、その声を録音する (voice.enabled が要る)
+    kind: z.enum(["sound", "silence", "quiet", "confirm", "reconnect", "voice"]),
     seconds: z.number().int().min(0).max(600),
     text: localized,
     failHint: localized,
@@ -157,6 +158,15 @@ export const configSchema = z
             })
             .prefault({}),
         checks: z.array(checkStepSchema).min(1).optional(),
+        // マイクの声の録音 (Discord のボイスチャンネル)。enabled が true なら、チェックの最後に録音の手順を足す。
+        // bot に、そのボイスチャンネルの「チャンネルを表示」と「接続」の権限が要る
+        voice: z
+            .object({
+                enabled: z.boolean().prefault(false),
+                dir: z.string().min(1).prefault("./voice"), // 録音 (.ogg) の置き場所
+                channelId: optionalText, // 入ってもらうボイスチャンネル。空なら、どのボイスチャンネルでもよい
+            })
+            .prefault({}),
         // 配信の静止画を、denpachan の録画から取り出すのに使う ffmpeg。既定は PATH の ffmpeg
         ffmpeg: z.object({ path: z.string().min(1).prefault("ffmpeg") }).prefault({}),
         i18n: z.object({ dir: z.string().prefault("./messages"), fallback: lang.prefault("en") }).prefault({}),
@@ -208,6 +218,9 @@ export const configSchema = z
             ctx.addIssue({ code: "custom", path: ["denpachan", "token"], message: "denpachan.host が loopback でないときは denpachan.token が必要です" });
         }
         const checks = c.checks ?? defaultChecks;
+        if (!c.voice.enabled && checks.some((s) => s.kind === "voice")) {
+            ctx.addIssue({ code: "custom", path: ["checks"], message: "checks: voice の手順を使うには、voice.enabled を true にしてください" });
+        }
         const ids = new Set<string>();
         for (const s of checks) {
             if (ids.has(s.id)) ctx.addIssue({ code: "custom", path: ["checks"], message: `checks: id "${s.id}" が重複しています` });
@@ -248,7 +261,9 @@ export function parseConfig(yamlText: string, env: NodeJS.ProcessEnv = process.e
         if (missing.length > 0) lines.push(`(設定されていない環境変数: ${[...new Set(missing)].join(", ")})`);
         throw new ConfigError(`設定ファイルが正しくありません:\n${lines.join("\n")}`);
     }
-    return { ...result.data, checks: result.data.checks ?? defaultChecks };
+    // 既定の手順。マイクの録音を使うなら、最後に足す
+    const defaults = result.data.voice.enabled ? [...defaultChecks, voiceStep] : defaultChecks;
+    return { ...result.data, checks: result.data.checks ?? defaults };
 }
 
 export function loadConfig(path: string, env: NodeJS.ProcessEnv = process.env): Config {

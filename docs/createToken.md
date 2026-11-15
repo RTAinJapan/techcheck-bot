@@ -13,7 +13,7 @@ bot を動かすのに要る Discord、AWS、Google の認証情報を、用意�
 2. `General Information` のページの `Application ID` を控える (招待の URL に使う)。
 3. `Bot` のページを開く。
    - `Token` の `Reset Token` を押し、表示されたトークンを控える。これが `discord.token` (`DISCORD_TOKEN`)。トークンはあとから見直せない。見失ったら `Reset Token` で作り直す (古いトークンは使えなくなる)。
-   - `Privileged Gateway Intents` (`Presence Intent`、`Server Members Intent`、`Message Content Intent`) は、3 つとも off のままでよい。
+   - `Privileged Gateway Intents` (`Presence Intent`、`Server Members Intent`、`Message Content Intent`) は、3 つとも off のままでよい (マイクの声の録音を使うときも)。
    - `Public Bot` を off にすると、作った本人しかサーバに追加できなくなる。
 
 ### 2. サーバに招待する
@@ -37,6 +37,12 @@ https://discord.com/oauth2/authorize?client_id=<Application ID>&scope=bot%20appl
 | プライベートスレッドを作成 | `CREATE_PRIVATE_THREADS` | `1 << 36` |
 | Threadsでメッセージを送る | `SEND_MESSAGES_IN_THREADS` | `1 << 38` |
 
+マイクの声の録音 (`voice.enabled`。[README の「マイクの声を録音する」](../README.md#マイクの声を録音する-ボイスチャンネル)) を使うなら、「接続」も足す。`permissions` は 360778402816 になる。あとから使い始めるときは、招待し直さなくても、サーバの設定で bot のロールに「接続」を足せばよい。
+
+| 権限 (Developer Portal の日本語の表示) | API の名前 | 値 |
+| --- | --- | --- |
+| 接続 | `CONNECT` | `1 << 20` |
+
 - サーバで管理の操作に二要素認証を必須にしていると、「スレッドを管理」を使うには、bot を作ったアカウントに二要素認証が要る。
 - Developer Portal の `Installation` のページ (`Install Link` を `Discord Provided Link` にし、`Default Install Settings` の `Guild Install` に上のスコープと権限を入れる) でも、同じ内容の招待のリンクを作れる。
 
@@ -48,6 +54,7 @@ https://discord.com/oauth2/authorize?client_id=<Application ID>&scope=bot%20appl
 | --- | --- |
 | 配信テストのチャンネル (`discord.techcheckChannelId`) | 上の 7 つ |
 | 運営への通知のチャンネル (`discord.opsChannelId`) | チャンネルを表示、メッセージを送る |
+| 配信者が入るボイスチャンネル (マイクの声の録音を使うとき。`voice.channelId` で決めたもの、決めていなければ配信者が入りうるもの) | チャンネルを表示、接続 |
 
 サーバの設定の画面では、権限の名前が Developer Portal と少し違う表示になっていることがある。
 
@@ -61,6 +68,7 @@ Discord のアプリの「ユーザー設定」→「詳細設定」で「開発
 | `discord.techcheckChannelId` | 配信テストのチャンネルの ID |
 | `discord.opsChannelId` | 運営への通知のチャンネルの ID (運営への通知を使わないなら要らない) |
 | `discord.staffRoleId` | 運営のロールの ID (サーバの設定のロールの一覧から) |
+| `voice.channelId` | 配信者に入ってもらうボイスチャンネルの ID (マイクの声の録音で、入る所を決めるときだけ) |
 
 ### 5. 結果の通知の webhook を作る (使うときだけ)
 

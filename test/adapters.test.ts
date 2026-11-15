@@ -4,8 +4,55 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, it } from "node:test";
 import { NodeDns } from "../src/adapters/dns.js";
+import { OggOpusWriter, oggCrc, opusPacketSamples } from "../src/adapters/ogg.js";
+import { parseVolumedetect } from "../src/adapters/voice.js";
 import { WsReceiver } from "../src/adapters/receiver.js";
 import { SqliteStore } from "../src/store.js";
+
+describe("録音の書き出し (Ogg / Opus)", () => {
+    it("Opus のパケットの長さを、先頭のバイトから求める", () => {
+        // Discord の音声 (CELT、フルバンド、20 ms、ステレオ、1 フレーム)
+        assert.equal(opusPacketSamples(Buffer.from([0xfc, 0x00])), 960);
+        // SILK の 60 ms を 2 フレーム
+        assert.equal(opusPacketSamples(Buffer.from([0x19, 0x00])), 2880 * 2);
+        // フレーム数を 2 バイト目で持つ形 (3 フレーム × 10 ms)
+        assert.equal(opusPacketSamples(Buffer.from([0xf3, 0x03])), 480 * 3);
+        assert.equal(opusPacketSamples(Buffer.alloc(0)), 0);
+    });
+
+    it("Ogg のページを正しい形で書く (見出し 2 ページ、パケットごとに 1 ページ、最後に終わりの印、CRC)", () => {
+        const pages: Buffer[] = [];
+        const w = new OggOpusWriter((c) => pages.push(c));
+        w.packet(Buffer.from([0xfc, 1, 2, 3]));
+        w.packet(Buffer.concat([Buffer.from([0xfc]), Buffer.alloc(299, 7)])); // 255 バイトを超えるパケット
+        w.end();
+        assert.equal(pages.length, 4);
+        assert.equal(w.packets, 2);
+        assert.equal(w.audioMs, 40);
+        for (const [i, p] of pages.entries()) {
+            assert.equal(p.subarray(0, 4).toString("latin1"), "OggS");
+            assert.equal(p.readUInt32LE(18), i, "ページの通し番号");
+            const crc = p.readUInt32LE(22);
+            const zeroed = Buffer.from(p);
+            zeroed.writeUInt32LE(0, 22);
+            assert.equal(oggCrc(zeroed), crc, "CRC");
+        }
+        assert.equal(pages[0]![5], 0x02, "最初のページは始まりの印");
+        assert.equal(pages[0]!.subarray(28, 36).toString("latin1"), "OpusHead");
+        assert.equal(pages[1]!.subarray(28, 36).toString("latin1"), "OpusTags");
+        assert.equal(pages[3]![5], 0x04, "最後のページは終わりの印");
+        assert.equal(pages[2]!.readBigUInt64LE(6), 960n);
+        assert.equal(pages[3]!.readBigUInt64LE(6), 1920n);
+        // 300 バイトのパケットは、255 + 45 の 2 つの区切りで書く
+        assert.deepEqual([...pages[3]!.subarray(26, 29)], [2, 255, 45]);
+    });
+
+    it("ffmpeg の volumedetect の出力から、音量と振り切れの割合を読む", () => {
+        const text = "[Parsed_volumedetect_0 @ 0] n_samples: 0\n[Parsed_volumedetect_0 @ 0] n_samples: 583680\n mean_volume: -15.5 dB\n max_volume: 0.0 dB\n histogram_0db: 1404\n";
+        assert.deepEqual(parseVolumedetect(text), { maxDb: 0, meanDb: -15.5, clippedPct: 0.24 });
+        assert.deepEqual(parseVolumedetect(""), { maxDb: undefined, meanDb: undefined, clippedPct: undefined });
+    });
+});
 
 describe("ドメインを引く", () => {
     const fail = (code: string) => async () => {

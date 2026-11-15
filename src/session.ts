@@ -77,6 +77,8 @@ export interface Session {
     metadataChecked: boolean;
     /** 静止画を取れないことを、このテストで運営に知らせたか (同じ知らせを繰り返さない) */
     stillWarned?: boolean;
+    /** マイクの声の録音 (Discord のボイスチャンネル)。skipped は「マイクは使わない」 */
+    voice?: { file?: string; audioMs?: number; maxDb?: number; meanDb?: number; clippedPct?: number; skipped?: boolean };
     streamFps?: number;
     checkIndex: number;
     checkState: "prompt" | "running" | "result";

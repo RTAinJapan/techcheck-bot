@@ -1,7 +1,7 @@
 # 配信テストの bot の設定。config.yaml にコピーして書き換える。
 # 項目の説明は docs/design.md の「設定値の一覧」(§4.1)、トークンに要る権限は README の「トークンと権限」。
 # 秘密 (トークン、パスフレーズ、キー、webhook の URL) は ${環境変数名} で環境変数から読める。
-# 相対パス (credentialsFile、i18n.dir、db.path) は、このファイルのあるフォルダから探す。
+# 相対パス (credentialsFile、i18n.dir、db.path、voice.dir) は、このファイルのあるフォルダから探す。
 
 discord:
   token: ${DISCORD_TOKEN}
@@ -74,6 +74,13 @@ latency:
 # 配信の静止画を、denpachan の録画から取り出すのに使う ffmpeg。PATH にあれば書かなくてよい
 # ffmpeg:
 #   path: C:/tools/ffmpeg/bin/ffmpeg.exe
+
+# マイクの声の録音 (Discord のボイスチャンネルで届く声を録って、あとで運営が聞く。README の「マイクの声を録音する」)。
+# 有効にすると、チェックの最後に録音の手順が足される。bot に、ボイスチャンネルの「接続」の権限が要る
+# voice:
+#   enabled: true
+#   dir: ./voice                             # 録音 (.ogg) の置き場所
+#   channelId: "523456789012345678"          # 入ってもらうボイスチャンネルを決めるなら (省けば、配信者が今いる所で録る)
 
 i18n:
   dir: ./messages                            # ja.yaml と en.yaml

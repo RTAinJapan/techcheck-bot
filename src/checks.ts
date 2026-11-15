@@ -95,6 +95,25 @@ export const reconnectStep: CheckStep = {
     },
 };
 
+/**
+ * マイクの声の録音 (Discord のボイスチャンネル)。設定の voice.enabled が true のとき、既定の手順の最後に足す。
+ * 本番のマイクの声は、配信とは別に Discord のボイスチャンネルで届くので、その経路の音を録って、あとで運営が聞く。
+ * マイクを使わない配信者は「マイクは使わない」で飛ばす。
+ */
+export const voiceStep: CheckStep = {
+    id: "voice",
+    kind: "voice",
+    seconds: 15,
+    text: {
+        ja: "(マイクを使う方だけ) Discord のボイスチャンネルで届く声を録音します (あとで運営が聞いて確かめます)。ボイスチャンネルに入り、「始める」を押してから、普段の声で 15 秒ほど話してください。マイクを使わない方は「マイクは使わない」を押してください。",
+        en: "(Only if you use a microphone) We record your voice as it reaches us through a Discord voice channel (staff will listen to it later). Join the voice channel, press \"Start\", then talk in your normal voice for about 15 seconds. If you don't use a microphone, press \"I don't use a mic\".",
+    },
+    failHint: {
+        ja: "声が届いていません。Discord でミュートになっていないか、入力デバイス (マイク) が合っているかを確かめてください。",
+        en: "Your voice did not reach us. Check that you are not muted in Discord and that the right input device (microphone) is selected.",
+    },
+};
+
 export type CheckVerdict = "ok" | "ng" | "unknown";
 
 export interface CheckResult {

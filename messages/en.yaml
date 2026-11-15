@@ -29,6 +29,7 @@ button:
   stepStart: "Start"
   retry: "Retry"
   next: "Continue anyway"
+  voiceSkip: "I don't use a mic"
   done: "Finish"
 
 prepare:
@@ -95,6 +96,18 @@ checks:
   ng: "Something looks wrong."
   done: "All checks are done. Review the results and press \"Finish\"."
   skipped: "continued anyway"
+
+voice:
+  channel: "Voice channel to join: {channel}"
+  joinFirst: "Join a voice channel first, then press again."
+  wrongChannel: "Join the voice channel we asked for ({channel}), then press again."
+  busy: "We are recording someone else right now. Wait a moment and press again."
+  recording: "Recording. Talk in your normal voice for about {seconds} seconds…"
+  recorded: "Recorded ({seconds} seconds of your voice reached us). Staff will listen to it later."
+  clipped: "Your voice clips in places. Try lowering your microphone input volume a little."
+  quiet: "Your voice is on the quiet side. Try raising your microphone input volume a little."
+  skipped: "Skipping the microphone check."
+  failed: "We could not record because of a problem on our side. Staff will look into it. Moving on."
 
 verdict:
   ok: "OK"

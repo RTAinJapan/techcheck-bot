@@ -17,6 +17,8 @@ import type {
     ReceiverPort,
     SheetPort,
     StillPort,
+    VoicePort,
+    VoiceRecording,
     WebhookPort,
 } from "../src/ports.js";
 import { TechcheckService } from "../src/service.js";
@@ -278,6 +280,26 @@ export class FakeStill implements StillPort {
     }
 }
 
+export class FakeVoice implements VoicePort {
+    /** 配信者がいるボイスチャンネル (ユーザー ID → チャンネル ID) */
+    where: Record<string, string> = {};
+    /** 次の録音の結果 (届いた声の長さなど) */
+    next: Partial<VoiceRecording> = { packets: 500, bytes: 60_000, audioMs: 10_000, maxDb: -6, meanDb: -24, clippedPct: 0 };
+    error: string | undefined;
+    calls: { channelId: string; userId: string; file: string; seconds: number }[] = [];
+    /** 設定すると、録音はこれが解決するまで終わらない (録音中の動きを試す) */
+    gate: Promise<void> | undefined;
+    async channelOf(userId: string): Promise<string | undefined> {
+        return this.where[userId];
+    }
+    async record(channelId: string, userId: string, file: string, seconds: number): Promise<VoiceRecording> {
+        this.calls.push({ channelId, userId, file, seconds });
+        if (this.gate) await this.gate;
+        if (this.error) throw new Error(this.error);
+        return { file, packets: 0, bytes: 0, audioMs: 0, ...this.next };
+    }
+}
+
 export class FakeDns implements DnsPort {
     answers: Record<string, string[]> = { "srt-a.example.jp": ["203.0.113.10"], "srt-b.example.jp": ["203.0.113.10"], "rtmp.example.jp": ["198.51.100.1"] };
     async resolve(domain: string): Promise<string[]> {
@@ -294,6 +316,7 @@ export function makeWorld(extraYaml = "", baseYamlText = baseYaml, existingStore
     const flow = new FakeFlow();
     const rx = new FakeRx();
     const still = new FakeStill();
+    const voice = new FakeVoice();
     const chat = new FakeChat();
     const sheet = new FakeSheet();
     const webhook = new FakeWebhook();
@@ -307,6 +330,8 @@ export function makeWorld(extraYaml = "", baseYamlText = baseYaml, existingStore
         flow,
         rx,
         still,
+        voice: config.voice.enabled ? voice : undefined,
+        voiceDir: "voice-dir",
         dns,
         chat,
         sheet,
@@ -330,7 +355,7 @@ export function makeWorld(extraYaml = "", baseYamlText = baseYaml, existingStore
             await flush();
         }
     };
-    return { config, clock, flow, rx, still, chat, sheet, webhook, dns, store, service, logs, flush, run };
+    return { config, clock, flow, rx, still, voice, chat, sheet, webhook, dns, store, service, logs, flush, run };
 }
 
 export type World = ReturnType<typeof makeWorld>;

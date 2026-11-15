@@ -20,6 +20,8 @@ import type {
     ReceiverPort,
     SheetPort,
     StillPort,
+    VoicePort,
+    VoiceRecording,
     WebhookPort,
 } from "./ports.js";
 import { audioVerdictColumn, buildRow, buildWebhookPayload, columnLetter, formatRecPos, formatTime } from "./record.js";
@@ -33,6 +35,10 @@ export interface Deps {
     flow: FlowPort;
     rx: ReceiverPort;
     still: StillPort;
+    /** マイクの声の録音 (設定の voice.enabled が true のときだけ渡す) */
+    voice?: VoicePort;
+    /** 録音の置き場所 (voice.dir を、設定ファイルのフォルダから見た場所にしたもの) */
+    voiceDir?: string;
     dns: DnsPort;
     chat: ChatPort;
     sheet: SheetPort;
@@ -67,6 +73,14 @@ const kSenderDecodeErrors = 5;
 const kStillMinRecordSec = 3;
 /** 録画の「今」から、どれだけ手前の絵を取るか (秒)。書き込みが追いついている所を読む */
 const kStillBackSec = 2;
+/** マイクの録音: 届いた声がこれより短ければ「届いていない」とみなす (ミリ秒。Discord は無音の間は送らない) */
+const kVoiceMinMs = 1_000;
+/** マイクの録音: 振り切れたサンプルがこの割合 (%) 以上なら、音が割れていると伝える */
+const kVoiceClippedPct = 0.1;
+/** マイクの録音: 平均の音量がこれより小さければ、声が小さいと伝える (dBFS) */
+const kVoiceQuietDb = -40;
+/** マイクの録音: 録音が終わるはずの時刻から、これだけ過ぎても終わらなければ手順を出し直す (秒) */
+const kVoiceGraceSec = 45;
 
 /** 設定ファイルに書いてある枠の値。保存した枠が、どの設定のときのものかを覚えておくために、枠と一緒に保存する */
 export interface SlotConfigSnapshot {
@@ -152,6 +166,8 @@ export class TechcheckService {
     /** 起動したとき、保存してあった状態を今の設定ファイルに合わせて変えたこと (startupSummary で出す) */
     private readonly startupNotes: string[] = [];
     private orphansChecked = false;
+    /** いまマイクの声を録音しているテスト (bot は 1 つのサーバで同時に 1 つのボイスチャンネルにしか入れない) */
+    private voiceBusy: string | undefined;
 
     constructor(private readonly d: Deps) {
         this.cfg = d.config;
@@ -1258,9 +1274,72 @@ export class TechcheckService {
             s.checkRecFrom = this.recPos(s);
             return;
         }
+        if (step.kind === "voice") {
+            // マイクの声の録音。使わない人は飛ばせる
+            const where = this.cfg.voice.channelId ? `\n${this.t(s.lang, "voice.channel", { channel: `<#${this.cfg.voice.channelId}>` })}` : "";
+            await this.post(s, {
+                content: `${header}\n${step.text[s.lang]}${where}`,
+                buttons: [this.btn(s, "step-start", "button.stepStart", "primary"), this.btn(s, "voice-skip", "button.voiceSkip", "secondary")],
+            });
+            return;
+        }
         await this.post(s, {
             content: `${header}\n${step.text[s.lang]}`,
             buttons: [this.btn(s, "step-start", "button.stepStart", "primary")],
+        });
+    }
+
+    /**
+     * マイクの声の録音 (設計書 §7.3)。bot がボイスチャンネルに入って録る間は数十秒かかるので、ロックの外で待つ。
+     * 終わったら、声が届いていれば次の手順へ、届いていなければ「おかしい」として直し方を出す。
+     */
+    private async recordVoice(sessionId: string, channelId: string, step: CheckStep): Promise<void> {
+        const voice = this.d.voice!;
+        const s0 = this.sessions.find((x) => x.id === sessionId);
+        if (!s0) return;
+        const stamp = formatTime(this.now()).replace(/[: ]/g, "-");
+        const safeName = s0.displayName.replace(/[^\p{L}\p{N}_-]+/gu, "_").slice(0, 40);
+        const file = `${this.d.voiceDir ?? "."}/${stamp} ${safeName} ${s0.userId}.ogg`;
+        let result: VoiceRecording | undefined;
+        let error: string | undefined;
+        try {
+            result = await voice.record(channelId, s0.userId, file, step.seconds);
+        } catch (e) {
+            error = errorText(e);
+        }
+        await this.locked(async () => {
+            if (this.voiceBusy === sessionId) this.voiceBusy = undefined;
+            const s = this.sessions.find((x) => x.id === sessionId);
+            // 録っている間に中断された、またはやり直された
+            if (!s || s.phase !== "checks" || s.checkState !== "running" || this.checks[s.checkIndex]?.id !== step.id) return;
+            if (!result) {
+                // bot の側の問題 (ボイスチャンネルに入れない、など)。配信者のせいではないので、そのまま次へ進める
+                await this.ops(`マイクの声を録音できませんでした: ${s.displayName} (${error})`);
+                await this.post(s, { content: this.t(s.lang, "voice.failed") });
+                s.results = s.results.filter((x) => x.id !== step.id);
+                s.results.push({ id: step.id, verdict: "unknown" });
+                s.checkIndex++;
+                await this.promptStep(s);
+                this.save();
+                return;
+            }
+            this.log(`マイクの録音 (${s.displayName}): ${result.file} / 声 ${result.audioMs} ms / 最大 ${result.maxDb ?? "?"} dB / 平均 ${result.meanDb ?? "?"} dB / 振り切れ ${result.clippedPct ?? "?"} %`);
+            s.voice = { file: result.file, audioMs: result.audioMs, maxDb: result.maxDb, meanDb: result.meanDb, clippedPct: result.clippedPct };
+            if (result.audioMs < kVoiceMinMs) {
+                await this.stepResult(s, step, { verdict: "ng" });
+                this.save();
+                return;
+            }
+            const notes: string[] = [];
+            if ((result.clippedPct ?? 0) >= kVoiceClippedPct) notes.push(this.t(s.lang, "voice.clipped"));
+            else if (result.meanDb !== undefined && result.meanDb < kVoiceQuietDb) notes.push(this.t(s.lang, "voice.quiet"));
+            await this.post(s, { content: [this.t(s.lang, "voice.recorded", { seconds: Math.round(result.audioMs / 1000) }), ...notes].join("\n") });
+            s.results = s.results.filter((x) => x.id !== step.id);
+            s.results.push({ id: step.id, verdict: "ok", value: result.meanDb });
+            s.lastActivity = this.now();
+            s.checkIndex++;
+            await this.promptStep(s);
+            this.save();
         });
     }
 
@@ -1270,6 +1349,14 @@ export class TechcheckService {
         const now = this.now();
         if (s.checkState !== "running") return this.idleTimeout(s);
         const elapsed = now - (s.checkStartedAt ?? now);
+        if (step.kind === "voice") {
+            // 録音は recordVoice が進める。録音が動いていない (bot を起動し直した、いつまでも終わらない) なら、手順を出し直す
+            if (this.voiceBusy !== s.id || elapsed > (step.seconds + kVoiceGraceSec) * 1000) {
+                if (this.voiceBusy === s.id) this.voiceBusy = undefined;
+                await this.promptStep(s);
+            }
+            return;
+        }
         if (step.kind === "reconnect") {
             const ok = (s.rx.reconnectAt ?? 0) > (s.checkStartedAt ?? now) || (s.cw.reconnectAt ?? 0) > (s.checkStartedAt ?? now);
             const live = !this.d.rx.connected() || ch?.status === "live";
@@ -1350,6 +1437,20 @@ export class TechcheckService {
             case "step-start": {
                 if (s.phase !== "checks" || s.checkState !== "prompt") return { ephemeral: this.t(s.lang, "button.ack") };
                 const step = this.checks[s.checkIndex]!;
+                if (step.kind === "voice") {
+                    if (!this.d.voice) return { ephemeral: this.t(s.lang, "button.ack") };
+                    if (this.voiceBusy && this.voiceBusy !== s.id) return { ephemeral: this.t(s.lang, "voice.busy") };
+                    const channelId = await this.d.voice.channelOf(s.userId);
+                    if (!channelId) return { ephemeral: this.t(s.lang, "voice.joinFirst") };
+                    const wanted = this.cfg.voice.channelId;
+                    if (wanted && channelId !== wanted) return { ephemeral: this.t(s.lang, "voice.wrongChannel", { channel: `<#${wanted}>` }) };
+                    s.checkState = "running";
+                    s.checkStartedAt = this.now();
+                    this.voiceBusy = s.id;
+                    await this.post(s, { content: this.t(s.lang, "voice.recording", { seconds: step.seconds }) });
+                    void this.recordVoice(s.id, channelId, step);
+                    return {};
+                }
                 s.checkState = "running";
                 s.checkStartedAt = this.now();
                 s.checkRecFrom = this.recPos(s);
@@ -1362,6 +1463,17 @@ export class TechcheckService {
                 const step = this.checks[s.checkIndex];
                 if (s.phase !== "checks" || step?.kind !== "confirm" || s.checkState !== "prompt") return { ephemeral: this.t(s.lang, "button.ack") };
                 await this.stepResult(s, step, { verdict: action === "yes" ? "ok" : "ng" });
+                return {};
+            }
+            case "voice-skip": {
+                const step = this.checks[s.checkIndex];
+                if (s.phase !== "checks" || step?.kind !== "voice" || s.checkState !== "prompt") return { ephemeral: this.t(s.lang, "button.ack") };
+                s.voice = { skipped: true };
+                s.results = s.results.filter((x) => x.id !== step.id);
+                s.results.push({ id: step.id, verdict: "unknown" });
+                await this.post(s, { content: this.t(s.lang, "voice.skipped") });
+                s.checkIndex++;
+                await this.promptStep(s);
                 return {};
             }
             case "step-retry": {
@@ -1391,6 +1503,7 @@ export class TechcheckService {
 
     private async finish(s: Session, result: "done" | "aborted", reason?: string): Promise<void> {
         if (s.phase === "finished") return;
+        if (this.voiceBusy === s.id) this.voiceBusy = undefined;
         this.setPhase(s, "finished");
         if (reason) s.abortReason = reason;
         const ch = this.activeChannel(s);

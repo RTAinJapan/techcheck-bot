@@ -1,5 +1,5 @@
 // 起動: node dist/src/index.js [config.yaml]  (または環境変数 TECHCHECK_CONFIG。どちらも無ければ、今いるフォルダの config.yaml)
-// 設定の中の相対パス (i18n.dir、db.path、sheet.credentialsFile) は、設定ファイルのあるフォルダから探す。
+// 設定の中の相対パス (i18n.dir、db.path、sheet.credentialsFile、voice.dir) は、設定ファイルのあるフォルダから探す。
 // ここを変えたら、README の「準備」「動かす」も直す。
 
 import { Client, Events, GatewayIntentBits } from "discord.js";
@@ -9,6 +9,7 @@ import { NodeDns } from "./adapters/dns.js";
 import { WsReceiver } from "./adapters/receiver.js";
 import { GoogleSheet } from "./adapters/sheet.js";
 import { FfmpegStill } from "./adapters/still.js";
+import { DiscordVoice } from "./adapters/voice.js";
 import { DiscordWebhook } from "./adapters/webhook.js";
 import { loadConfig } from "./config.js";
 import { buildCommand } from "./discord/commands.js";
@@ -27,8 +28,11 @@ async function main(): Promise<void> {
     const store = new SqliteStore(resolve(baseDir, config.db.path));
 
     // Gateway Intent は Guilds だけ (Privileged Intent は使わない)。運営のロールは interaction の member から見る。
+    // マイクの声を録音するとき (voice.enabled) だけ、GuildVoiceStates も使う (だれがどのボイスチャンネルにいるかと、bot が入るのに要る)。
     // Intent を足したら、README の「トークンと権限」も直す。
-    const client = new Client({ intents: [GatewayIntentBits.Guilds] });
+    const intents = config.voice.enabled ? [GatewayIntentBits.Guilds, GatewayIntentBits.GuildVoiceStates] : [GatewayIntentBits.Guilds];
+    const client = new Client({ intents });
+    const voiceDir = resolve(baseDir, config.voice.dir);
     const rx = new WsReceiver(WsReceiver.urlFor(config.denpachan.host, config.denpachan.port, config.denpachan.token), log);
     const service = new TechcheckService({
         config,
@@ -37,6 +41,8 @@ async function main(): Promise<void> {
         flow: new AwsFlowPort(config.aws.region),
         rx,
         still: new FfmpegStill(config.ffmpeg.path),
+        voice: config.voice.enabled ? new DiscordVoice(client, config.discord.guildId, config.ffmpeg.path, log) : undefined,
+        voiceDir,
         dns: new NodeDns(),
         chat: new DiscordChat(client, config),
         sheet: new GoogleSheet(config.sheet.spreadsheetId, config.sheet.tabName, resolve(baseDir, config.sheet.credentialsFile)),
@@ -55,6 +61,11 @@ async function main(): Promise<void> {
             (config.denpachan.configure ? "bot が入れる (denpachan.configure)" : "denpachan の画面で合わせる"),
     );
     log(`シート: ${config.sheet.spreadsheetId} / ${config.sheet.tabName}`);
+    log(
+        `マイクの声の録音 (ボイスチャンネル): ${
+            config.voice.enabled ? `する (置き場所 ${voiceDir}${config.voice.channelId ? `、ボイスチャンネル ${config.voice.channelId}` : "、どのボイスチャンネルでもよい"})` : "しない (voice.enabled)"
+        }`,
+    );
     // 通知は 2 つあり、設定も別。どちらも、未設定なら送らない
     log(`運営への通知 (途中の経過と問題。bot がチャンネルに書く): ${config.discord.opsChannelId ? `チャンネル ${config.discord.opsChannelId} に送る` : "discord.opsChannelId が未設定なので送らない (コンソールにだけ出る)"}`);
     log(`結果の通知 (テストが終わったとき。webhook): ${config.notify.webhookUrl ? "送る" : "notify.webhookUrl が未設定なので送らない"}`);
