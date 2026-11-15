@@ -70,6 +70,7 @@ async function main(): Promise<void> {
         const resume = setInterval(() => {
             if (!rx.connected() && Date.now() - since < 30_000) return;
             clearInterval(resume);
+            void service.reportSlotMismatches().catch((e) => log(`枠の確認: ${errorText(e)}`));
             service.resumePreparing();
         }, 1_000);
         setInterval(() => {

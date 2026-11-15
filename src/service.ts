@@ -460,6 +460,8 @@ export class TechcheckService {
             else if (!ch) problems.push(`denpachan に ch${channel} がありません`);
             else {
                 if (!ch.testSlot) problems.push(`ch${channel} に「配信テスト用」の印がありません`);
+                // 設定ファイルに書いた枠は /techcheck slot の検証を通っていないので、受信の方式もここで確かめる
+                if (ch.source.protocol !== "srt") problems.push(this.wrongProtocol(channel, ch, "SRT"));
                 if (ch.status !== "stopped") problems.push(`ch${channel} が止まっていません (${ch.status})`);
             }
         }
@@ -680,6 +682,41 @@ export class TechcheckService {
                 })
                 .catch((e) => this.log(`待ちの列: ${next.displayName} に知らせを送れませんでした: ${errorText(e)}`));
         }
+    }
+
+    private wrongProtocol(channel: number, ch: ReceiverChannel, want: string): string {
+        return `denpachan の ch${channel} の受信が ${want} ではありません (${ch.source.protocol} ${ch.source.mode})。denpachan のチャンネルの設定か、枠の設定 (slots) を直してください。`;
+    }
+
+    /**
+     * 枠の設定が、denpachan のチャンネルと合っているか (チャンネルがある、「配信テスト用」の印、受信の方式)。合わない点を返す。
+     * 設定ファイルに書いた枠は `/techcheck slot` の検証を通らないので、起動して denpachan に繋がったときに確かめる。
+     */
+    slotMismatches(): string[] {
+        if (!this.d.rx.connected()) return ["denpachan の受信口に繋がっていないので、枠のチャンネルを確かめられません"];
+        const out: string[] = [];
+        const check = (label: string, channel: number | undefined, isRight: (c: ReceiverChannel) => boolean, want: string) => {
+            if (channel === undefined) return;
+            const ch = this.d.rx.channel(channel);
+            if (!ch) out.push(`${label}: denpachan に ch${channel} がありません`);
+            else {
+                if (!ch.testSlot) out.push(`${label}: ch${channel} に「配信テスト用」の印がありません`);
+                if (!isRight(ch)) out.push(`${label}: ${this.wrongProtocol(channel, ch, want)}`);
+            }
+        };
+        this.slots.srt.forEach((slot, i) => check(this.srtSlotLabel(i), slot.channel, (c) => c.source.protocol === "srt", "SRT"));
+        check("RTMP の枠", this.slots.rtmp.channel, (c) => c.source.protocol === "rtmp" && c.source.mode === "pull", "RTMP の pull");
+        return out;
+    }
+
+    /** 起動したとき: 枠と denpachan のチャンネルが合わなければ、コンソールと運営への通知で知らせる */
+    async reportSlotMismatches(): Promise<void> {
+        const problems = this.slotMismatches();
+        if (problems.length === 0) {
+            this.log("枠の設定は、denpachan のチャンネルと合っています");
+            return;
+        }
+        await this.ops(`枠の設定が denpachan のチャンネルと合っていません。このままだと、テストの配信を受けられません:\n${problems.map((p) => `- ${p}`).join("\n")}`);
     }
 
     /** 起動したときにコンソールへ出す、今の状態 (枠、進行中のテスト、待ちの列) */
@@ -989,9 +1026,11 @@ export class TechcheckService {
     // ---- RTMP へ ----
 
     private async goRtmp(s: Session, reason: string): Promise<void> {
-        if (!this.rtmpAvailable()) {
+        const rtmpCh = this.slots.rtmp.channel === undefined ? undefined : this.d.rx.channel(this.slots.rtmp.channel);
+        const wrong = rtmpCh && (rtmpCh.source.protocol !== "rtmp" || rtmpCh.source.mode !== "pull") ? ` ${this.wrongProtocol(rtmpCh.ch, rtmpCh, "RTMP の pull")}` : "";
+        if (!this.rtmpAvailable() || wrong) {
             s.videoVerdict = "NG";
-            await this.ops(`RTMP の枠が使えません。${s.displayName} の映像が安定しません (${reason})。連絡してください ${this.d.chat.threadUrl(s.threadId)}`);
+            await this.ops(`RTMP の枠が使えません。${wrong}${s.displayName} の映像が安定しません (${reason})。連絡してください ${this.d.chat.threadUrl(s.threadId)}`);
             await this.post(s, { content: this.t(s.lang, "rtmp.unavailable") });
             await this.startChecks(s);
             return;

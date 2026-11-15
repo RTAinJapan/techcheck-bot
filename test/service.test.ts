@@ -368,6 +368,26 @@ describe("準備と枠", () => {
         assert.ok(!ops.includes("指していません"));
     });
 
+    it("枠のチャンネルの受信の方式が合っていなければ、始めずに知らせる (設定ファイルで SRT と RTMP を逆に書いたとき)", async () => {
+        // denpachan の ch7 は SRT、ch8 は RTMP の pull。設定ファイルでは逆に書いてある
+        const swapped = baseYaml.replace("srt: { flow: flow-a, channel: 7 }", "srt: { flow: flow-a, channel: 8 }").replace("rtmp: { channel: 8 }", "rtmp: { channel: 7 }");
+        const w = makeWorld("", swapped);
+        assert.deepEqual(w.service.slotMismatches(), [
+            "SRT の枠: denpachan の ch8 の受信が SRT ではありません (rtmp pull)。denpachan のチャンネルの設定か、枠の設定 (slots) を直してください。",
+            "RTMP の枠: denpachan の ch7 の受信が RTMP の pull ではありません (srt caller)。denpachan のチャンネルの設定か、枠の設定 (slots) を直してください。",
+        ]);
+        await w.service.reportSlotMismatches();
+        assert.ok(w.chat.opsLog.some((l) => l.includes("枠の設定が denpachan のチャンネルと合っていません")));
+
+        // そのまま始めようとしても、フローを開始する前に止める
+        assert.match(await w.service.start(U1, "C-test", undefined, "ja"), /準備に問題がありました/);
+        assert.equal(w.flow.started, 0);
+        assert.ok(w.chat.opsLog.some((l) => l.includes("止めました") && l.includes("ch8 の受信が SRT ではありません")));
+
+        // 合っていれば、何も言わない
+        assert.deepEqual(makeWorld().service.slotMismatches(), []);
+    });
+
     it("準備の途中で中止したら、始めたフローとチャンネルを止める", async () => {
         const w = makeWorld();
         // 1 回目の describe は STANDBY (bot がフローを開始する)。2 回目 (ACTIVE になるのを待っているところ) で止めておき、その間に中止する
