@@ -234,7 +234,7 @@ bot は denpachan の区間の数字を判定には使わず、記録 (運営の
 | | `discord.guildId` | サーバの ID | ◯ |
 | | `discord.techcheckChannelId` | 配信テストのチャンネルの ID。`/techcheck start` はここでだけ受け付け、配信者ごとのスレッドもここに作る。使える人は、このチャンネルを見られるロールで絞る | ◯ |
 | | `discord.staffRoleId` | 運営のロールの ID。運営のコマンド (`slot`、`status`、`cancel` など) と、スレッドのボタンを配信者の代わりに押せる人 | ◯ |
-| | `discord.opsChannelId` | 運営への通知のチャンネルの ID (始まった、確定した値、運営側の問題) | ◯ |
+| | `discord.opsChannelId` | 運営への通知のチャンネルの ID (始まった、確定した値、運営側の問題)。**未設定なら送らない** (コンソールにだけ出る) | |
 | 結果の通知 | `notify.webhookUrl` | 結果の通知の Discord webhook の URL (秘密)。**未設定なら送らない** (§5.5) | |
 | AWS | `aws.region` | MediaConnect と CloudWatch のリージョン | ◯ |
 | | (認証) | IAM Identity Center の許可セットを割り当てた AWS のプロファイル (環境変数 `AWS_PROFILE` で選ぶ。作り方は [createToken.md](createToken.md))。権限はフローの読み取り・開始・停止と CloudWatch の読み取りだけ | ◯ |

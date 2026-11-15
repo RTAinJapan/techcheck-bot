@@ -130,6 +130,25 @@ describe("テストの流れ", () => {
         assert.ok(has("テスト終了: Runner A / 中断 (運営が中止)"));
     });
 
+    it("運営への通知のチャンネルが未設定なら、運営への通知は送らない (コンソールには出す)", async () => {
+        for (const yaml of [baseYaml.replace("  opsChannelId: C-ops\n", ""), baseYaml.replace("opsChannelId: C-ops", 'opsChannelId: ""'), baseYaml.replace("opsChannelId: C-ops", "opsChannelId: ${OPS_CHANNEL}")]) {
+            const w = makeWorld("", yaml);
+            assert.equal(w.config.discord.opsChannelId, "");
+            await w.service.start(U1, "C-test", undefined, "ja");
+            await w.flush();
+            assert.deepEqual(w.chat.opsLog, [], "bot はチャンネルに書かない");
+            assert.ok(w.logs.some((l) => l.includes("運営への通知: 配信テスト開始: Runner A")), "コンソールには出る");
+            assert.ok(!w.logs.some((l) => l.includes("送れませんでした")));
+            // テストそのものは進む
+            assert.ok(w.chat.texts(w.chat.threads[0]!.id).some((x) => x.includes("srt://srt-a.example.jp")));
+        }
+        // 設定してあれば送る
+        const w = makeWorld();
+        await w.service.start(U1, "C-test", undefined, "ja");
+        await w.flush();
+        assert.ok(w.chat.opsLog.some((l) => l.startsWith("配信テスト開始: Runner A")));
+    });
+
     it("もともと動いていたフローは止めない", async () => {
         const w = makeWorld();
         w.flow.status = "ACTIVE";

@@ -46,12 +46,13 @@ async function main(): Promise<void> {
 
     // 起動したときの設定と状態。秘密 (トークン、キー、webhook の URL) は出さない
     log(`設定ファイル: ${configPath}`);
-    log(`Discord: サーバ ${config.discord.guildId} / 配信テストのチャンネル ${config.discord.techcheckChannelId} / 運営への通知のチャンネル ${config.discord.opsChannelId} / 運営のロール ${config.discord.staffRoleId}`);
+    log(`Discord: サーバ ${config.discord.guildId} / 配信テストのチャンネル ${config.discord.techcheckChannelId} / 運営のロール ${config.discord.staffRoleId}`);
     log(`AWS: リージョン ${config.aws.region} / プロファイル ${process.env.AWS_PROFILE ?? "(AWS_PROFILE は未設定)"} / フロー ${config.flows.map((f) => f.name).join("、")}`);
     log(`denpachan: ${config.denpachan.host}:${config.denpachan.port} (トークン${config.denpachan.token ? "あり" : "なし"})`);
     log(`シート: ${config.sheet.spreadsheetId} / ${config.sheet.tabName}`);
-    // 通知は 2 つある。途中の経過と問題は bot が運営への通知のチャンネルに書き、終わったときの結果だけ webhook で送る
-    log(`結果の通知 (webhook。テストが終わったときだけ): ${config.notify.webhookUrl ? "送る" : "URL が未設定なので送らない"}。途中の経過と問題は、運営への通知のチャンネルに bot が書く`);
+    // 通知は 2 つあり、設定も別。どちらも、未設定なら送らない
+    log(`運営への通知 (途中の経過と問題。bot がチャンネルに書く): ${config.discord.opsChannelId ? `チャンネル ${config.discord.opsChannelId} に送る` : "discord.opsChannelId が未設定なので送らない (コンソールにだけ出る)"}`);
+    log(`結果の通知 (テストが終わったとき。webhook): ${config.notify.webhookUrl ? "送る" : "notify.webhookUrl が未設定なので送らない"}`);
     for (const line of service.startupSummary()) log(line);
 
     client.on(Events.Error, (e) => log(`Discord: エラー: ${errorText(e)}`));

@@ -63,7 +63,7 @@ bot の動きは、すべてコンソール (標準出力) に 1 行ずつ出る
 
 起動のとき、保存してあった状態を設定ファイルに合わせて変えたら、そのことをコンソールに出す (`startupSummary`)。
 
-通知は 2 種類あり、設定も別。途中の経過と問題は bot が `discord.opsChannelId` のチャンネルに書き (`TechcheckService.ops`)、テストが終わったときの結果だけ `notify.webhookUrl` の webhook で送る (`TechcheckService.finish`)。
+通知は 2 種類あり、設定も別。途中の経過と問題は bot が `discord.opsChannelId` のチャンネルに書き (`TechcheckService.ops`)、テストが終わったときの結果だけ `notify.webhookUrl` の webhook で送る (`TechcheckService.finish`)。どちらも、設定が空なら送らない。運営への通知は、送らないときもコンソールには出る。
 
 ## README とコードの対応
 

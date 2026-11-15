@@ -59,7 +59,7 @@ Discord のアプリの「ユーザー設定」→「詳細設定」で「開発
 | --- | --- |
 | `discord.guildId` | サーバの ID |
 | `discord.techcheckChannelId` | 配信テストのチャンネルの ID |
-| `discord.opsChannelId` | 運営への通知のチャンネルの ID |
+| `discord.opsChannelId` | 運営への通知のチャンネルの ID (運営への通知を使わないなら要らない) |
 | `discord.staffRoleId` | 運営のロールの ID (サーバの設定のロールの一覧から) |
 
 ### 5. 結果の通知の webhook を作る (使うときだけ)

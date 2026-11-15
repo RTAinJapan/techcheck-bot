@@ -17,7 +17,7 @@
 | 要るもの | 内容 |
 | --- | --- |
 | Node.js | 22.13 以上 |
-| Discord | bot (トークン)、配信テストのチャンネル、運営のロール、運営への通知のチャンネル。結果の通知を使うなら webhook も |
+| Discord | bot (トークン)、配信テストのチャンネル、運営のロール。運営への通知を使うならそのチャンネル、結果の通知を使うなら webhook も |
 | AWS | 配信者が SRT で送る先の MediaConnect のフローと、bot 用の許可セット (IAM Identity Center)。bot を動かす PC に AWS CLI v2 |
 | RTMP サーバ | SRT で安定しない配信者を案内する先 |
 | denpachan | フローの出力と RTMP サーバの配信を受ける。メトリクスの受信口を有効にする |
@@ -46,7 +46,7 @@ cp config.example.yaml config.yaml
 | --- | --- | --- | --- |
 | Discord (bot の招待) | `discord.token` | OAuth2 スコープ `bot`、`applications.commands` | bot をサーバに招待するときに付ける。Privileged Gateway Intents は、どれも有効にしなくてよい |
 | Discord (配信テストのチャンネル) | `discord.techcheckChannelId` | チャンネルを表示、メッセージを送る、プライベートスレッドを作成、Threadsでメッセージを送る、スレッドを管理、ファイルを添付、メッセージ履歴を読む | 権限の整数は 360777354240 |
-| Discord (運営への通知のチャンネル) | `discord.opsChannelId` | チャンネルを表示、メッセージを送る | |
+| Discord (運営への通知のチャンネル) | `discord.opsChannelId` | チャンネルを表示、メッセージを送る | 未設定なら運営への通知 (途中の経過と問題) を送らない |
 | Discord (webhook) | `notify.webhookUrl` | 無い (URL そのものが秘密) | 未設定なら結果の通知を送らない |
 | AWS MediaConnect | IAM Identity Center の許可セットを割り当てたプロファイル (環境変数 `AWS_PROFILE`)。リージョンは `aws.region` | 許可セットのポリシーに `mediaconnect:DescribeFlow`、`mediaconnect:StartFlow`、`mediaconnect:StopFlow`、`mediaconnect:DescribeFlowSourceMetadata`、`mediaconnect:DescribeFlowSourceThumbnail` | Resource は `flows` に書いたフローの ARN に絞る |
 | AWS CloudWatch | 同上 | 同じ許可セットのポリシーに `cloudwatch:GetMetricData` | Resource は `*` (リソースで絞れないアクション) |
@@ -110,7 +110,9 @@ npm start
 - 動きはコンソールに出る: 起動したときの設定と枠、受け付けたコマンドとボタンとその返事、テストの進み具合、スレッドに書いたこと、運営への通知、エラー。運営への通知のチャンネルや webhook を見なくても、何が起きたかを追える。トークンなどの秘密は出さない。
 - 止めるには Ctrl+C。進行中のテスト、待ちの列、枠の設定は `db.path` のファイルに残り、起動し直すと続きから進む。
 - 設定ファイルは起動のときに読む。変えたら bot を起動し直す。起動し直せば、設定ファイルの値がすべて効く (保存してある状態より、書き換えた設定ファイルの方が優先)。bot が問題を見つけて止めた枠も、起動し直すと受付を再開する。
-- 通知は 2 種類ある。途中の経過と問題は、bot が運営への通知のチャンネル (`discord.opsChannelId`) に書く。テストが終わったときの結果だけ、webhook (`notify.webhookUrl`) で送る。webhook の URL を空にしても、運営への通知は止まらない。
+- 通知は 2 種類あり、設定も別。どちらも、設定を空にすれば送らない (コンソールには出る)。
+  - 運営への通知 (途中の経過と問題): bot が `discord.opsChannelId` のチャンネルに書く。
+  - 結果の通知 (テストが終わったとき): `notify.webhookUrl` の webhook で送る。
 - シートの 1 行目が空なら、bot が見出しを書く。
 
 ## 使い方

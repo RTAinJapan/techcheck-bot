@@ -58,7 +58,8 @@ export const configSchema = z
             guildId: nonEmpty,
             techcheckChannelId: nonEmpty,
             staffRoleId: nonEmpty,
-            opsChannelId: nonEmpty,
+            // 運営への通知のチャンネル。未設定なら、運営への通知を送らない (コンソールにだけ出る)
+            opsChannelId: optionalText,
         }),
         // notify: の下が全部空 (null) でもよい
         notify: z

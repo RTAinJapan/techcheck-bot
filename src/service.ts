@@ -1479,9 +1479,11 @@ export class TechcheckService {
     /**
      * 運営への通知。同じ内容をコンソールにも出す。送れなくてもテストは止めない
      * (通知のチャンネルの ID や権限の間違いで、テストが途中で止まらないように)。
+     * 通知のチャンネル (discord.opsChannelId) が未設定なら送らない (コンソールにだけ出る)。
      */
     private async ops(text: string): Promise<void> {
         this.log(`運営への通知: ${oneLine(text)}`);
+        if (!this.cfg.discord.opsChannelId) return;
         try {
             await this.d.chat.ops(text);
         } catch (e) {
