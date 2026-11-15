@@ -79,9 +79,12 @@ export interface Session {
     stillWarned?: boolean;
     /** マイクの声の録音 (Discord のボイスチャンネル)。skipped は「マイクは使わない」 */
     voice?: { file?: string; audioMs?: number; maxDb?: number; meanDb?: number; clippedPct?: number; skipped?: boolean };
+    /** 録音の手順で、この人に案内したボイスチャンネル。手順が終わるまで、ほかの人には案内しない */
+    voiceChannelId?: string;
     streamFps?: number;
     checkIndex: number;
-    checkState: "prompt" | "running" | "result";
+    /** waiting は、録音の手順で、空いているボイスチャンネルを待っている間 */
+    checkState: "prompt" | "running" | "result" | "waiting";
     checkStartedAt?: number;
     checkRecFrom?: number;
     checkPeaks: number[];

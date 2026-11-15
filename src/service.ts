@@ -20,6 +20,7 @@ import type {
     ReceiverPort,
     SheetPort,
     StillPort,
+    VoiceChannelInfo,
     VoicePort,
     VoiceRecording,
     WebhookPort,
@@ -1261,6 +1262,8 @@ export class TechcheckService {
         s.checkState = "prompt";
         s.checkPeaks = [];
         s.lastActivity = this.now();
+        // 録音の手順を抜けたら、案内したボイスチャンネルを手放す
+        if (step.kind !== "voice") s.voiceChannelId = undefined;
         const header = this.t(s.lang, "checks.header", { n: s.checkIndex + 1, total: this.checks.length });
         if (step.kind === "confirm") {
             // 静止画を見て答える手順。静止画が無いとき (サムネイルが無効、RTMP) は、OBS のプレビューで確かめてもらう
@@ -1274,19 +1277,69 @@ export class TechcheckService {
             s.checkRecFrom = this.recPos(s);
             return;
         }
-        if (step.kind === "voice") {
-            // マイクの声の録音。使わない人は飛ばせる
-            const where = this.cfg.voice.channelId ? `\n${this.t(s.lang, "voice.channel", { channel: `<#${this.cfg.voice.channelId}>` })}` : "";
-            await this.post(s, {
-                content: `${header}\n${step.text[s.lang]}${where}`,
-                buttons: [this.btn(s, "step-start", "button.stepStart", "primary"), this.btn(s, "voice-skip", "button.voiceSkip", "secondary")],
-            });
-            return;
-        }
+        if (step.kind === "voice") return this.promptVoice(s, step, false);
         await this.post(s, {
             content: `${header}\n${step.text[s.lang]}`,
             buttons: [this.btn(s, "step-start", "button.stepStart", "primary")],
         });
+    }
+
+    /** いま録音の手順にいて、ボイスチャンネルを案内してある、ほかのテスト */
+    private voiceReserved(except: Session): Set<string> {
+        const ids = this.sessions
+            .filter((x) => x.id !== except.id && x.phase === "checks" && this.checks[x.checkIndex]?.kind === "voice" && x.voiceChannelId)
+            .map((x) => x.voiceChannelId!);
+        return new Set(ids);
+    }
+
+    /**
+     * 録音の手順を出す (設計書 §7.3)。bot が入れるボイスチャンネルのうち、空いている所を選んで案内する。
+     * 空いている所が無ければ、待ってもらう (tickChecks が毎秒ここを呼び、空いたら案内する)。
+     * - 空いている = だれもいない (bot は数えない)。配信者がもう 1 人で入っている所があれば、そこを使う。
+     * - 案内した所は、その人の手順が終わるまで、ほかの人には案内しない。やり直しのときは、同じ所を案内する。
+     */
+    private async promptVoice(s: Session, step: CheckStep, wasWaiting: boolean): Promise<void> {
+        let all: VoiceChannelInfo[];
+        try {
+            all = await this.d.voice!.channels();
+        } catch (e) {
+            return this.voiceFailed(s, step, errorText(e));
+        }
+        if (all.length === 0) {
+            return this.voiceFailed(s, step, "bot が入れるボイスチャンネルがありません。bot に「チャンネルを表示」と「接続」の権限があるボイスチャンネルを用意してください");
+        }
+        const reserved = this.voiceReserved(s);
+        const free = (c: VoiceChannelInfo) => !reserved.has(c.id) && c.members.every((m) => m === s.userId);
+        const pick = all.find((c) => c.id === s.voiceChannelId && !reserved.has(c.id)) ?? all.find((c) => free(c) && c.members.includes(s.userId)) ?? all.find(free);
+        const header = this.t(s.lang, "checks.header", { n: s.checkIndex + 1, total: this.checks.length });
+        const skip = this.btn(s, "voice-skip", "button.voiceSkip", "secondary");
+        if (!pick) {
+            if (wasWaiting) return;
+            s.checkState = "waiting";
+            s.voiceChannelId = undefined;
+            await this.post(s, { content: `${header}\n${this.t(s.lang, "voice.waiting")}`, buttons: [skip] });
+            await this.ops(`空いているボイスチャンネルが無いので、録音の手順で待ってもらっています: ${s.displayName} (bot が入れるボイスチャンネル: ${all.map((c) => c.name).join("、")})`);
+            return;
+        }
+        s.checkState = "prompt";
+        s.voiceChannelId = pick.id;
+        s.lastActivity = this.now();
+        // 待たせたあとは、気づけるようにメンションする
+        const call = wasWaiting ? `<@${s.userId}> ${this.t(s.lang, "voice.freed")}\n` : "";
+        await this.post(s, {
+            content: `${call}${header}\n${step.text[s.lang]}\n${this.t(s.lang, "voice.channel", { channel: `<#${pick.id}>` })}`,
+            buttons: [this.btn(s, "step-start", "button.stepStart", "primary"), skip],
+        });
+    }
+
+    /** bot の側の問題で録音できない (入れるボイスチャンネルが無い、入れない、など)。配信者のせいではないので、運営に知らせて次へ進める */
+    private async voiceFailed(s: Session, step: CheckStep, error: string): Promise<void> {
+        await this.ops(`マイクの声を録音できませんでした: ${s.displayName} (${error})`);
+        await this.post(s, { content: this.t(s.lang, "voice.failed") });
+        s.results = s.results.filter((x) => x.id !== step.id);
+        s.results.push({ id: step.id, verdict: "unknown" });
+        s.checkIndex++;
+        await this.promptStep(s);
     }
 
     /**
@@ -1313,13 +1366,7 @@ export class TechcheckService {
             // 録っている間に中断された、またはやり直された
             if (!s || s.phase !== "checks" || s.checkState !== "running" || this.checks[s.checkIndex]?.id !== step.id) return;
             if (!result) {
-                // bot の側の問題 (ボイスチャンネルに入れない、など)。配信者のせいではないので、そのまま次へ進める
-                await this.ops(`マイクの声を録音できませんでした: ${s.displayName} (${error})`);
-                await this.post(s, { content: this.t(s.lang, "voice.failed") });
-                s.results = s.results.filter((x) => x.id !== step.id);
-                s.results.push({ id: step.id, verdict: "unknown" });
-                s.checkIndex++;
-                await this.promptStep(s);
+                await this.voiceFailed(s, step, error ?? "");
                 this.save();
                 return;
             }
@@ -1347,6 +1394,8 @@ export class TechcheckService {
         const step = this.checks[s.checkIndex];
         if (!step) return;
         const now = this.now();
+        // 空いているボイスチャンネルを待っている間は、空いたかを見る。待たせているのはこちらなので、時間切れにはしない
+        if (s.checkState === "waiting") return step.kind === "voice" ? this.promptVoice(s, step, true) : this.promptStep(s);
         if (s.checkState !== "running") return this.idleTimeout(s);
         const elapsed = now - (s.checkStartedAt ?? now);
         if (step.kind === "voice") {
@@ -1440,10 +1489,10 @@ export class TechcheckService {
                 if (step.kind === "voice") {
                     if (!this.d.voice) return { ephemeral: this.t(s.lang, "button.ack") };
                     if (this.voiceBusy && this.voiceBusy !== s.id) return { ephemeral: this.t(s.lang, "voice.busy") };
-                    const channelId = await this.d.voice.channelOf(s.userId);
-                    if (!channelId) return { ephemeral: this.t(s.lang, "voice.joinFirst") };
-                    const wanted = this.cfg.voice.channelId;
-                    if (wanted && channelId !== wanted) return { ephemeral: this.t(s.lang, "voice.wrongChannel", { channel: `<#${wanted}>` }) };
+                    // 案内したボイスチャンネルに入っているか
+                    const channelId = s.voiceChannelId;
+                    if (!channelId) return { ephemeral: this.t(s.lang, "button.ack") };
+                    if ((await this.d.voice.channelOf(s.userId)) !== channelId) return { ephemeral: this.t(s.lang, "voice.wrongChannel", { channel: `<#${channelId}>` }) };
                     s.checkState = "running";
                     s.checkStartedAt = this.now();
                     this.voiceBusy = s.id;
@@ -1467,7 +1516,8 @@ export class TechcheckService {
             }
             case "voice-skip": {
                 const step = this.checks[s.checkIndex];
-                if (s.phase !== "checks" || step?.kind !== "voice" || s.checkState !== "prompt") return { ephemeral: this.t(s.lang, "button.ack") };
+                // ボイスチャンネルが空くのを待っている間も、飛ばせる
+                if (s.phase !== "checks" || step?.kind !== "voice" || (s.checkState !== "prompt" && s.checkState !== "waiting")) return { ephemeral: this.t(s.lang, "button.ack") };
                 s.voice = { skipped: true };
                 s.results = s.results.filter((x) => x.id !== step.id);
                 s.results.push({ id: step.id, verdict: "unknown" });

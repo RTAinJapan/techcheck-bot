@@ -99,11 +99,12 @@ checks:
 
 voice:
   channel: "Voice channel to join: {channel}"
-  joinFirst: "Join a voice channel first, then press again."
   wrongChannel: "Join the voice channel we asked for ({channel}), then press again."
+  waiting: "(Only if you use a microphone) We record your voice as it reaches us through a Discord voice channel, but no voice channel is free right now. Please wait here; we will let you know when one is free. If you don't use a microphone, press \"I don't use a mic\"."
+  freed: "Thank you for waiting. A voice channel is free now."
   busy: "We are recording someone else right now. Wait a moment and press again."
   recording: "Recording. Talk in your normal voice for about {seconds} seconds…"
-  recorded: "Recorded ({seconds} seconds of your voice reached us). Staff will listen to it later."
+  recorded: "Recorded ({seconds} seconds of your voice reached us). Staff will listen to it later. Please leave the voice channel."
   clipped: "Your voice clips in places. Try lowering your microphone input volume a little."
   quiet: "Your voice is on the quiet side. Try raising your microphone input volume a little."
   skipped: "Skipping the microphone check."

@@ -94,7 +94,16 @@ export interface VoiceRecording {
     clippedPct?: number;
 }
 
+export interface VoiceChannelInfo {
+    id: string;
+    name: string;
+    /** 中にいる人のユーザー ID (bot は数えない) */
+    members: string[];
+}
+
 export interface VoicePort {
+    /** bot が入れる VC (「チャンネルを表示」と「接続」の権限がある所) の一覧。サーバでの並びの順 */
+    channels(): Promise<VoiceChannelInfo[]>;
     /** 配信者が今いる VC の ID (いなければ undefined) */
     channelOf(userId: string): Promise<string | undefined>;
     /** VC に入り、userId の声を seconds 秒録って、file (.ogg) に書く */

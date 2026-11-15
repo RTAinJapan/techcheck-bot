@@ -33,6 +33,7 @@ async function main(): Promise<void> {
     const intents = config.voice.enabled ? [GatewayIntentBits.Guilds, GatewayIntentBits.GuildVoiceStates] : [GatewayIntentBits.Guilds];
     const client = new Client({ intents });
     const voiceDir = resolve(baseDir, config.voice.dir);
+    const voice = config.voice.enabled ? new DiscordVoice(client, config.discord.guildId, config.ffmpeg.path, log) : undefined;
     const rx = new WsReceiver(WsReceiver.urlFor(config.denpachan.host, config.denpachan.port, config.denpachan.token), log);
     const service = new TechcheckService({
         config,
@@ -41,7 +42,7 @@ async function main(): Promise<void> {
         flow: new AwsFlowPort(config.aws.region),
         rx,
         still: new FfmpegStill(config.ffmpeg.path),
-        voice: config.voice.enabled ? new DiscordVoice(client, config.discord.guildId, config.ffmpeg.path, log) : undefined,
+        voice,
         voiceDir,
         dns: new NodeDns(),
         chat: new DiscordChat(client, config),
@@ -63,7 +64,7 @@ async function main(): Promise<void> {
     log(`シート: ${config.sheet.spreadsheetId} / ${config.sheet.tabName}`);
     log(
         `マイクの声の録音 (ボイスチャンネル): ${
-            config.voice.enabled ? `する (置き場所 ${voiceDir}${config.voice.channelId ? `、ボイスチャンネル ${config.voice.channelId}` : "、どのボイスチャンネルでもよい"})` : "しない (voice.enabled)"
+            config.voice.enabled ? `する (置き場所 ${voiceDir}。案内するボイスチャンネルは、bot が入れる所のうち空いている所)` : "しない (voice.enabled)"
         }`,
     );
     // 通知は 2 つあり、設定も別。どちらも、未設定なら送らない
@@ -81,6 +82,18 @@ async function main(): Promise<void> {
         const guild = await c.guilds.fetch(config.discord.guildId);
         await guild.commands.set([buildCommand(config.flows).toJSON()]);
         log("/techcheck を登録しました");
+        if (voice) {
+            // 配信者に案内する候補。bot の権限 (「チャンネルを表示」と「接続」) で決まるので、起動のときに出しておく
+            const list = await voice.channels().catch((e) => {
+                log(`ボイスチャンネルの一覧を取れませんでした: ${errorText(e)}`);
+                return [];
+            });
+            log(
+                list.length > 0
+                    ? `録音に使えるボイスチャンネル (bot が入れる所): ${list.map((c) => `${c.name}${c.members.length > 0 ? ` (使用中 ${c.members.length} 人)` : ""}`).join("、")}`
+                    : "録音に使えるボイスチャンネルがありません。bot に「チャンネルを表示」と「接続」の権限があるボイスチャンネルを用意してください (無いままだと、録音の手順は飛ばされます)",
+            );
+        }
         rx.start();
         // 準備の途中で止まったテストは、denpachan に繋がってから準備をやり直す
         const since = Date.now();

@@ -68,7 +68,7 @@ bot の動きは、すべてコンソール (標準出力) に 1 行ずつ出る
 ## README とコードの対応
 
 README の次の箇所は、コードが実際にしていることを写したもの。コードを変えたら README も直す。コードの側にも、同じことをコメントで書いてある。
-Discord と AWS の権限を変えたら、[createToken.md](createToken.md) の招待の URL (権限の整数。ボイスチャンネルの「接続」を足した値も) と許可セットのポリシーも直す。
+Discord と AWS の権限を変えたら、[createToken.md](createToken.md) の招待の URL (権限の整数) と許可セットのポリシーも直す。ボイスチャンネルの「接続」は招待には入れず、チャンネルごとに付ける (createToken.md の「3. チャンネルの権限を確かめる」)。
 
 Discord の権限の名前は、README と createToken.md では Developer Portal の日本語の表示、コードのコメントではそれに API の名前を添えて書いてある。
 
@@ -83,7 +83,7 @@ Discord の権限の名前は、README と createToken.md では Developer Porta
 | 「準備」の設定ファイル (`${環境変数名}`、相対パス)、「動かす」の設定ファイルの場所 | `src/config.ts` の `expandEnv`、`src/index.ts` の `main` |
 | 「使い方」のコマンドの表 | `src/discord/commands.ts` (定義)、`src/discord/bot.ts` の `InteractionHandler` (運営のロールの確認) |
 | 「denpachan」の、受信の設定を bot に入れさせる (`denpachan.configure`、`flows[].output`) | `src/service.ts` (`srtSourceFor`、`prepare`、`goRtmp`、`slotMismatches`)、`src/adapters/receiver.ts` (`hello` の `allowConfigure`)、`src/adapters/aws.ts` (フローの出力) |
-| 「マイクの声を録音する」と、「トークンと権限」の Discord のボイスチャンネル | `src/adapters/voice.ts` (ボイスチャンネルに入る、声を受ける、音量を測る)、`src/adapters/ogg.ts`、`src/service.ts` (`recordVoice`、`promptStep`、`onButton` の `step-start` と `voice-skip`)、`src/checks.ts` (`voiceStep`)、`src/index.ts` (`GuildVoiceStates`) |
+| 「マイクの声を録音する」と、「トークンと権限」の Discord のボイスチャンネル | `src/adapters/voice.ts` (ボイスチャンネルに入る、声を受ける、音量を測る)、`src/adapters/ogg.ts`、`src/service.ts` (`promptVoice` が空いているボイスチャンネルを選んで案内する。`recordVoice`、`onButton` の `step-start` と `voice-skip`)、`src/checks.ts` (`voiceStep`)、`src/index.ts` (`GuildVoiceStates`) |
 | 「同時に複数人をテストする」の A (SRT の枠を並べる) | `src/config.ts` (`slots.srt`)、`src/service.ts` (`loadSlots`、`freeSrtSlots`、`tickQueue`) |
 
 設定の項目を足したり変えたりしたら、`src/config.ts`、`config.example.yaml`、[design.md の「設定値の一覧」](design.md#設定値の一覧) をそろえる。
@@ -104,5 +104,6 @@ Discord の権限の名前は、README と createToken.md では Developer Porta
 - 録画から静止画を取る動作のうち、RTMP の枠の録画と、bot を別の PC で動かしたときの予備 (フローのサムネイル)。SRT の枠の録画中のファイルから ffmpeg で取り出せることは、実機で確かめた。
 - マイクの声の録音 ([design.md の §7.3](design.md#73-マイクの声の録音-discord-のボイスチャンネル))。
   - 実際のサーバのボイスチャンネルで、1 人の声を受けて .ogg に書き、ffmpeg で音量を測れることは確かめた (`@discordjs/voice` 0.19.2)。
-  - 同じボイスチャンネルに複数人がいるときに、その配信者の声だけが録れること、bot にボイスチャンネルの「接続」が無いときのエラーの出方は、見ていない。
+  - 同じボイスチャンネルに複数人がいるときに、その配信者の声だけが録れることは、見ていない。
+  - 空いているボイスチャンネルを選ぶ動作 (候補の一覧、待たせて空いたら案内する) は、偽物の外の口での試験だけ。チャンネルごとの権限の設定 (ロールとチャンネルの上書きの組み合わせ) で、候補が意図どおりになるかは、起動のときのコンソールの一覧で確かめる。
   - Discord は bot の音声の受信を文書にしていないので、Discord や `@discordjs/voice` の更新のあとは、一度録って確かめる。

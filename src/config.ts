@@ -159,12 +159,11 @@ export const configSchema = z
             .prefault({}),
         checks: z.array(checkStepSchema).min(1).optional(),
         // マイクの声の録音 (Discord のボイスチャンネル)。enabled が true なら、チェックの最後に録音の手順を足す。
-        // bot に、そのボイスチャンネルの「チャンネルを表示」と「接続」の権限が要る
+        // 入ってもらうボイスチャンネルは、bot に「チャンネルを表示」と「接続」の権限がある所のうち、空いている所を bot が選ぶ
         voice: z
             .object({
                 enabled: z.boolean().prefault(false),
                 dir: z.string().min(1).prefault("./voice"), // 録音 (.ogg) の置き場所
-                channelId: optionalText, // 入ってもらうボイスチャンネル。空なら、どのボイスチャンネルでもよい
             })
             .prefault({}),
         // 配信の静止画を、denpachan の録画から取り出すのに使う ffmpeg。既定は PATH の ffmpeg

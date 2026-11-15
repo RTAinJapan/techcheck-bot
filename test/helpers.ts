@@ -18,6 +18,7 @@ import type {
     SheetPort,
     StillPort,
     VoicePort,
+    VoiceChannelInfo,
     VoiceRecording,
     WebhookPort,
 } from "../src/ports.js";
@@ -281,8 +282,13 @@ export class FakeStill implements StillPort {
 }
 
 export class FakeVoice implements VoicePort {
-    /** 配信者がいるボイスチャンネル (ユーザー ID → チャンネル ID) */
+    /** bot が入れるボイスチャンネル (サーバでの並びの順) */
+    rooms: { id: string; name: string }[] = [{ id: "VC-1", name: "vc-1" }];
+    /** だれがどのボイスチャンネルにいるか (ユーザー ID → チャンネル ID) */
     where: Record<string, string> = {};
+    async channels(): Promise<VoiceChannelInfo[]> {
+        return this.rooms.map((r) => ({ ...r, members: Object.keys(this.where).filter((u) => this.where[u] === r.id) }));
+    }
     /** 次の録音の結果 (届いた声の長さなど) */
     next: Partial<VoiceRecording> = { packets: 500, bytes: 60_000, audioMs: 10_000, maxDb: -6, meanDb: -24, clippedPct: 0 };
     error: string | undefined;

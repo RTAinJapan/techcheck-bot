@@ -406,14 +406,14 @@ describe("マイクの声の録音 (ボイスチャンネル)", () => {
         assert.equal(makeWorld().config.checks.some((c) => c.kind === "voice"), false);
         const { w, thread } = await toVoiceStep();
         const prompt = w.chat.lastPost(thread)!;
-        assert.match(prompt.content, /手順 6\/6[\s\S]*ボイスチャンネルに入り/);
+        assert.match(prompt.content, /手順 6\/6[\s\S]*下のボイスチャンネルに入り[\s\S]*入るボイスチャンネル: <#VC-1>/);
         assert.deepEqual(prompt.buttons?.map((b) => b.label), ["始める", "マイクは使わない"]);
     });
 
-    it("ボイスチャンネルに入って「始める」を押すと録音し、ファイルと音量をシートに残す", async () => {
+    it("案内したボイスチャンネルに入って「始める」を押すと録音し、ファイルと音量をシートに残す", async () => {
         const { w, thread } = await toVoiceStep();
         // 入る前に押したら、入るよう促す
-        assert.match((await press(w, thread, "step-start")).ephemeral!, /ボイスチャンネルに入ってから/);
+        assert.match((await press(w, thread, "step-start")).ephemeral!, /案内したボイスチャンネル \(<#VC-1>\) に入ってから/);
         assert.equal(w.voice.calls.length, 0);
         w.voice.where.U1 = "VC-1";
         await press(w, thread, "step-start");
@@ -422,7 +422,7 @@ describe("マイクの声の録音 (ボイスチャンネル)", () => {
         assert.match(w.voice.calls[0]!.file, /^voice-dir\/2026-11-01-12-\d\d Runner_A U1\.ogg$/);
         const texts = w.chat.texts(thread);
         assert.ok(texts.some((x) => x.includes("録音しています。15 秒ほど")));
-        assert.ok(texts.some((x) => x.includes("録音しました (声が 10 秒ぶん届きました)")));
+        assert.ok(texts.some((x) => x.includes("録音しました (声が 10 秒ぶん届きました)") && x.includes("ボイスチャンネルからは退出してください")));
         assert.match(w.chat.lastPost(thread)!.content, /確認はすべて終わりました/);
         await w.service.complete(sessionIdOf(w, thread), "");
         const row = w.sheet.rows[0]!;
@@ -466,20 +466,100 @@ describe("マイクの声の録音 (ボイスチャンネル)", () => {
         assert.match(w.chat.lastPost(thread)!.content, /確認はすべて終わりました/);
     });
 
-    it("入るボイスチャンネルを決めてあれば、案内に出し、別の所にいたら促す", async () => {
-        const { w, thread } = await toVoiceStep('voice: { enabled: true, channelId: "VC-9" }\n');
-        assert.match(w.chat.lastPost(thread)!.content, /入るボイスチャンネル: <#VC-9>/);
-        w.voice.where.U1 = "VC-1";
-        assert.match((await press(w, thread, "step-start")).ephemeral!, /案内したボイスチャンネル \(<#VC-9>\) に入ってから/);
-        w.voice.where.U1 = "VC-9";
+    /** 5 つ目の手順 (画面) の手前まで進める。録音の手順が出る前に、ボイスチャンネルの様子を作るため */
+    async function beforeVoiceStep(extra = voiceOn) {
+        const w = makeWorld(extra);
+        const { thread } = await startAndStream(w);
+        await press(w, thread, "step-start");
+        await w.run(18, () => w.rx.live(7, { peak: -20 }));
+        for (let i = 0; i < 3; i++) {
+            await press(w, thread, "step-start");
+            await w.run(13, () => w.rx.live(7, { peak: -80 }));
+        }
+        return { w, thread };
+    }
+
+    it("bot が入れるボイスチャンネルのうち、空いている所を案内する。別の所にいたら促す", async () => {
+        const { w, thread } = await beforeVoiceStep();
+        w.voice.rooms = [
+            { id: "VC-1", name: "vc-1" },
+            { id: "VC-2", name: "vc-2" },
+            { id: "VC-3", name: "vc-3" },
+        ];
+        w.voice.where.OTHER = "VC-1"; // ほかの人が使っている
+        await press(w, thread, "yes");
+        assert.match(w.chat.lastPost(thread)!.content, /入るボイスチャンネル: <#VC-2>/);
+        w.voice.where.U1 = "VC-3";
+        assert.match((await press(w, thread, "step-start")).ephemeral!, /案内したボイスチャンネル \(<#VC-2>\) に入ってから/);
+        w.voice.where.U1 = "VC-2";
         await press(w, thread, "step-start");
         await w.flush();
-        assert.equal(w.voice.calls[0]!.channelId, "VC-9");
+        assert.equal(w.voice.calls[0]!.channelId, "VC-2");
     });
 
-    it("録音は同時に 1 人だけ (bot は同時に 1 つのボイスチャンネルにしか入れない)", async () => {
+    it("配信者がもう 1 人で入っている所があれば、そこを案内する", async () => {
+        const { w, thread } = await beforeVoiceStep();
+        w.voice.rooms = [
+            { id: "VC-1", name: "vc-1" },
+            { id: "VC-2", name: "vc-2" },
+        ];
+        w.voice.where.U1 = "VC-2";
+        await press(w, thread, "yes");
+        assert.match(w.chat.lastPost(thread)!.content, /入るボイスチャンネル: <#VC-2>/);
+    });
+
+    it("空いている所が無ければ待たせ、空いたらメンションして案内する。待っている間は時間切れにしない", async () => {
+        const { w, thread } = await beforeVoiceStep();
+        w.voice.where.OTHER = "VC-1";
+        await press(w, thread, "yes");
+        const waiting = w.chat.lastPost(thread)!;
+        assert.match(waiting.content, /手順 6\/6[\s\S]*いま、空いているボイスチャンネルがありません。空いたらここでお知らせします/);
+        assert.deepEqual(waiting.buttons?.map((b) => b.label), ["マイクは使わない"]);
+        assert.ok(w.chat.opsLog.some((l) => l.includes("空いているボイスチャンネルが無いので、録音の手順で待ってもらっています: Runner A") && l.includes("vc-1")));
+        const posts = w.chat.texts(thread).length;
+        // 既定の時間切れ (20 分) を超えて待たせても、中断しない。同じ案内も繰り返さない
+        await w.run(25 * 60, () => w.rx.live(7, { peak: -80 }));
+        assert.equal(w.chat.texts(thread).length, posts);
+        assert.equal(w.sheet.rows.length, 0);
+        delete w.voice.where.OTHER;
+        await w.run(2, () => w.rx.live(7, { peak: -80 }));
+        const prompt = w.chat.lastPost(thread)!;
+        assert.match(prompt.content, /^<@U1> お待たせしました。ボイスチャンネルが空きました。\n\*\*手順 6\/6\*\*[\s\S]*入るボイスチャンネル: <#VC-1>/);
+        assert.deepEqual(prompt.buttons?.map((b) => b.label), ["始める", "マイクは使わない"]);
+        // 案内したあとにほかの人が入ってきても、案内は変えない (録るのは配信者の声だけ)
+        w.voice.where.OTHER = "VC-1";
+        w.voice.where.U1 = "VC-1";
+        await press(w, thread, "step-start");
+        await w.flush();
+        assert.equal(w.voice.calls[0]!.channelId, "VC-1");
+    });
+
+    it("待っている間も「マイクは使わない」で飛ばせる", async () => {
+        const { w, thread } = await beforeVoiceStep();
+        w.voice.where.OTHER = "VC-1";
+        await press(w, thread, "yes");
+        await press(w, thread, "voice-skip");
+        assert.match(w.chat.lastPost(thread)!.content, /確認はすべて終わりました/);
+    });
+
+    it("bot が入れるボイスチャンネルが 1 つも無ければ、運営に知らせて、そのまま次へ進める", async () => {
+        const { w, thread } = await beforeVoiceStep();
+        w.voice.rooms = [];
+        await press(w, thread, "yes");
+        assert.ok(w.chat.opsLog.some((l) => l.includes("マイクの声を録音できませんでした: Runner A") && l.includes("bot が入れるボイスチャンネルがありません")));
+        assert.ok(w.chat.texts(thread).some((x) => x.includes("こちらの都合で録音できませんでした")));
+        assert.match(w.chat.lastPost(thread)!.content, /確認はすべて終わりました/);
+    });
+
+    const U2local = { id: "U2", displayName: "Runner B" };
+    const quiet = (w: ReturnType<typeof makeWorld>) => () => {
+        w.rx.live(7, { peak: -80 });
+        w.rx.live(6, { peak: -80 });
+    };
+    /** SRT の枠を 2 つにして、2 人とも録音の手順まで進める (1 人目が先に着く) */
+    async function twoAtVoiceStep(rooms: string[]) {
         const w = makeWorld(voiceOn, twoSlotsYaml);
-        const U2local = { id: "U2", displayName: "Runner B" };
+        w.voice.rooms = rooms.map((id) => ({ id, name: id.toLowerCase() }));
         await w.service.start(U1, "C-test", undefined, "ja");
         await w.service.start(U2local, "C-test", undefined, "ja");
         await w.flush();
@@ -506,18 +586,43 @@ describe("マイクの声の録音 (ボイスチャンネル)", () => {
             }
             await press(w, thread, "yes", user);
         }
+        return { w, t1: t1!, t2: t2! };
+    }
+
+    it("同時にテストしている 2 人には、別々のボイスチャンネルを案内する。録音は同時に 1 人だけ", async () => {
+        const { w, t1, t2 } = await twoAtVoiceStep(["VC-1", "VC-2"]);
+        // 1 人目はまだ入っていないが、案内した所は、ほかの人には案内しない
+        assert.match(w.chat.lastPost(t1)!.content, /入るボイスチャンネル: <#VC-1>/);
+        assert.match(w.chat.lastPost(t2)!.content, /入るボイスチャンネル: <#VC-2>/);
         w.voice.where.U1 = "VC-1";
         w.voice.where.U2 = "VC-2";
+        // bot は同時に 1 つのボイスチャンネルにしか入れない
         let release!: () => void;
         w.voice.gate = new Promise<void>((r) => (release = r));
-        await press(w, t1!, "step-start", U1);
-        assert.match((await press(w, t2!, "step-start", U2local)).ephemeral!, /ほかの方の録音中です/);
+        await press(w, t1, "step-start", U1);
+        assert.match((await press(w, t2, "step-start", U2local)).ephemeral!, /ほかの方の録音中です/);
         release();
         await w.flush();
         w.voice.gate = undefined;
-        await press(w, t2!, "step-start", U2local);
+        await press(w, t2, "step-start", U2local);
         await w.flush();
-        assert.deepEqual(w.voice.calls.map((c) => c.userId), ["U1", "U2"]);
+        assert.deepEqual(w.voice.calls.map((c) => [c.userId, c.channelId]), [["U1", "VC-1"], ["U2", "VC-2"]]);
+    });
+
+    it("ボイスチャンネルが 1 つなら、2 人目は、1 人目の録音が終わって退出するまで待つ", async () => {
+        const { w, t1, t2 } = await twoAtVoiceStep(["VC-1"]);
+        assert.match(w.chat.lastPost(t1)!.content, /入るボイスチャンネル: <#VC-1>/);
+        assert.match(w.chat.lastPost(t2)!.content, /いま、空いているボイスチャンネルがありません/);
+        assert.equal((await press(w, t2, "step-start", U2local)).ephemeral, "受け付けました。");
+        w.voice.where.U1 = "VC-1";
+        await press(w, t1, "step-start", U1);
+        await w.flush();
+        // 1 人目の録音は終わったが、まだ中にいる
+        await w.run(2, quiet(w));
+        assert.match(w.chat.lastPost(t2)!.content, /いま、空いているボイスチャンネルがありません/);
+        delete w.voice.where.U1;
+        await w.run(2, quiet(w));
+        assert.match(w.chat.lastPost(t2)!.content, /^<@U2> お待たせしました[\s\S]*入るボイスチャンネル: <#VC-1>/);
     });
 });
 
