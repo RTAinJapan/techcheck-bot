@@ -668,7 +668,7 @@ sequenceDiagram
 | フロー、denpachan のチャンネル | SRT の枠の組の名前とチャンネル。RTMP に移ったら `7 → 8 (RTMP)` の形 |
 | 結果、理由 | 完了 / 中断。中断なら理由 (配信者が中断、運営が中止、時間切れ、準備の失敗) |
 | プロトコル | srt / rtmp |
-| 確定した latency (μs)、推奨値 (μs)、RTT 最大 (ms)、ロス率 (%)、回復できなかったパケット、ジッタ最大 (ms) | MediaConnect の source の数字 (§3.1)。確定した latency は SRT のときだけ。latency の 2 つは μs (OBS の URL に入れる値) で書く。2026-11-15 より前に書いた行は ms |
+| 確定した latency (μs)、推奨値 (μs)、RTT 最大 (ms)、ロス率 (%)、回復できなかったパケット、ジッタ最大 (ms) | MediaConnect の source の数字 (§3.1)。確定した latency は SRT のときだけ。latency の 2 つは μs (OBS の URL に入れる値) で書く (2026-11-15 に ms から変えた。そのとき使っていたシートは、見出しと前の行も μs に直してある) |
 | 解像度、fps (平均)、コーデック、ビットレート (kbps) | `DescribeFlowSourceMetadata`、denpachan の fps、`SourceBitRate` |
 | 切れた回数、デコードエラー、latency を上げた回数 | 切れた回数は、頼んでいない途切れ (latency の変更・RTMP への切り替え・繋ぎ直しの手順を除く) |
 | 運営の区間の RTT (ms)、運営の区間の取りこぼし | denpachan の数字 (MediaConnect → 運営の区間の健全性) |
