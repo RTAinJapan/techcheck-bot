@@ -307,6 +307,76 @@ describe("SRT の枠が複数", () => {
     });
 });
 
+describe("denpachan の受信の設定を bot が入れる (denpachan.configure)", () => {
+    // flow-a の出力 sub (SRT listener、203.0.113.10:30001) を denpachan が受ける
+    const configured = `${baseYaml.replace("    passphrase: pass-a\n", "    passphrase: pass-a\n    output: sub\n")}denpachan: { configure: true }\n`;
+    const patches = (w: World) => w.rx.calls.filter((c) => c.method === "patchChannel").map((c) => c.params);
+
+    it("テストを始めるとき、フローの出力へ繋ぐ設定を枠のチャンネルに入れる", async () => {
+        const w = makeWorld("", configured);
+        // 画面で RTMP に設定してあっても構わない (bot が入れ直す)
+        w.rx.channels.get(7)!.source = { protocol: "rtmp", mode: "pull" };
+        assert.deepEqual(w.service.slotMismatches(), []);
+        assert.match(await w.service.start(U1, "C-test", undefined, "ja"), /スレッドを作りました/);
+        await w.flush();
+        assert.deepEqual(patches(w), [
+            { ch: 7, patch: { source: { protocol: "srt", mode: "caller", host: "203.0.113.10", port: 30001, passphrase: "", pbkeylen: 0, streamId: "" } } },
+        ]);
+        const methods = w.rx.calls.map((c) => c.method);
+        assert.ok(methods.indexOf("patchChannel") < methods.indexOf("startChannel"), "設定を入れてから開始する");
+        assert.equal(w.rx.channels.get(7)!.source.protocol, "srt");
+        assert.ok(w.logs.some((l) => l.includes("ch7 に受信の設定を入れます (srt caller 203.0.113.10:30001)")));
+    });
+
+    it("出力が SRT caller なら待ち受ける設定を、出力にパスワードがあればパスフレーズも入れる", async () => {
+        const w = makeWorld("", configured.replace("    output: sub\n", "    output: sub\n    outputPassphrase: 0123456789ab\n"));
+        w.flow.outputs = [{ name: "sub", protocol: "srt-caller", port: 9007 }];
+        await w.service.start(U1, "C-test", undefined, "ja");
+        await w.flush();
+        assert.deepEqual(patches(w)[0], {
+            ch: 7,
+            patch: { source: { protocol: "srt", mode: "listener", host: "0.0.0.0", port: 9007, passphrase: "0123456789ab", pbkeylen: 16, streamId: "" } },
+        });
+        assert.ok(!w.logs.some((l) => l.includes("0123456789ab")), "パスフレーズはログに出さない");
+    });
+
+    it("RTMP に移すとき、RTMP サーバから pull する設定を入れる", async () => {
+        const w = makeWorld("latency: { maxRaises: 0 }\n", configured);
+        w.rx.channels.get(8)!.source = { protocol: "srt", mode: "listener" };
+        await w.service.start(U1, "C-test", undefined, "ja");
+        await w.flush();
+        const t0 = Math.floor(w.clock.t / 1000);
+        w.flow.sampleAt = (t) => ({ ...goodSample(t), notRecovered: t >= t0 ? 2 : 0 });
+        await w.run(80, () => w.rx.live(7));
+        assert.deepEqual(patches(w)[1], { ch: 8, patch: { source: { protocol: "rtmp", mode: "pull", url: "rtmp://rtmp.example.jp/live/key-1" } } });
+        assert.ok(!w.logs.some((l) => l.includes("key-1") && l.includes("受信の設定")), "キーはログに出さない");
+    });
+
+    it("denpachan が受信の設定の変更を許していなければ、始めずに知らせる", async () => {
+        const w = makeWorld("", configured);
+        w.rx.configurable = false;
+        assert.ok(w.service.slotMismatches().some((p) => p.includes("受信の設定の変更を許していません")));
+        assert.match(await w.service.start(U1, "C-test", undefined, "ja"), /準備に問題がありました/);
+        assert.equal(w.flow.started, 0);
+        assert.ok(w.chat.opsLog.some((l) => l.includes("止めました") && l.includes("受信の設定の変更を許していません")));
+    });
+
+    it("設定に書いた出力がフローに無ければ、ある出力の名前を付けて止める", async () => {
+        const w = makeWorld("", configured.replace("output: sub", "output: nope"));
+        await w.service.start(U1, "C-test", undefined, "ja");
+        await w.flush();
+        assert.ok(w.chat.opsLog.some((l) => l.includes('フロー flow-a に出力 "nope" がありません (ある出力: main、sub)')));
+        assert.deepEqual(patches(w), []);
+    });
+
+    it("configure が false (既定) なら、受信の設定には触らない", async () => {
+        const w = makeWorld();
+        await w.service.start(U1, "C-test", undefined, "ja");
+        await w.flush();
+        assert.deepEqual(patches(w), []);
+    });
+});
+
 describe("latency の調整と RTMP", () => {
     function lossy(from: number, until: number) {
         return (t: number): SrtSample => ({ ...goodSample(t), notRecovered: t >= from && t < until ? 2 : 0 });

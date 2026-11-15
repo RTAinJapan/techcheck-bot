@@ -69,8 +69,22 @@ export class FakeFlow implements FlowPort {
     sampleAt: (t: number) => SrtSample | undefined = () => undefined;
     meta: FlowMetadata | undefined = { width: 1920, height: 1080, fps: 60, codec: "h264", hasAudio: true };
 
+    /** フローの出力 (どのフローも同じ)。main は vMix 用、sub は denpachan 用のつもり */
+    outputs: FlowInfo["outputs"] = [
+        { name: "main", protocol: "srt-listener", listenerAddress: "203.0.113.10", port: 30000 },
+        { name: "sub", protocol: "srt-listener", listenerAddress: "203.0.113.10", port: 30001 },
+    ];
+
     async describe(arn: string): Promise<FlowInfo> {
-        return { arn, status: this.status, ingestIp: this.ingestIp, ingestPort: this.ingestPort, protocol: "srt-listener", minLatencyMs: this.minLatencyMs };
+        return {
+            arn,
+            status: this.status,
+            ingestIp: this.ingestIp,
+            ingestPort: this.ingestPort,
+            protocol: "srt-listener",
+            minLatencyMs: this.minLatencyMs,
+            outputs: this.outputs,
+        };
     }
     async start(): Promise<void> {
         this.started++;
@@ -116,10 +130,22 @@ export class FakeRx implements ReceiverPort {
     channel(ch: number): ReceiverChannel | undefined {
         return this.up ? this.channels.get(ch) : undefined;
     }
+    /** 受信の設定の変更を許しているか (denpachan の allowConfigure) */
+    configurable = true;
+    canConfigure(): boolean {
+        return this.up && this.configurable;
+    }
     async call(method: string, params: Record<string, unknown>): Promise<unknown> {
         this.calls.push({ method, params });
         const c = this.channels.get(params.ch as number);
         if (!c) throw new Error("no channel");
+        if (method === "patchChannel") {
+            const source = (params.patch as { source?: Record<string, unknown> }).source ?? {};
+            const onlyLatency = Object.keys(source).every((k) => k === "latencyMs");
+            if (!onlyLatency && !this.configurable) throw new Error("only name and source.latencyMs can be changed (metrics.allowConfigure is off)");
+            if (typeof source.protocol === "string") c.source.protocol = source.protocol;
+            if (typeof source.mode === "string") c.source.mode = source.mode;
+        }
         if (method === "startChannel") {
             c.enabled = true;
             c.status = c.source.protocol === "srt" ? "connecting" : "listening";

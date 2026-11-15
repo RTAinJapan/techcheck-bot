@@ -54,6 +54,12 @@ export class AwsFlowPort implements FlowPort {
             ingestPort: src?.IngestPort,
             protocol: src?.Transport?.Protocol,
             minLatencyMs: src?.Transport?.MinLatency,
+            outputs: (r.Flow?.Outputs ?? []).map((o) => ({
+                name: o.Name ?? "",
+                protocol: o.Transport?.Protocol,
+                listenerAddress: o.ListenerAddress,
+                port: o.Port,
+            })),
         };
     }
 

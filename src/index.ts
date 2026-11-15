@@ -48,7 +48,10 @@ async function main(): Promise<void> {
     log(`設定ファイル: ${configPath}`);
     log(`Discord: サーバ ${config.discord.guildId} / 配信テストのチャンネル ${config.discord.techcheckChannelId} / 運営のロール ${config.discord.staffRoleId}`);
     log(`AWS: リージョン ${config.aws.region} / プロファイル ${process.env.AWS_PROFILE ?? "(AWS_PROFILE は未設定)"} / フロー ${config.flows.map((f) => f.name).join("、")}`);
-    log(`denpachan: ${config.denpachan.host}:${config.denpachan.port} (トークン${config.denpachan.token ? "あり" : "なし"})`);
+    log(
+        `denpachan: ${config.denpachan.host}:${config.denpachan.port} (トークン${config.denpachan.token ? "あり" : "なし"}) / 枠のチャンネルの受信の設定: ` +
+            (config.denpachan.configure ? "bot が入れる (denpachan.configure)" : "denpachan の画面で合わせる"),
+    );
     log(`シート: ${config.sheet.spreadsheetId} / ${config.sheet.tabName}`);
     // 通知は 2 つあり、設定も別。どちらも、未設定なら送らない
     log(`運営への通知 (途中の経過と問題。bot がチャンネルに書く): ${config.discord.opsChannelId ? `チャンネル ${config.discord.opsChannelId} に送る` : "discord.opsChannelId が未設定なので送らない (コンソールにだけ出る)"}`);

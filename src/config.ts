@@ -40,6 +40,11 @@ const flowSchema = z.object({
     // (暗号化していないフローにパスフレーズ付きで送ると、SRT は接続を断る)
     passphrase: optionalText,
     pbkeylen: z.number().int().prefault(16),
+    // denpachan が受けるフローの出力の名前 (MediaConnect の出力の Name)。denpachan.configure が true のとき、
+    // bot がこの出力の接続先を読んで、枠のチャンネルに受信の設定を入れる
+    output: optionalText,
+    // その出力に SRT の暗号化を設定しているときのパスワード (設定していなければ書かない)
+    outputPassphrase: optionalText,
 });
 export type FlowConfig = z.infer<typeof flowSchema>;
 
@@ -89,6 +94,11 @@ export const configSchema = z
                 host: z.string().prefault("127.0.0.1"),
                 port: z.number().int().prefault(9100),
                 token: optionalText,
+                // true なら、テストを始めるときに、bot が枠のチャンネルに受信の設定を入れる
+                // (SRT の枠: フローの出力へ繋ぐ設定。RTMP の枠: RTMP サーバから pull する設定)。
+                // denpachan の全体設定で「受信の設定の変更も許す」(allowConfigure) を on にしておく。
+                // false なら、枠のチャンネルの受信の設定は、denpachan の画面で合わせておく
+                configure: z.boolean().prefault(false),
             })
             .prefault({}),
         sheet: z.object({
@@ -155,6 +165,14 @@ export const configSchema = z
         for (const f of c.flows) {
             if (names.has(f.name)) ctx.addIssue({ code: "custom", path: ["flows"], message: `flows: 名前 "${f.name}" が重複しています` });
             names.add(f.name);
+        }
+        // bot が受信の設定を入れるなら、どの出力を denpachan が受けるかが要る
+        if (c.denpachan.configure) {
+            c.flows.forEach((f, i) => {
+                if (!f.output) {
+                    ctx.addIssue({ code: "custom", path: ["flows", i, "output"], message: `denpachan.configure が true のときは、フロー "${f.name}" に output (denpachan が受ける出力の名前) が要ります` });
+                }
+            });
         }
         // 枠どうしで、フローと denpachan のチャンネルが重ならないこと (同じものを 2 人に使わせない)
         const slotFlows = new Set<string>();

@@ -13,6 +13,18 @@ export interface FlowInfo {
     /** source のプロトコル (srt-listener など) */
     protocol?: string;
     minLatencyMs?: number;
+    /** フローの出力。denpachan に受信の設定を入れるときに、接続先を読む */
+    outputs?: FlowOutput[];
+}
+
+export interface FlowOutput {
+    name: string;
+    /** srt-listener (denpachan が繋ぎに行く) / srt-caller (MediaConnect が denpachan へ繋ぎに来る) など */
+    protocol?: string;
+    /** srt-listener のとき: 繋ぎに行く先のアドレス */
+    listenerAddress?: string;
+    /** srt-listener のとき: 繋ぎに行く先のポート。srt-caller のとき: MediaConnect が繋ぎに来るポート */
+    port?: number;
 }
 
 export interface FlowMetadata {
@@ -55,6 +67,8 @@ export interface ReceiverPort {
     connected(): boolean;
     channel(ch: number): ReceiverChannel | undefined;
     call(method: string, params: Record<string, unknown>): Promise<unknown>;
+    /** 配信テスト用のチャンネルの受信の設定を、受信口から変えられるか (denpachan の hello の allowConfigure) */
+    canConfigure(): boolean;
 }
 
 // ---- DNS ----

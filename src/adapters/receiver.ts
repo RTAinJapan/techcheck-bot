@@ -2,6 +2,7 @@
 // Node の WebSocket (ヘッダを付けられない) を使うので、トークンは ?token= で渡す。切れたら 2 秒後から繋ぎ直す。
 // call() で操作 (startChannel、stopChannel、setRecording、patchChannel) を通すには、denpachan の側で
 // allowControl を on にし、対象のチャンネルに「配信テスト用」の印 (testSlot) を付けておく (README の「denpachan」)。
+// patchChannel で受信の設定 (方式、接続先など) を入れるには、allowConfigure も on であること (hello で分かる)。
 
 import type { ReceiverChannel, ReceiverPort } from "../ports.js";
 
@@ -20,6 +21,7 @@ export class WsReceiver implements ReceiverPort {
     private stopped = false;
     private retryMs = 2_000;
     private failureLogged = false;
+    private allowConfigure = false;
 
     constructor(
         private readonly url: string,
@@ -54,6 +56,10 @@ export class WsReceiver implements ReceiverPort {
         return this.connected() ? this.channels.get(ch) : undefined;
     }
 
+    canConfigure(): boolean {
+        return this.connected() && this.allowConfigure;
+    }
+
     call(method: string, params: Record<string, unknown>): Promise<unknown> {
         const ws = this.ws;
         if (!ws || ws.readyState !== WebSocket.OPEN) return Promise.reject(new Error("denpachan の受信口に繋がっていません"));
@@ -74,6 +80,12 @@ export class WsReceiver implements ReceiverPort {
         try {
             msg = JSON.parse(text) as Record<string, unknown>;
         } catch {
+            return;
+        }
+        if (msg.event === "hello") {
+            // 繋がるたびに 1 回届く。allowConfigure が無い版の denpachan は、受信の設定を変えられない
+            this.allowConfigure = msg.allowConfigure === true;
+            this.log(`denpachan: 版 ${String(msg.version ?? "?")} / 操作 ${msg.allowControl === true ? "可" : "不可"} / 受信の設定の変更 ${this.allowConfigure ? "可" : "不可"}`);
             return;
         }
         if (msg.event === "channels" && Array.isArray(msg.channels)) {

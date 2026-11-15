@@ -5,10 +5,10 @@
 import { randomUUID } from "node:crypto";
 import { type Advice, type SrtSample, advise, nextLatency } from "./advisor.js";
 import { evaluateAudioStep } from "./checks.js";
-import type { CheckStep, Config, Lang } from "./config.js";
+import type { CheckStep, Config, FlowConfig, Lang } from "./config.js";
 import type { I18n } from "./i18n.js";
 import { langFromLocale } from "./i18n.js";
-import type { Button, ChatPort, Clock, DnsPort, FlowPort, OutMessage, ReceiverChannel, ReceiverPort, SheetPort, WebhookPort } from "./ports.js";
+import type { Button, ChatPort, Clock, DnsPort, FlowInfo, FlowPort, OutMessage, ReceiverChannel, ReceiverPort, SheetPort, WebhookPort } from "./ports.js";
 import { audioVerdictColumn, buildRow, buildWebhookPayload, columnLetter, formatRecPos, formatTime } from "./record.js";
 import type { FinishedRecord, Phase, QueueOffer, QueueState, Session, SlotState, SrtSlotState } from "./session.js";
 import type { KeyValueStore } from "./store.js";
@@ -461,7 +461,9 @@ export class TechcheckService {
             else {
                 if (!ch.testSlot) problems.push(`ch${channel} に「配信テスト用」の印がありません`);
                 // 設定ファイルに書いた枠は /techcheck slot の検証を通っていないので、受信の方式もここで確かめる
-                if (ch.source.protocol !== "srt") problems.push(this.wrongProtocol(channel, ch, "SRT"));
+                // (bot が受信の設定を入れるときは、準備の中で入れ直すので見ない)
+                if (!this.cfg.denpachan.configure && ch.source.protocol !== "srt") problems.push(this.wrongProtocol(channel, ch, "SRT"));
+                if (this.cfg.denpachan.configure && !this.d.rx.canConfigure()) problems.push(this.cannotConfigure());
                 if (ch.status !== "stopped") problems.push(`ch${channel} が止まっていません (${ch.status})`);
             }
         }
@@ -558,6 +560,12 @@ export class TechcheckService {
             if (!info.ingestIp || !info.ingestPort) throw new Error("フローの ingest の IP / ポートが分かりません");
             const domainProblem = await this.domainProblem(flowCfg.domain, info.ingestIp);
             if (domainProblem) throw new Error(domainProblem);
+            if (this.cfg.denpachan.configure) {
+                // フローの出力に合わせて、枠のチャンネルの受信の設定を入れる (人が画面で合わせなくてよいように)
+                const source = this.srtSourceFor(flowCfg, info);
+                this.log(`${tag}: denpachan の ch${channel} に受信の設定を入れます (${describeSource(source)})`);
+                await this.d.rx.call("patchChannel", { ch: channel, patch: { source } });
+            }
             this.log(`${tag}: フロー ${flowCfg.name} は ACTIVE (ingest ${info.ingestIp}:${info.ingestPort})。denpachan の ch${channel} と録画を始めます`);
             channelStarted = true;
             await this.d.rx.call("startChannel", { ch: channel });
@@ -684,6 +692,33 @@ export class TechcheckService {
         }
     }
 
+    private cannotConfigure(): string {
+        return "denpachan が、受信の設定の変更を許していません。denpachan の全体設定で「受信の設定の変更も許す」を on にしてください (この項目が無い版の denpachan では、bot の設定の denpachan.configure を false にして、画面で合わせます)";
+    }
+
+    /**
+     * SRT の枠のチャンネルに入れる受信の設定。フローの出力 (flows[].output) の接続先から作る。
+     * 出力が SRT listener なら denpachan は caller で繋ぎに行き、SRT caller なら denpachan が listener で待つ。
+     * latency は変えない (MediaConnect → denpachan の区間の値で、運営が /techcheck latency-receiver で決める)。
+     */
+    private srtSourceFor(flowCfg: FlowConfig, info: FlowInfo): Record<string, string | number> {
+        const outputs = info.outputs ?? [];
+        const out = outputs.find((o) => o.name === flowCfg.output);
+        if (!out) {
+            throw new Error(`フロー ${flowCfg.name} に出力 "${flowCfg.output}" がありません (ある出力: ${outputs.map((o) => o.name).join("、") || "なし"})。flows の output を確かめてください`);
+        }
+        const encryption = { passphrase: flowCfg.outputPassphrase, pbkeylen: flowCfg.outputPassphrase ? flowCfg.pbkeylen : 0, streamId: "" };
+        if (out.protocol === "srt-listener") {
+            if (!out.listenerAddress || !out.port) throw new Error(`フロー ${flowCfg.name} の出力 "${out.name}" の接続先が分かりません`);
+            return { protocol: "srt", mode: "caller", host: out.listenerAddress, port: out.port, ...encryption };
+        }
+        if (out.protocol === "srt-caller") {
+            if (!out.port) throw new Error(`フロー ${flowCfg.name} の出力 "${out.name}" のポートが分かりません`);
+            return { protocol: "srt", mode: "listener", host: "0.0.0.0", port: out.port, ...encryption };
+        }
+        throw new Error(`フロー ${flowCfg.name} の出力 "${out.name}" は SRT ではありません (${out.protocol ?? "不明"})。denpachan が受けられるのは SRT listener か SRT caller の出力です`);
+    }
+
     private wrongProtocol(channel: number, ch: ReceiverChannel, want: string): string {
         return `denpachan の ch${channel} の受信が ${want} ではありません (${ch.source.protocol} ${ch.source.mode})。denpachan のチャンネルの設定か、枠の設定 (slots) を直してください。`;
     }
@@ -704,8 +739,11 @@ export class TechcheckService {
                 if (!isRight(ch)) out.push(`${label}: ${this.wrongProtocol(channel, ch, want)}`);
             }
         };
-        this.slots.srt.forEach((slot, i) => check(this.srtSlotLabel(i), slot.channel, (c) => c.source.protocol === "srt", "SRT"));
-        check("RTMP の枠", this.slots.rtmp.channel, (c) => c.source.protocol === "rtmp" && c.source.mode === "pull", "RTMP の pull");
+        // bot が受信の設定を入れるなら、今の方式は問わない (テストを始めるときに入れ直す)。入れられるかだけを見る
+        const configure = this.cfg.denpachan.configure;
+        if (configure && !this.d.rx.canConfigure()) out.push(this.cannotConfigure());
+        this.slots.srt.forEach((slot, i) => check(this.srtSlotLabel(i), slot.channel, (c) => configure || c.source.protocol === "srt", "SRT"));
+        check("RTMP の枠", this.slots.rtmp.channel, (c) => configure || (c.source.protocol === "rtmp" && c.source.mode === "pull"), "RTMP の pull");
         return out;
     }
 
@@ -1027,7 +1065,13 @@ export class TechcheckService {
 
     private async goRtmp(s: Session, reason: string): Promise<void> {
         const rtmpCh = this.slots.rtmp.channel === undefined ? undefined : this.d.rx.channel(this.slots.rtmp.channel);
-        const wrong = rtmpCh && (rtmpCh.source.protocol !== "rtmp" || rtmpCh.source.mode !== "pull") ? ` ${this.wrongProtocol(rtmpCh.ch, rtmpCh, "RTMP の pull")}` : "";
+        const configure = this.cfg.denpachan.configure;
+        const wrong =
+            configure && !this.d.rx.canConfigure()
+                ? ` ${this.cannotConfigure()}`
+                : !configure && rtmpCh && (rtmpCh.source.protocol !== "rtmp" || rtmpCh.source.mode !== "pull")
+                  ? ` ${this.wrongProtocol(rtmpCh.ch, rtmpCh, "RTMP の pull")}`
+                  : "";
         if (!this.rtmpAvailable() || wrong) {
             s.videoVerdict = "NG";
             await this.ops(`RTMP の枠が使えません。${wrong}${s.displayName} の映像が安定しません (${reason})。連絡してください ${this.d.chat.threadUrl(s.threadId)}`);
@@ -1038,6 +1082,12 @@ export class TechcheckService {
         const channel = this.slots.rtmp.channel!;
         s.rtmp = { channel };
         try {
+            if (configure) {
+                // RTMP サーバから pull する設定を入れる (URL は、配信者に案内するものと同じ)
+                const r = this.cfg.rtmp;
+                this.log(`${s.displayName}: denpachan の ch${channel} に受信の設定を入れます (RTMP の pull rtmp://${r.domain}/${r.app}/…)`);
+                await this.d.rx.call("patchChannel", { ch: channel, patch: { source: { protocol: "rtmp", mode: "pull", url: `rtmp://${r.domain}/${r.app}/${r.key}` } } });
+            }
             await this.d.rx.call("startChannel", { ch: channel });
             await this.d.rx.call("setRecording", { ch: channel, enabled: true });
         } catch (e) {
@@ -1362,8 +1412,11 @@ export class TechcheckService {
         }
         const usedBySession = this.sessions.some((s) => (s.srt.channel === channel && !s.srt.released) || s.rtmp?.channel === channel);
         if (ch.status !== "stopped" && !usedBySession) problems.push(`ch${channel} が止まっていません (${ch.status})`);
-        if (kind === "srt" && ch.source.protocol !== "srt") problems.push(`ch${channel} の受信が SRT ではありません (${ch.source.protocol})`);
-        if (kind === "rtmp" && (ch.source.protocol !== "rtmp" || ch.source.mode !== "pull")) {
+        // bot が受信の設定を入れるなら、今の方式は問わない (テストを始めるときに入れ直す)
+        const configure = this.cfg.denpachan.configure;
+        if (configure && !this.d.rx.canConfigure()) problems.push(this.cannotConfigure());
+        if (!configure && kind === "srt" && ch.source.protocol !== "srt") problems.push(`ch${channel} の受信が SRT ではありません (${ch.source.protocol})`);
+        if (!configure && kind === "rtmp" && (ch.source.protocol !== "rtmp" || ch.source.mode !== "pull")) {
             problems.push(`ch${channel} の受信が RTMP の pull ではありません (${ch.source.protocol} ${ch.source.mode})`);
         }
         if (kind === "srt") {
@@ -1538,6 +1591,11 @@ function round1(v: number | undefined): number | undefined {
 
 export function errorText(e: unknown): string {
     return e instanceof Error ? e.message : String(e);
+}
+
+/** 受信の設定をログ用に書く (パスフレーズそのものは出さない) */
+function describeSource(source: Record<string, string | number>): string {
+    return `${source.protocol} ${source.mode} ${source.host}:${source.port}${source.passphrase ? "、パスフレーズあり" : ""}`;
 }
 
 /** ログ用に 1 行にする (改行は " / " にし、長すぎるものは切る) */

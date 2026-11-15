@@ -61,7 +61,7 @@ cp config.example.yaml config.yaml
 
 - source は SRT listener にする (配信者が caller)。
 - source の `MinLatency` は、`latency.initialMs` (既定 120 ms) 以下にする。これより大きいと、配信者が OBS で設定した latency が効かない。
-- denpachan 向けの SRT の出力を足しておく。
+- denpachan 向けの SRT の出力を足しておく (ほかの受け手とは別の出力にする)。
 - スレッドに配信の静止画を貼るには、フローのサムネイル (`SourceMonitoringConfig` の `ThumbnailState`) を有効にする。
 - source に SRT の暗号化を設定しているなら、そのパスワードを `flows[].passphrase` に書く。設定していなければ書かない。
 - フローと配信用のドメインを組にして `flows` に書く。bot が開始・停止・監視するのは、ここに書いたフローだけ。
@@ -70,7 +70,26 @@ cp config.example.yaml config.yaml
 
 - 全体設定で、メトリクスの受信口を有効にし、操作の許可 (`allowControl`) も on にする。
 - 枠に使うチャンネルに「配信テスト用」の印を付ける。bot が操作できるのは、印のあるチャンネルだけ。
-- SRT の枠のチャンネルはフローの出力を、RTMP の枠のチャンネルは RTMP サーバの配信を受けるようにしておく。
+- 枠のチャンネルの受信の設定 (SRT の枠はフローの出力を受ける、RTMP の枠は RTMP サーバから pull する) は、bot に入れさせるか、画面で合わせるかを選ぶ。
+
+**bot に入れさせる (おすすめ)。** SRT と RTMP、caller と listener の取り違えが起きない。
+
+```yaml
+flows:
+  - name: flow-a
+    arn: arn:aws:mediaconnect:...
+    domain: srt-a.example.jp
+    output: flow-a-denpachan      # denpachan が受ける、フローの出力の名前
+denpachan:
+  configure: true
+```
+
+- denpachan の全体設定で「受信の設定の変更も許す」(`allowConfigure`) も on にする。この項目のある版の denpachan が要る。
+- bot は、テストを始めるたびに、フローの出力の接続先を読んで、枠のチャンネルに入れる。出力が SRT listener なら denpachan は caller で繋ぎに行き、SRT caller なら listener で待つ。RTMP の枠には、RTMP サーバから pull する URL を入れる。
+- 出力は、ほかの受け手 (vMix など) と分ける。SRT listener の出力に繋げるのは、同時に 1 つだけ。
+- 出力に SRT の暗号化を設定しているなら、そのパスワードを `flows[].outputPassphrase` に書く。
+
+**画面で合わせる。** `denpachan.configure` を書かなければ (既定)、bot は受信の設定に触らない。SRT の枠のチャンネルはフローの出力を、RTMP の枠のチャンネルは RTMP サーバの配信を受けるように、denpachan の画面で設定しておく。合っていなければ、bot は起動のときとテストを始める前に知らせる。
 
 ### 同時に複数人をテストする
 

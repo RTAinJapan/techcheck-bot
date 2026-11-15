@@ -243,6 +243,8 @@ bot は denpachan の区間の数字を判定には使わず、記録 (運営の
 | | `flows[].domain` | 配信用のドメイン。配信者にはこれを案内する (IP アドレスは出さない) | ◯ |
 | | `flows[].passphrase` | SRT のパスフレーズ (秘密)。フローの source に SRT の暗号化を設定しているときだけ書き、そのパスワードと同じ値にする。空なら、案内する URL にパスフレーズを入れない (暗号化していないフローにパスフレーズ付きで送ると、接続できない) | |
 | | `flows[].pbkeylen` | 鍵長 (パスフレーズがあるときだけ使う) | 16 |
+| | `flows[].output` | denpachan が受ける、フローの出力の名前 (MediaConnect の出力の Name)。`denpachan.configure` が true のとき必須。bot がこの出力の接続先を `DescribeFlow` で読み、枠のチャンネルに入れる | |
+| | `flows[].outputPassphrase` | その出力に SRT の暗号化を設定しているときのパスワード (秘密) | |
 | RTMP | `rtmp.domain` | ECS の RTMP サーバの配信用のドメイン | ◯ |
 | | `rtmp.app` / `rtmp.key` | 案内する app とストリームキー (キーは秘密) | ◯ |
 | | `rtmp.statsUrl` | RTMP サーバの統計 API (nginx-rtmp の `/stat` など)。**今は読まない** (RTMP は denpachan の受信状態だけで判定する。§3.1) | |
@@ -253,6 +255,7 @@ bot は denpachan の区間の数字を判定には使わず、記録 (運営の
 | | `slots.rtmp.channel` | RTMP の枠に使う denpachan のチャンネル番号 | |
 | denpachan | `denpachan.host` / `denpachan.port` | メトリクスの受信口 (§3.2) | `127.0.0.1` / `9100` |
 | | `denpachan.token` | 受信口のトークン (秘密)。loopback 以外に繋ぐときは必須 | |
+| | `denpachan.configure` | true なら、テストを始めるときに、bot が枠のチャンネルに受信の設定を入れる (§5.8)。denpachan の `allowConfigure` が on であること。false なら、受信の設定は denpachan の画面で合わせておく | `false` |
 | シート | `sheet.spreadsheetId` | 記録するスプレッドシートの ID | ◯ |
 | | `sheet.tabName` | 記録するシートの名前 | `techcheck` |
 | | `sheet.credentialsFile` | Google のサービスアカウントの鍵のファイル (秘密) | ◯ |
@@ -544,6 +547,20 @@ sequenceDiagram
 - 待ちの列は bot ごとに別。配信者は、空いている方のチャンネルで `/techcheck start` を実行する。運営のコマンド (`status`、`cancel`、`review` など) は、そのテストを受けた bot に対して実行する。
 - `/techcheck` は bot の数だけ候補に出る。サーバの設定の「連携サービス」で、bot ごとに、コマンドを使えるチャンネルを自分の配信テストのチャンネルに絞っておくと、チャンネルごとに 1 つだけ出る。
 - **同じトークンの bot を 2 つ動かしてはいけない。** 両方が同じコマンドやボタンを受け取り、返事が衝突する。進行中のテストや待ちの列も、それぞれが別々に持ってしまう。
+
+### 5.8 枠のチャンネルの受信の設定を bot が入れる
+
+枠のチャンネルは、SRT の枠ならフローの出力を、RTMP の枠なら RTMP サーバの配信を受けるように設定しておく必要がある。人が denpachan の画面で合わせると、SRT と RTMP、caller と listener を取り違えやすい (取り違えると、配信は MediaConnect まで届くのに denpachan が live にならない)。`denpachan.configure` を true にすると、bot が入れる。
+
+- **SRT の枠**: テストの準備 (§5.1 の 5) で、フローが ACTIVE になりドメインを確かめたあと、チャンネルを開始する前に入れる。接続先は、`DescribeFlow` の出力のうち `flows[].output` の名前のものから読む。
+  - 出力が SRT listener なら: `protocol = srt`、`mode = caller`、接続先は出力の `ListenerAddress` と `Port`。
+  - 出力が SRT caller なら: `protocol = srt`、`mode = listener`、`host = 0.0.0.0`、ポートは出力の `Port`。
+  - パスフレーズは `flows[].outputPassphrase` (無ければ空にする)。latency は変えない (MediaConnect → denpachan の区間の値で、運営が `/techcheck latency-receiver` で決める)。
+  - 出力が見つからない、SRT でない、接続先が分からないときは、準備の失敗として枠を止め、運営に知らせる (ある出力の名前も伝える)。
+- **RTMP の枠**: RTMP へ案内するとき (§6) に、`protocol = rtmp`、`mode = pull`、URL は `rtmp://<rtmp.domain>/<rtmp.app>/<rtmp.key>` を入れてから、チャンネルを開始する。
+- 入れるのは denpachan の受信口の `patchChannel` (§3.2)。denpachan の側で `allowControl` と `allowConfigure` の両方が on で、チャンネルに「配信テスト用」の印があること。許されていない (`hello` の `allowConfigure` が false、またはこの項目が無い版) ときは、起動のとき・テストを始める前・`/techcheck slot` で知らせ、テストは始めない。
+- bot が入れるときは、チャンネルの今の受信の方式は確かめない (入れ直すので)。入れないとき (`denpachan.configure` が false) は、方式が合っているかを、起動のとき・テストを始める前・`/techcheck slot` で確かめる。
+- 「配信テスト用」の印を付けること、録画先、音声の出力先、仮想カメラは、bot からは変えられない (人が画面で決める)。
 
 ## 6. 配信の確認と latency の調整
 

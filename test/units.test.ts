@@ -192,6 +192,12 @@ describe("config", () => {
         assert.deepEqual(loadQueue({ entries: [], offer: { userId: "U1", offeredAt: 1 } }).offers, [{ userId: "U1", offeredAt: 1 }]);
         assert.deepEqual(loadQueue(undefined), { entries: [], offers: [] });
     });
+    it("denpachan.configure が true なら、フローに output が要る", () => {
+        assert.throws(() => parseConfig(`${baseYaml}denpachan: { configure: true }\n`, {}), /flows\.0\.output.*フロー "flow-a" に output/);
+        const ok = parseConfig(`${baseYaml.replace("    passphrase: pass-a\n", "    passphrase: pass-a\n    output: sub\n")}denpachan: { configure: true }\n`, {});
+        assert.equal(ok.flows[0]!.output, "sub");
+        assert.equal(testConfig().denpachan.configure, false, "既定は false");
+    });
     it("quiet の手順の前に silence が要る", () => {
         const yaml = `${baseYaml}checks:\n  - { id: q, kind: quiet, seconds: 5, text: { ja: a, en: a }, failHint: { ja: b, en: b } }\n`;
         assert.throws(() => parseConfig(yaml, {}), /silence/);

@@ -82,6 +82,7 @@ Discord の権限の名前は、README と createToken.md では Developer Porta
 | 「トークンと権限」の denpachan と、「denpachan」の準備 | `src/adapters/receiver.ts` (繋ぎ方とトークン)、`src/service.ts` (呼ぶメソッド: `startChannel`、`stopChannel`、`setRecording`、`patchChannel`)、`src/config.ts` (loopback 以外ではトークンが必須) |
 | 「準備」の設定ファイル (`${環境変数名}`、相対パス)、「動かす」の設定ファイルの場所 | `src/config.ts` の `expandEnv`、`src/index.ts` の `main` |
 | 「使い方」のコマンドの表 | `src/discord/commands.ts` (定義)、`src/discord/bot.ts` の `InteractionHandler` (運営のロールの確認) |
+| 「denpachan」の、受信の設定を bot に入れさせる (`denpachan.configure`、`flows[].output`) | `src/service.ts` (`srtSourceFor`、`prepare`、`goRtmp`、`slotMismatches`)、`src/adapters/receiver.ts` (`hello` の `allowConfigure`)、`src/adapters/aws.ts` (フローの出力) |
 | 「同時に複数人をテストする」の A (SRT の枠を並べる) | `src/config.ts` (`slots.srt`)、`src/service.ts` (`loadSlots`、`freeSrtSlots`、`tickQueue`) |
 
 設定の項目を足したり変えたりしたら、`src/config.ts`、`config.example.yaml`、[design.md の「設定値の一覧」](design.md#設定値の一覧) をそろえる。
@@ -98,4 +99,5 @@ Discord の権限の名前は、README と createToken.md では Developer Porta
 - 同時に複数人をテストする動作 ([design.md の §5.7](design.md#57-同時に複数人をテストする))。
   - A (SRT の枠を増やす) は、偽物の外の口での試験だけ。実際に 2 件以上を同時に受けたときの回線と PC の負荷は見ていない。
   - B (bot を別々に動かす) は、コードを変えずにできるはずだが、実際に 2 つ動かしてはいない。サーバの設定でコマンドを使えるチャンネルを bot ごとに絞る手順も、Discord の機能の説明から書いたもの。
+- 受信の設定を bot が入れる動作 ([design.md の §5.8](design.md#58-枠のチャンネルの受信の設定を-bot-が入れる))。bot の側は偽物の外の口での試験、denpachan の側は受信口の試験 (`ws_test.sh`) で確かめてあるが、両方を繋いで実際のフローの出力を受けるところは通していない。出力が SRT caller の場合 (denpachan が listener で待つ) は、とくに試していない。
 - denpachan のメトリクスの受信口と実際に繋いだ動作。`channels` メッセージの形は denpachan の `src/engine/metrics_view.cpp` に合わせて試験している。
