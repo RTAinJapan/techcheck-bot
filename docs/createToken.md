@@ -1,9 +1,9 @@
-# トークンの払い出し (Discord と AWS)
+# トークンの払い出し
 
-bot を動かすのに要る Discord と AWS の認証情報を、用意する手順。どの権限が何のために要るかは [README の「トークンと権限」](../README.md#トークンと権限)。
+bot を動かすのに要る Discord、AWS、Google の認証情報を、用意する手順。どの権限が何のために要るかは [README の「トークンと権限」](../README.md#トークンと権限)。
 
-- 払い出した値は秘密。`config.yaml` に直接書くか、環境変数に入れて `${環境変数名}` で読ませる。リポジトリには入れない。
-- 画面の名前は、Discord は Developer Portal の英語の表示、AWS は日本語のコンソールの表示で書いてある。表示の言語が違うと、訳された名前で出る。
+- 払い出した値は秘密。`config.yaml` に直接書くか、環境変数に入れて `${環境変数名}` で読ませる。キーのファイルも含めて、リポジトリには入れない。
+- 画面の名前は、Discord の Developer Portal と Google Cloud のコンソールは英語の表示、AWS は日本語のコンソールの表示で書いてある。表示の言語が違うと、訳された名前で出る。
 
 ## Discord
 
@@ -180,3 +180,39 @@ npm start
 AWS CLI を入れられないときや、短い時間だけ試すときは、AWS アクセスポータルで、アカウントの許可セットの横の「アクセスキー」を開き、表示された環境変数 (`AWS_ACCESS_KEY_ID`、`AWS_SECRET_ACCESS_KEY`、`AWS_SESSION_TOKEN`) を入れてから bot を起動する。
 
 この認証情報は、許可セットのセッション期間 (最大 12 時間) で切れ、自動では更新されない。長く動かすときは、上のプロファイルを使う。
+
+## Google (スプレッドシート)
+
+bot は、Google Cloud のサービスアカウントのキー (JSON ファイル) で Google Sheets API を呼び、結果のシートに書く。シートに書けるかどうかは、Google Cloud の IAM ロールではなく、シートの共有で決まる。
+
+### 1. Google Sheets API を有効にする
+
+1. [Google Cloud のコンソール](https://console.cloud.google.com/)で、bot 用のプロジェクトを選ぶ (無ければ作る)。
+2. `APIs & Services` → `Library` で `Google Sheets API` を探し、`Enable` を押す。
+
+### 2. サービスアカウントを作る
+
+1. `IAM & Admin` → `Service Accounts` を開き、サービスアカウントを作る (`Create service account`)。
+2. 名前を入れて `Done` を押す。プロジェクトのロールを付ける手順は、飛ばしてよい (bot には要らない)。
+3. 一覧に出たサービスアカウントのメールアドレス (`<名前>@<プロジェクト>.iam.gserviceaccount.com`) を控える。
+
+作る人には、プロジェクトの `Create Service Accounts` (`roles/iam.serviceAccountCreator`) のロールが要る。
+
+### 3. キーを作る
+
+1. サービスアカウントのメールアドレスを押して開き、`Keys` のタブを開く。
+2. `Add key` → `Create new key` を選び、`Key type` を `JSON` にして `Create` を押す。
+3. JSON ファイルがダウンロードされる。これが `sheet.credentialsFile` に書くファイル。見本の設定では、`config.yaml` と同じフォルダの `google-service-account.json`。
+
+- キーのファイルは、あとからダウンロードし直せない。無くしたら、新しいキーを作り、古いキーを消す。
+- 作る人には、`Service Account Key Admin` (`roles/iam.serviceAccountKeyAdmin`) のロールが要る。
+- 組織のポリシー `iam.disableServiceAccountKeyCreation` が有効だと、キーを作れない。2024 年 5 月 3 日以降に作った組織では、既定で有効になっている。作れないときは、組織の管理者に、このプロジェクトで外してもらう。
+- `google-service-account*.json` という名前のファイルは、このリポジトリの `.gitignore` で git の管理から外してある。別の名前にするときは、リポジトリに入れないよう気を付ける。
+
+### 4. シートを共有する
+
+1. 結果を書くスプレッドシートを開き (無ければ作る)、共有 (`Share`) を開く。
+2. 2 で控えたサービスアカウントのメールアドレスを、「編集者」(`Editor`) で足す。通知 (`Notify people`) のチェックは外す。
+3. `sheet.tabName` (既定は `techcheck`) と同じ名前のシート (タブ) を作っておく。1 行目が空なら、bot が見出しを書く。
+
+スプレッドシートの ID は、URL の `https://docs.google.com/spreadsheets/d/<ここ>/edit` の部分。これが `sheet.spreadsheetId`。

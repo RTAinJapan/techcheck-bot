@@ -40,7 +40,7 @@ cp config.example.yaml config.yaml
 
 ### トークンと権限
 
-Discord と AWS のトークンを用意する手順は [docs/createToken.md](docs/createToken.md)。AWS のアカウントは、IAM Identity Center で管理している前提。
+トークンを用意する手順は [docs/createToken.md](docs/createToken.md)。AWS のアカウントは、IAM Identity Center で管理している前提。
 
 | サービス | 設定 | 要る権限 | 備考 |
 | --- | --- | --- | --- |
@@ -50,7 +50,7 @@ Discord と AWS のトークンを用意する手順は [docs/createToken.md](do
 | Discord (webhook) | `notify.webhookUrl` | 無い (URL そのものが秘密) | 未設定なら結果の通知を送らない |
 | AWS MediaConnect | IAM Identity Center の許可セットを割り当てたプロファイル (環境変数 `AWS_PROFILE`)。リージョンは `aws.region` | 許可セットのポリシーに `mediaconnect:DescribeFlow`、`mediaconnect:StartFlow`、`mediaconnect:StopFlow`、`mediaconnect:DescribeFlowSourceMetadata`、`mediaconnect:DescribeFlowSourceThumbnail` | Resource は `flows` に書いたフローの ARN に絞る |
 | AWS CloudWatch | 同上 | 同じ許可セットのポリシーに `cloudwatch:GetMetricData` | Resource は `*` (リソースで絞れないアクション) |
-| Google スプレッドシート | `sheet.credentialsFile`、`sheet.spreadsheetId` | シートを、サービスアカウントのメールアドレスに「編集者」で共有する | GCP のプロジェクトで Google Sheets API を有効にしておく。IAM ロールは要らない |
+| Google スプレッドシート | `sheet.credentialsFile`、`sheet.spreadsheetId`、`sheet.tabName` | シートを、サービスアカウントのメールアドレスに「編集者」で共有する | Google Cloud のプロジェクトで Google Sheets API を有効にしておく。IAM ロールは要らない。`sheet.tabName` の名前のシート (タブ) を作っておく |
 | denpachan | `denpachan.host`、`denpachan.port`、`denpachan.token` | 下の「denpachan」のとおり | トークンは、loopback (同じ PC) に繋ぐなら無くてよい。それ以外では必須 |
 
 - Discord の権限の名前は、Developer Portal の日本語の表示のもの。
@@ -107,6 +107,6 @@ npm start
 
 ## ドキュメント
 
-- トークンの払い出し (Discord と AWS): [docs/createToken.md](docs/createToken.md)
+- トークンの払い出し (Discord、AWS、Google): [docs/createToken.md](docs/createToken.md)
 - 設計 (テストの流れ、判定の規則、設定値の一覧): [docs/design.md](docs/design.md)
 - 開発 (ファイルの構成、試験、README とコードの対応): [docs/development.md](docs/development.md)
