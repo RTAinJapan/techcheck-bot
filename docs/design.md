@@ -508,7 +508,7 @@ sequenceDiagram
 - 判定のあいだは「そのまま配信を続けてください (ゲーム画面を動かしていると確かめやすいです)」と出し、静止画を 1 枚貼る。
 - **正しく配信できていそうなら**、その旨を伝える: 「映像は問題なく届いています。latency は **N000 μs** のままで本番もお願いします」。運営への通知にも流す。続けて音声とその他のチェック (5.4) に進む。
   - **人に見せる latency は、OBS の URL に入れる値 (μs) だけにする。ms は出さない。配信者にも運営にも同じ。**
-    - 配信者向け: この文、余裕があるときの「N000 μs まで下げても大丈夫です」、上げてもらう案内、「N000 μs で計測し直します」、最後のまとめの「本番の latency: N000 μs」。
+    - 配信者向け: この文、上げてもらう案内、「N000 μs で計測し直します」、最後のまとめの「本番の latency: N000 μs」。
     - 運営向け: 運営への通知 (「映像 OK: … latency N000 μs」)、`/techcheck status`、`/techcheck latency` (入れる値も返事も μs)、webhook の「確定した latency」、シートの「確定した latency (μs)」「推奨値 (μs)」。
     - 配信者が触るのは OBS の SRT の URL の `latency=` だけで、その単位はマイクロ秒 (180 ms なら `latency=180000`)。運営も μs で覚えている。ms の数字を見せると、そのまま URL に入れてしまう。両方を並べても、どちらを入れるのかで迷うだけなので、片方にする (`src/advisor.ts` の `obsLatency`)。
     - ms のままの所: bot の中の計算、設定ファイル (`latency.initialMs` など)、測った値 (RTT、ジッタ)、denpachan 側の latency (`/techcheck latency-receiver`。denpachan の設定と画面が ms)。
@@ -590,7 +590,7 @@ sequenceDiagram
    - 計測の間に、denpachan の fps の平均が期待 (`DescribeFlowSourceMetadata` の fps、無ければ `guide.expected.fps`) の 90% 未満、またはデコードエラーが 5 以上増えたら、回線でなく送出側の問題の可能性として RTMP に移す (5)。窓の半分より多くの秒で `SourceJitter` が 500 ms を超えたときも同じ (AWS の目安では切断の原因)。
 3. **上げる**: `tight` か `insufficient` なら、次の値 N = `max(推奨値, 今の値 × 1.5)` を 10 ms 単位に切り上げたもの (上限 2000 ms) を決め、スレッドで「映像が乱れる可能性があります。latency を **N000 μs** に上げてください。OBS の配信を止め、URL の `latency=` を **N000** にして、始め直してください」と頼む (新しい URL を添え、「設定した」ボタン付き)。頼んだあとに繋ぎ直したこと (§3.1。CloudWatch の `SourceUpTime` が戻った、または denpachan で途切れて戻った・`connectedSec` が戻った) を見て、「設定した」が押されているか、押されなくても繋ぎ直してから 30 秒経ったら、「今の latency = N」としてまた計測 (2 へ)。最大 4 回。上限に達している、または N が今の値より大きくならないときは RTMP へ (5)。
    - 配信者が始め直さないまま 10 分経ったら、一度だけ催促する。20 分で中断。
-4. **安定の確定**: `ok` か `generous` が出たら、さらに 60 秒 (`judge.confirmSec`) 見て、`SourceNotRecoveredPackets` が 0、`SourceContinuityCounter` と `SourceTSSyncLoss` が増えない、denpachan の `decodeErrors` が増えない、`fps` が 60 秒の平均で期待の 90% 以上であれば **確定** (§5.3 の「正しく配信できていそう」)。CloudWatch は遅れて届くので、この 60 秒の 8 割の値が揃うまで (最大 90 秒) 待つ。`generous` なら推奨値まで下げてもよいことを添える (下げるかは配信者に任せる。bot は計測し直さない。計測し直すなら運営が `/techcheck latency` で案内する)。
+4. **安定の確定**: `ok` か `generous` が出たら、さらに 60 秒 (`judge.confirmSec`) 見て、`SourceNotRecoveredPackets` が 0、`SourceContinuityCounter` と `SourceTSSyncLoss` が増えない、denpachan の `decodeErrors` が増えない、`fps` が 60 秒の平均で期待の 90% 以上であれば **確定** (§5.3 の「正しく配信できていそう」)。CloudWatch は遅れて届くので、この 60 秒の 8 割の値が揃うまで (最大 90 秒) 待つ。`generous` (回線に余裕がある) でも、配信者には「下げてもよい」とは伝えない: 下げるかどうかを委ねると、配信者は結局どうすればよいのか判断がつかない。配信者には、確定した値をそのまま使ってもらう。推奨値はシートに残るので、下げたいときは運営が `/techcheck latency` で案内し直す (bot が計測し直す)。
    - 確定できなかったとき: fps が足りない、またはデコードエラーが 5 以上増えたなら RTMP へ (5)。それ以外 (回復できなかったパケット、TS の壊れ) は 3 と同じく上げる。
 5. **RTMP への案内**: 上限まで上げても直らない、ジッタが大きい、デコードが安定しない (2〜4) ときは、**RTMP の枠** (ECS の RTMP サーバ + denpachan の pull のチャンネル) に移す。運営が `/techcheck rtmp` で移すこともできる。
    - RTMP の枠 (1 つ) が空いていれば押さえ、denpachan のそのチャンネルと録画を始め、スレッドに RTMP の URL (`rtmp://<RTMP サーバのドメイン>/<app>`) とキーを貼り、「OBS の配信の設定をこの URL に変えて、始め直してください」と頼む (「設定した」ボタン付き)。RTMP のチャンネルが `live` になったら SRT の枠を空け (SRT のチャンネルと、bot が開始したフローを止める)、待ちの列の先頭の人に知らせる (§5.1)。催促と中断は 3 と同じ。

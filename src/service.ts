@@ -1100,12 +1100,9 @@ export class TechcheckService {
         const ch = this.activeChannel(s);
         if (ch?.video?.decodeErrors !== undefined) s.summary.decodeErrors = ch.video.decodeErrors;
         if (s.protocol === "srt") {
-            const generous = s.lastAdvice?.verdict === "generous" && s.lastAdvice.recommendMs > 0;
-            await this.post(s, {
-                content:
-                    this.t(s.lang, "judge.ok", { latencyUs: obsLatency(s.latencyMs) }) +
-                    (generous ? `\n${this.t(s.lang, "judge.generous", { recommendUs: obsLatency(s.lastAdvice!.recommendMs) })}` : ""),
-            });
+            // 回線に余裕があっても「下げてもよい」とは伝えない: 下げるかどうかを配信者に委ねると、結局どうすればよいのか分からない。
+            // 配信者には、決まった値をそのまま使ってもらう。推奨値はシートに残る (運営が見て、必要なら /techcheck latency で案内し直す)
+            await this.post(s, { content: this.t(s.lang, "judge.ok", { latencyUs: obsLatency(s.latencyMs) }) });
             await this.ops(`映像 OK: ${s.displayName} (SRT、latency ${obsLatency(s.latencyMs)} μs)`);
         } else {
             await this.post(s, { content: this.t(s.lang, "judge.okRtmp") });

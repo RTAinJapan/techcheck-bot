@@ -254,7 +254,6 @@ describe("i18n", () => {
         for (const lang of ["ja", "en"] as const) {
             const texts = [
                 i18n.t(lang, "judge.ok", { latencyUs: 180000 }),
-                i18n.t(lang, "judge.generous", { recommendUs: 180000 }),
                 i18n.t(lang, "latency.ask", { latencyUs: 180000, url: "srt://x" }),
                 i18n.t(lang, "latency.remeasure", { latencyUs: 180000 }),
                 i18n.t(lang, "finish.latency", { latencyUs: 180000 }),

@@ -61,7 +61,6 @@ audio:
 
 judge:
   ok: "Your video is arriving cleanly. Please keep the latency at **{latencyUs} μs** for the event."
-  generous: "(Your connection has headroom. You may lower the latency to {recommendUs} μs, but you do not have to.)"
   okRtmp: "Your video is arriving cleanly over RTMP. Please use RTMP for the event."
 
 latency:

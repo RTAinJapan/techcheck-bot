@@ -61,7 +61,6 @@ audio:
 
 judge:
   ok: "映像は問題なく届いています。latency は **{latencyUs} μs** のままで本番もお願いします。"
-  generous: "(回線に余裕があります。latency は {recommendUs} μs まで下げても大丈夫です。下げなくても構いません。)"
   okRtmp: "RTMP で映像は問題なく届いています。本番も RTMP でお願いします。"
 
 latency:
