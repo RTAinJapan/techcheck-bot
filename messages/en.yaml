@@ -60,8 +60,8 @@ audio:
   silent: "No audio is arriving. Check the audio settings in OBS (game audio source and mute)."
 
 judge:
-  ok: "Your video is arriving cleanly. Please keep the latency at **{latencyMs} ms** for the event."
-  generous: "(Your connection has headroom. You may lower the latency to {recommendMs} ms, but you do not have to.)"
+  ok: "Your video is arriving cleanly. Please keep the latency at **{latencyMs} ms** (`latency={latencyUs}` in the OBS URL) for the event."
+  generous: "(Your connection has headroom. You may lower the latency to {recommendMs} ms (`latency={recommendUs}` in the OBS URL), but you do not have to.)"
   okRtmp: "Your video is arriving cleanly over RTMP. Please use RTMP for the event."
 
 latency:
@@ -119,7 +119,7 @@ finish:
   summaryTitle: "**Stream test results**"
   abortedTitle: "**The stream test was stopped**"
   protocol: "Protocol: {protocol}"
-  latency: "Latency for the event: {latencyMs} ms"
+  latency: "Latency for the event: {latencyMs} ms (`latency={latencyUs}` in the OBS URL)"
   bye: "You can stop streaming in OBS now. Thank you!"
 
 modal:

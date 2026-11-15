@@ -390,10 +390,10 @@ i18n:
   ```yaml
   # ja.yaml
   guide.connect: "OBS の「配信」の設定で、サーバに次の URL を入れてください。\n{url}"
-  judge.ok: "映像は問題なく届いています。latency は **{latencyMs} ms** のままで本番もお願いします。"
+  judge.ok: "映像は問題なく届いています。latency は **{latencyMs} ms** (OBS の URL では `latency={latencyUs}`) のままで本番もお願いします。"
   # en.yaml
   guide.connect: "In OBS, open Settings > Stream and set the server to:\n{url}"
-  judge.ok: "Your video is arriving cleanly. Please keep the latency at **{latencyMs} ms** for the event."
+  judge.ok: "Your video is arriving cleanly. Please keep the latency at **{latencyMs} ms** (`latency={latencyUs}` in the OBS URL) for the event."
   ```
 - **チェックの手順** (§7.1) は、手順ごとに文言を両方の言語で書く (`text: { ja: ..., en: ... }`)。片方が無い手順があれば起動しない。
 
@@ -505,7 +505,8 @@ sequenceDiagram
 配信が届いたら、**少しの間 (計測の 60 秒 + 確定の 60 秒。最短でおよそ 2 分) そのまま配信させて**判定する。手順と閾値は §6。
 
 - 判定のあいだは「そのまま配信を続けてください (ゲーム画面を動かしていると確かめやすいです)」と出し、静止画を 1 枚貼る。
-- **正しく配信できていそうなら**、その旨を伝える: 「映像は問題なく届いています。latency は **N ms** のままで本番もお願いします」。運営への通知にも流す。続けて音声とその他のチェック (5.4) に進む。
+- **正しく配信できていそうなら**、その旨を伝える: 「映像は問題なく届いています。latency は **N ms** (OBS の URL では `latency=N000`) のままで本番もお願いします」。運営への通知にも流す。
+  - **配信者に latency を ms で伝える所には、OBS の URL に入れる値も並べて出す** (この文、余裕があるときの「N ms まで下げても大丈夫です」、最後のまとめの「本番の latency: N ms」)。OBS の SRT の URL の `latency=` はマイクロ秒 (180 ms なら `latency=180000`) なので、ms の数字だけを見せると、そのまま URL に入れてしまう。運営への通知とシートは ms のまま。続けて音声とその他のチェック (5.4) に進む。
 - **できていなさそうなら** §6 の手順に入る (latency を上げてもらう → だめなら RTMP の案内)。直ったら上と同じく伝えて 5.4 へ。最後までだめなら、運営に知らせて「運営から連絡します」と伝え、音声のチェックだけは進める (録画は残る)。
 
 ### 5.4 音声とその他のチェック

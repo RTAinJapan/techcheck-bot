@@ -246,8 +246,16 @@ describe("i18n", () => {
     });
     it("差し込み", () => {
         const i18n = I18n.load(messagesDir);
-        assert.match(i18n.t("en", "judge.ok", { latencyMs: 180 }), /180 ms/);
-        assert.match(i18n.t("ja", "judge.ok", { latencyMs: 180 }), /180 ms/);
+        assert.match(i18n.t("en", "judge.ok", { latencyMs: 180, latencyUs: 180000 }), /180 ms.*`latency=180000`/);
+        assert.match(i18n.t("ja", "judge.ok", { latencyMs: 180, latencyUs: 180000 }), /180 ms.*`latency=180000`/);
+    });
+    it("配信者に latency を ms で伝える文には、OBS の URL に入れる値 (マイクロ秒) も出す", () => {
+        const i18n = I18n.load(messagesDir);
+        for (const lang of ["ja", "en"] as const) {
+            assert.match(i18n.t(lang, "finish.latency", { latencyMs: 180, latencyUs: 180000 }), /180 ms.*`latency=180000`/);
+            assert.match(i18n.t(lang, "judge.generous", { recommendMs: 60, recommendUs: 60000 }), /60 ms.*`latency=60000`/);
+            assert.match(i18n.t(lang, "latency.ask", { latencyMs: 180, latencyUs: 180000, url: "srt://x" }), /180 ms[\s\S]*180000/);
+        }
     });
 });
 

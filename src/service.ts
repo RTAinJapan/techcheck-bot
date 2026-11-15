@@ -708,7 +708,7 @@ export class TechcheckService {
         const f = this.cfg.flows.find((x) => x.name === s.srt.flowName)!;
         // パスフレーズは、フローが暗号化しているとき (設定に書いてあるとき) だけ付ける
         const encryption = f.passphrase ? `&passphrase=${encodeURIComponent(f.passphrase)}&pbkeylen=${f.pbkeylen}` : "";
-        return `srt://${f.domain}:${port}?mode=caller&latency=${latencyMs * 1000}${encryption}`;
+        return `srt://${f.domain}:${port}?mode=caller&latency=${obsLatency(latencyMs)}${encryption}`;
     }
 
     private srtPort = new Map<string, number>();
@@ -1100,8 +1100,10 @@ export class TechcheckService {
             const generous = s.lastAdvice?.verdict === "generous" && s.lastAdvice.recommendMs > 0;
             await this.post(s, {
                 content:
-                    this.t(s.lang, "judge.ok", { latencyMs: s.latencyMs }) +
-                    (generous ? `\n${this.t(s.lang, "judge.generous", { recommendMs: s.lastAdvice!.recommendMs })}` : ""),
+                    this.t(s.lang, "judge.ok", { latencyMs: s.latencyMs, latencyUs: obsLatency(s.latencyMs) }) +
+                    (generous
+                        ? `\n${this.t(s.lang, "judge.generous", { recommendMs: s.lastAdvice!.recommendMs, recommendUs: obsLatency(s.lastAdvice!.recommendMs) })}`
+                        : ""),
             });
             await this.ops(`映像 OK: ${s.displayName} (SRT、latency ${s.latencyMs} ms)`);
         } else {
@@ -1135,7 +1137,7 @@ export class TechcheckService {
             this.srtPort.set(s.id, port);
         }
         const msgId = await this.post(s, {
-            content: this.t(s.lang, "latency.ask", { latencyMs: target, latencyUs: target * 1000, url: this.srtUrl(s, port, target) }),
+            content: this.t(s.lang, "latency.ask", { latencyMs: target, latencyUs: obsLatency(target), url: this.srtUrl(s, port, target) }),
             buttons: [this.btn(s, "set", "button.set", "primary"), this.btn(s, "abort", "button.abort", "danger")],
         });
         s.pending = { kind: "latency", target, askedAt: this.now(), messageId: msgId, pressed: false, reminded: false };
@@ -1591,7 +1593,7 @@ export class TechcheckService {
     private closingMessage(s: Session, result: "done" | "aborted"): string {
         const lines = [this.t(s.lang, result === "done" ? "finish.summaryTitle" : "finish.abortedTitle")];
         lines.push(this.t(s.lang, "finish.protocol", { protocol: s.protocol.toUpperCase() }));
-        if (s.protocol === "srt" && s.confirmedLatencyMs) lines.push(this.t(s.lang, "finish.latency", { latencyMs: s.confirmedLatencyMs }));
+        if (s.protocol === "srt" && s.confirmedLatencyMs) lines.push(this.t(s.lang, "finish.latency", { latencyMs: s.confirmedLatencyMs, latencyUs: obsLatency(s.confirmedLatencyMs) }));
         for (const r of s.results) {
             const range = r.recFrom !== undefined ? ` ${formatRecPos(r.recFrom)}-${formatRecPos(r.recTo)}` : "";
             lines.push(`- ${r.id}: ${this.t(s.lang, `verdict.${r.verdict}`)}${range}`);
@@ -1812,6 +1814,14 @@ function avg(xs: number[]): number | undefined {
 
 function sum(xs: number[]): number {
     return xs.reduce((a, b) => a + b, 0);
+}
+
+/**
+ * OBS の SRT の URL に入れる latency の値。URL の `latency=` はマイクロ秒 (180 ms なら 180000)。
+ * 配信者に ms で伝える所には、URL に入れるこの値も並べて出す (ms の数字をそのまま URL に入れてしまわないように)
+ */
+export function obsLatency(latencyMs: number): number {
+    return latencyMs * 1000;
 }
 
 function round1(v: number | undefined): number | undefined {

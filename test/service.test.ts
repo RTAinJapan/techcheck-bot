@@ -63,7 +63,7 @@ describe("テストの流れ", () => {
         assert.ok(texts.some((x) => x.includes("srt://srt-a.example.jp:5000?mode=caller&latency=120000&passphrase=pass-a&pbkeylen=16")));
         assert.ok(!texts.some((x) => x.includes("203.0.113.10")));
         assert.ok(texts.some((x) => x.includes("配信が届きました")));
-        assert.ok(texts.some((x) => x.includes("映像は問題なく届いています") && x.includes("120 ms")));
+        assert.ok(texts.some((x) => x.includes("映像は問題なく届いています") && x.includes("120 ms") && x.includes("`latency=120000`")));
 
         await passChecks(w, thread);
         assert.match(w.chat.lastPost(thread)!.content, /確認はすべて終わりました/);
@@ -94,6 +94,8 @@ describe("テストの流れ", () => {
         assert.ok(payload.embeds[0]!.fields.some((f) => f.name === "確定した latency" && f.value === "120 ms"));
         assert.ok(w.chat.threads[0]!.closed);
         assert.match(w.chat.texts(thread).at(-1)!, /OBS の配信を止めてください/);
+        // ms の数字だけだと、OBS の URL (マイクロ秒) にそのまま入れてしまう。URL に入れる値も並べる
+        assert.ok(w.chat.texts(thread).at(-1)!.includes("本番の latency: 120 ms (OBS の URL では `latency=120000`)"));
 
         // 後日の音声の判定
         assert.match(await w.service.review("U1", true, "きれい"), /書きました/);
@@ -662,7 +664,7 @@ describe("latency の調整と RTMP", () => {
         await w.run(150, () => w.rx.live(7));
         const texts = w.chat.texts(thread);
         assert.ok(texts.some((x) => x.includes("latency 180 ms で計測し直します")));
-        assert.ok(texts.some((x) => x.includes("映像は問題なく届いています") && x.includes("180 ms")));
+        assert.ok(texts.some((x) => x.includes("映像は問題なく届いています") && x.includes("180 ms") && x.includes("`latency=180000`")));
     });
 
     it("上げても直らなければ RTMP に案内し、届いたら SRT の枠を空ける", async () => {
