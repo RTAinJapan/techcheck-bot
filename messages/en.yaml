@@ -86,7 +86,7 @@ rtmp:
   unstable: "Your video is not stable over RTMP either. The staff will contact you. Let's continue with the audio checks."
 
 checks:
-  intro: "Next we check audio and a few other things ({count} steps). For each step, press \"Start\" and follow the instructions."
+  intro: "Next we check audio and a few other things. For each step, press \"Start\" and follow the instructions."
   header: "**Step {n}/{total}**"
   noImage: "(We could not get a still of your stream. Please check the preview in OBS and answer.)"
   running: "Keep going for about {seconds} seconds..."

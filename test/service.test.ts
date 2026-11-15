@@ -87,7 +87,10 @@ describe("テストの流れ", () => {
         assert.equal(row[27], "OK");
         assert.match(String(row[25]), /game-audio: OK.*mic: OK.*picture: OK/);
         assert.ok(!String(row[25]).includes("reconnect"), "繋ぎ直しは既定の手順に無い");
-        assert.ok(texts.concat(w.chat.texts(thread)).some((x) => x.includes("(5 手順)")));
+        // 手順の数は、手順ごとの見出し (手順 n/5) で分かる。始めの案内には書かない
+        const all = texts.concat(w.chat.texts(thread));
+        assert.ok(all.some((x) => x.includes("**手順 1/5**")));
+        assert.ok(all.some((x) => x.startsWith("次に、音声とその他の確認をします。手順ごとに")));
         assert.equal(row[30], "問題なし");
         assert.equal(w.webhook.sent.length, 1);
         const payload = w.webhook.sent[0] as { allowed_mentions: { parse: unknown[] }; embeds: { fields: { name: string; value: string }[] }[] };

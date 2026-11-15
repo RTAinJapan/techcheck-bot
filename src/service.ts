@@ -1249,7 +1249,7 @@ export class TechcheckService {
     private async startChecks(s: Session): Promise<void> {
         s.checkIndex = 0;
         this.setPhase(s, "checks");
-        await this.post(s, { content: this.t(s.lang, "checks.intro", { count: this.checks.length }) });
+        await this.post(s, { content: this.t(s.lang, "checks.intro") });
         await this.promptStep(s);
     }
 
