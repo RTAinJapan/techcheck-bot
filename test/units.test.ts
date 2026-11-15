@@ -99,6 +99,19 @@ describe("config", () => {
         assert.deepEqual([c.guide.expected.width, c.guide.expected.height, c.guide.expected.bitrateKbps, c.guide.expected.keyframeSec], [1536, 864, 3000, 2]);
         assert.equal(c.checks.length, defaultChecks.length);
     });
+    it("web カメラ: 書かなければ使わない。URL の組は、SRT の枠の数だけ要り、https で、重ならないこと", () => {
+        assert.deepEqual(testConfig().webcam.links, []);
+        assert.deepEqual(parseConfig(`${baseYaml}webcam:\n`, {}).webcam.links, []);
+        const one = 'webcam:\n  links:\n    - { push: "https://vdo.ninja/?push=a", view: "https://vdo.ninja/?view=a" }\n';
+        const c = parseConfig(baseYaml + one, {});
+        assert.equal(c.webcam.links[0]!.push, "https://vdo.ninja/?push=a");
+        assert.deepEqual([c.webcam.browser.channel, c.webcam.browser.path, c.webcam.lostSec], ["chrome", "", 10]);
+        // 枠が 2 つなのに、組が 1 つ
+        const twoSlots = baseYaml.replace("  srt: { flow: flow-a, channel: 7 }\n", "  srt:\n    - { flow: flow-a, channel: 7 }\n    - { channel: 6 }\n");
+        assert.throws(() => parseConfig(twoSlots + one, {}), /SRT の枠の数 \(2\) 以上/);
+        assert.throws(() => parseConfig(baseYaml + one.replace("https://vdo.ninja/?view=a", "vdo.ninja/?view=a"), {}), /https:\/\/ で始まる/);
+        assert.throws(() => parseConfig(baseYaml + one.replace("?view=a", "?push=a"), {}), /同じ URL を 2 回/);
+    });
     it("webhook の URL は省ける", () => {
         const c = parseConfig(baseYaml.replace(/notify:\n {2}webhookUrl: .*\n/, ""), {});
         assert.equal(c.notify.webhookUrl, "");

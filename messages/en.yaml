@@ -35,6 +35,7 @@ button:
   voiceRetry: "Record again"
   voiceNext: "Looks good"
   done: "Finish"
+  webcamSkip: "I don't use a webcam"
 
 prepare:
   preparing: "Preparing your stream test. This takes about a minute."
@@ -55,6 +56,7 @@ wait:
   remind: "Your stream has not arrived yet. Check that you pasted the URL exactly as given and that no firewall blocks it."
   opsChecking: "Your stream is arriving, but we are checking our receiving side. Please wait a moment."
   notYet: "Nothing has arrived yet. We will tell you in this thread when it does."
+  arrivedWebcam: "Your stream has arrived. Keep streaming in OBS."
 
 metadata:
   noAudio: "no audio"
@@ -122,6 +124,25 @@ voice:
   skipped: "Skipping the microphone check."
   failed: "We could not record because of a problem on our side. Staff will look into it. Moving on."
 
+webcam:
+  ask: |-
+    **We check your webcam** (only if you use one). Keep streaming in OBS; do not stop it.
+    1. Open this URL in a browser (Chrome recommended) on the PC you will use at the event.
+    ```
+    {url}
+    ```
+    2. Allow camera access, select the camera you will use at the event, and press the start button.
+    We will tell you when the video arrives. If you don't use a webcam, press "I don't use a webcam".
+  arrived: "Your webcam video has arrived. Leave both the OBS stream and the webcam page running for about 2 minutes (we check that the video stays stable while you send both)."
+  remind: "Your webcam video has not arrived yet. Check that you opened the URL, allowed the camera, and pressed the start button."
+  lost: |-
+    Your webcam video stopped arriving. Reopen the webcam page and start the camera again. When it arrives, we check the video again.
+    ```
+    {url}
+    ```
+  skipped: "We skip the webcam check. Keep streaming for about 2 minutes."
+  failed: "We could not check your webcam because of a problem on our side. Staff will look into it. Close the webcam page and keep streaming for about 2 minutes."
+
 verdict:
   ok: "OK"
   ng: "problem"
@@ -133,6 +154,7 @@ finish:
   protocol: "Protocol: {protocol}"
   latency: "Latency for the event: {latencyUs} μs"
   bye: "You can stop streaming in OBS now. Thank you!"
+  webcamClose: "Close the webcam page (the browser tab)."
 
 modal:
   doneTitle: "Finish the stream test"

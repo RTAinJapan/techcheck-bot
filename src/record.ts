@@ -41,6 +41,7 @@ export const sheetColumns = [
     "音声のメモ",
     "配信者のメモ",
     "スレッド",
+    "web カメラ",
     // 列を足すときは、後ろに足す (途中に足すと、すでに書いてあるシートの列がずれる。bot は、足りない後ろの見出しだけを書き足す)。
     // 順を変えるときは、使っているシートの列も同じ順に並べ替える
 ] as const;
@@ -137,6 +138,21 @@ export function describeVoice(s: Session): string {
     return `${v.file} (${parts.join("、")})`;
 }
 
+/** web カメラ (VDO.ninja) の欄。映像の判定の間の、bot の受信の状態 */
+export function describeWebcam(s: Session): string {
+    const c = s.webcam;
+    if (!c) return "";
+    if (c.skipped) return "使わない";
+    if (c.failed) return "確認できず (bot の側の問題)";
+    if (c.arrivedAt === undefined) return "届いていない";
+    const parts = [c.width && c.height ? `${c.width}x${c.height}` : "届いた"];
+    if (c.fps !== undefined) parts.push(`${c.fps} fps`);
+    if (c.lossPct !== undefined) parts.push(`ロス ${c.lossPct} %`);
+    if (c.freezes !== undefined) parts.push(`固まった ${c.freezes} 回`);
+    if (c.drops) parts.push(`途切れ ${c.drops} 回`);
+    return parts.join(" / ");
+}
+
 /** drive は、Google ドライブの列に最初に書く文 (アップロードが済んだら、フォルダのリンクに書き換える) */
 export function buildRow(s: Session, checks: CheckStep[], result: "done" | "aborted", threadUrl: string, drive = ""): (string | number)[] {
     const m = s.summary;
@@ -175,6 +191,7 @@ export function buildRow(s: Session, checks: CheckStep[], result: "done" | "abor
         スレッド: threadUrl,
         "マイクの録音 (VC)": describeVoice(s),
         "Google ドライブ": drive,
+        "web カメラ": describeWebcam(s),
     };
     return sheetColumns.map((c) => row[c]);
 }
@@ -199,6 +216,7 @@ export function buildWebhookPayload(input: WebhookInput): unknown {
         { name: "確定した latency", value: s.protocol === "srt" && s.confirmedLatencyMs ? `${obsLatency(s.confirmedLatencyMs)} μs` : "—", inline: true },
         { name: "映像の判定", value: s.videoVerdict ?? "—", inline: true },
         { name: "おかしいが残った手順", value: ng.length > 0 ? ng.join(", ") : "なし", inline: true },
+        ...(s.webcam ? [{ name: "web カメラ", value: describeWebcam(s), inline: true }] : []),
         { name: "スレッド", value: input.threadUrl, inline: false },
         { name: "シート", value: input.sheetError ? `書けませんでした: ${input.sheetError}` : input.sheetUrl, inline: false },
     ];

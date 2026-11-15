@@ -24,9 +24,10 @@ import type {
     VoiceChannelInfo,
     VoicePort,
     VoiceRecording,
+    WebcamPort,
     WebhookPort,
 } from "./ports.js";
-import { audioVerdictColumn, buildRow, buildWebhookPayload, cellInRow, columnLetter, driveColumn, formatRecPos, formatTime } from "./record.js";
+import { audioVerdictColumn, buildRow, buildWebhookPayload, cellInRow, columnLetter, describeWebcam, driveColumn, formatRecPos, formatTime } from "./record.js";
 import type { FinishedRecord, Phase, QueueOffer, QueueState, Session, SlotState, SrtSlotState, StepRecord, UploadJob } from "./session.js";
 import type { KeyValueStore } from "./store.js";
 
@@ -41,6 +42,8 @@ export interface Deps {
     voice?: VoicePort;
     /** 録音の置き場所 (voice.dir を、設定ファイルのフォルダから見た場所にしたもの) */
     voiceDir?: string;
+    /** web カメラの受信用のページを開くブラウザ (設定の webcam.links があるときだけ渡す) */
+    webcam?: WebcamPort;
     /** 録画と録音を上げる Google ドライブ (設定の google.drive.folderId があるときだけ渡す) */
     drive?: DrivePort;
     dns: DnsPort;
@@ -90,6 +93,11 @@ const kVoiceClippedPct = 0.1;
 const kVoiceQuietDb = -40;
 /** マイクの録音: 録音が終わるはずの時刻から、これだけ過ぎても終わらなければ手順を出し直す (秒) */
 const kVoiceGraceSec = 45;
+
+/** web カメラ: 映像がこれだけ続けて届いたら、届いたとみなす (ミリ秒) */
+const kWebcamStableMs = 3_000;
+/** web カメラ: 映像の判定の間のロス率がこれ以上なら、運営に知らせる (%) */
+const kWebcamLossPct = 2;
 
 /** 設定ファイルに書いてある枠の値。保存した枠が、どの設定のときのものかを覚えておくために、枠と一緒に保存する */
 export interface SlotConfigSnapshot {
@@ -949,10 +957,18 @@ export class TechcheckService {
         this.observeReceiver(s, rxCh);
         if (s.protocol === "srt" && !s.srt.released) await this.pollCloudWatch(s);
         await this.silenceAlert(s, rxCh);
+        if (this.webcamActive(s)) {
+            // bot を起動し直したあとは、受信用のページを開き直す
+            const link = this.cfg.webcam.links[s.webcam!.link];
+            if (link && !this.d.webcam!.status(s.id)) this.d.webcam!.open(s.id, link.view);
+            if ((s.phase === "measuring" || s.phase === "confirming") && (await this.watchWebcam(s))) return;
+        }
 
         switch (s.phase) {
             case "waitingStream":
                 return this.tickWaiting(s, rxCh);
+            case "awaitingWebcam":
+                return this.tickAwaitingWebcam(s);
             case "measuring":
                 return s.protocol === "srt" ? this.tickMeasuringSrt(s, rxCh) : this.tickMeasuringRtmp(s, rxCh);
             case "confirming":
@@ -1085,7 +1101,9 @@ export class TechcheckService {
 
     private async onConnected(s: Session): Promise<void> {
         const image = await this.still(s);
-        await this.post(s, { content: this.t(s.lang, "wait.arrived"), image: image ? { name: "stream.jpg", data: image } : undefined });
+        // web カメラを使うなら、先にカメラを届けてもらい、両方を送っている状態で計測する (設計書 §5.9)
+        const webcam = this.d.webcam !== undefined && !s.webcam;
+        await this.post(s, { content: this.t(s.lang, webcam ? "wait.arrivedWebcam" : "wait.arrived"), image: image ? { name: "stream.jpg", data: image } : undefined });
         if (s.protocol === "srt" && !s.metadataChecked) {
             s.metadataChecked = true;
             const md = await this.d.flow.metadata(s.srt.flowArn).catch(() => undefined);
@@ -1104,16 +1122,138 @@ export class TechcheckService {
                 }
             }
         }
+        if (webcam) return this.askWebcam(s, false);
         this.startMeasuring(s, Math.floor(this.now() / 1000) + kWarmupSec);
     }
 
     private startMeasuring(s: Session, fromSec: number): void {
         s.measureFromSec = fromSec;
+        // web カメラの受信の統計は、ここからの差で見る
+        if (this.webcamActive(s)) {
+            const st = this.d.webcam!.status(s.id);
+            s.webcam!.base = { packetsReceived: st?.packetsReceived, packetsLost: st?.packetsLost, freezes: st?.freezes };
+            s.webcam!.lostAt = undefined;
+        }
         s.rx.fps = [];
         const ch = this.activeChannel(s);
         s.rx.decodeErrorsBase = ch?.video?.decodeErrors;
         s.rx.retransBase = ch?.tcp?.retransBytes;
         this.setPhase(s, "measuring");
+    }
+
+    // ---- web カメラ (VDO.ninja。設計書 §5.9) ----
+
+    /** このテストで、web カメラの映像を見ているか (使わない人と、bot の側の問題で見られなかったテストは見ない) */
+    private webcamActive(s: Session): boolean {
+        return this.d.webcam !== undefined && s.webcam !== undefined && !s.webcam.skipped && !s.webcam.failed;
+    }
+
+    /** ほかのテストが使っていない、送信用と受信用の URL の組 (設定の webcam.links の位置) */
+    private freeWebcamLink(s: Session): number | undefined {
+        const used = new Set(this.sessions.filter((x) => x.id !== s.id && x.webcam && !x.webcam.skipped && !x.webcam.failed).map((x) => x.webcam!.link));
+        const i = this.cfg.webcam.links.findIndex((_, n) => !used.has(n));
+        return i < 0 ? undefined : i;
+    }
+
+    /**
+     * 送信用の URL を配信者に渡し、bot は受信用の URL を開いて、映像が届くのを待つ。
+     * lost は、映像の判定の間に届かなくなって、待ち直すとき
+     */
+    private async askWebcam(s: Session, lost: boolean): Promise<void> {
+        const index = s.webcam?.link ?? this.freeWebcamLink(s);
+        const link = index === undefined ? undefined : this.cfg.webcam.links[index];
+        if (!link || index === undefined) {
+            s.webcam = { link: -1 };
+            return this.webcamFailed(s, "空いている web カメラの URL の組がありません (設定の webcam.links を確かめてください)");
+        }
+        s.webcam = { ...s.webcam, link: index, playingSince: undefined, arrivedAt: undefined, lostAt: undefined };
+        if (!this.d.webcam!.status(s.id)) this.d.webcam!.open(s.id, link.view);
+        s.webcam.messageId = await this.post(s, {
+            content: this.t(s.lang, lost ? "webcam.lost" : "webcam.ask", { url: link.push }),
+            buttons: [this.btn(s, "webcam-skip", "button.webcamSkip", "secondary"), this.btn(s, "abort", "button.abort", "danger")],
+        });
+        this.setPhase(s, "awaitingWebcam");
+    }
+
+    private async tickAwaitingWebcam(s: Session): Promise<void> {
+        const cam = s.webcam;
+        if (!cam || !this.webcamActive(s)) return this.startMeasuring(s, Math.floor(this.now() / 1000) + kWarmupSec);
+        const now = this.now();
+        const st = this.d.webcam!.status(s.id);
+        if (st?.state === "error") return this.webcamFailed(s, st.error ?? "");
+        if (st?.playing) {
+            cam.playingSince ??= now;
+            if (now - cam.playingSince >= kWebcamStableMs) {
+                cam.arrivedAt = now;
+                if (cam.messageId) await this.d.chat.clearButtons(s.threadId, cam.messageId).catch(() => undefined);
+                cam.messageId = undefined;
+                const image = await this.d.webcam!.still(s.id).catch(() => undefined);
+                await this.post(s, { content: this.t(s.lang, "webcam.arrived"), image: image ? { name: "webcam.jpg", data: image } : undefined });
+                this.log(`${s.displayName}: web カメラが届きました (${st.width ?? "?"}x${st.height ?? "?"})`);
+                this.startMeasuring(s, Math.floor(now / 1000) + kWarmupSec);
+            }
+            return;
+        }
+        cam.playingSince = undefined;
+        const elapsed = now - s.phaseSince;
+        if (!s.reminded && elapsed > this.timeout(this.cfg.timeouts.raiseRemindMin)) {
+            s.reminded = true;
+            await this.post(s, { content: this.t(s.lang, "webcam.remind") });
+        }
+        if (elapsed > this.timeout(this.cfg.timeouts.stepAbortMin)) await this.finish(s, "aborted", "web カメラが届かないまま時間切れ");
+    }
+
+    /**
+     * 映像の判定の間、web カメラが届き続けているかを見る。届かなくなったら (webcam.lostSec 秒)、判定をやめて待ち直す:
+     * 判定は、OBS の配信と WebRTC の両方を送っている状態でする。待ち直したら true
+     */
+    private async watchWebcam(s: Session): Promise<boolean> {
+        const cam = s.webcam!;
+        const st = this.d.webcam!.status(s.id);
+        if (st?.state === "error") {
+            await this.webcamFailed(s, st.error ?? "");
+            return false;
+        }
+        if (st?.playing) {
+            cam.lostAt = undefined;
+            return false;
+        }
+        const now = this.now();
+        cam.lostAt ??= now;
+        if (now - cam.lostAt < this.cfg.webcam.lostSec * 1000) return false;
+        cam.drops = (cam.drops ?? 0) + 1;
+        await this.askWebcam(s, true);
+        return true;
+    }
+
+    /** bot の側の問題で web カメラを見られない (ブラウザを開けない、など)。配信者のせいではないので、運営に知らせて、web カメラなしで進める */
+    private async webcamFailed(s: Session, error: string): Promise<void> {
+        s.webcam = { ...(s.webcam ?? { link: -1 }), failed: true };
+        await this.d.webcam?.close(s.id).catch(() => undefined);
+        await this.ops(`web カメラの映像を確認できませんでした: ${s.displayName} (${error})。web カメラなしで進めます`);
+        if (s.webcam.messageId) await this.d.chat.clearButtons(s.threadId, s.webcam.messageId).catch(() => undefined);
+        await this.post(s, { content: this.t(s.lang, "webcam.failed") });
+        if (s.phase !== "measuring" && s.phase !== "confirming") this.startMeasuring(s, Math.floor(this.now() / 1000) + kWarmupSec);
+    }
+
+    /** 映像の判定が終わったときの、web カメラの受信の状態を覚える (シートに書く)。乱れていれば運営に知らせる */
+    private async summarizeWebcam(s: Session): Promise<void> {
+        if (!this.webcamActive(s)) return;
+        const cam = s.webcam!;
+        const st = this.d.webcam!.status(s.id);
+        if (!st) return;
+        cam.width = st.width;
+        cam.height = st.height;
+        cam.fps = round1(st.fps);
+        if (st.packetsReceived !== undefined && st.packetsLost !== undefined) {
+            const received = st.packetsReceived - (cam.base?.packetsReceived ?? 0);
+            const lost = Math.max(0, st.packetsLost - (cam.base?.packetsLost ?? 0));
+            if (received + lost > 0) cam.lossPct = Math.round((lost / (received + lost)) * 1000) / 10;
+        }
+        if (st.freezes !== undefined) cam.freezes = Math.max(0, st.freezes - (cam.base?.freezes ?? 0));
+        if ((cam.lossPct ?? 0) >= kWebcamLossPct || (cam.freezes ?? 0) > 0 || (cam.drops ?? 0) > 0) {
+            await this.ops(`web カメラの映像が乱れています: ${s.displayName} (${describeWebcam(s)}) ${this.d.chat.threadUrl(s.threadId)}`);
+        }
     }
 
     // ---- 映像の判定 (SRT) ----
@@ -1191,6 +1331,7 @@ export class TechcheckService {
         s.summary.fpsAvg = round1(avg(s.rx.fps));
         const ch = this.activeChannel(s);
         if (ch?.video?.decodeErrors !== undefined) s.summary.decodeErrors = ch.video.decodeErrors;
+        await this.summarizeWebcam(s);
         if (s.protocol === "srt") {
             // 回線に余裕があっても「下げてもよい」とは伝えない: 下げるかどうかを配信者に委ねると、結局どうすればよいのか分からない。
             // 配信者には、決まった値をそのまま使ってもらう。推奨値はシートに残る (運営が見て、必要なら /techcheck latency で案内し直す)
@@ -1659,6 +1800,14 @@ export class TechcheckService {
                 await this.stepResult(s, step, { verdict: action === "yes" ? "ok" : "ng" });
                 return {};
             }
+            case "webcam-skip": {
+                if (s.phase !== "awaitingWebcam" || !s.webcam) return { ephemeral: this.t(s.lang, "button.ack") };
+                s.webcam.skipped = true;
+                await this.d.webcam?.close(s.id).catch(() => undefined);
+                await this.post(s, { content: this.t(s.lang, "webcam.skipped") });
+                this.startMeasuring(s, Math.floor(this.now() / 1000) + kWarmupSec);
+                return {};
+            }
             case "voice-skip": {
                 const step = this.checks[s.checkIndex];
                 // ボイスチャンネルが空くのを待っている間も、飛ばせる
@@ -1703,6 +1852,8 @@ export class TechcheckService {
     private async finish(s: Session, result: "done" | "aborted", reason?: string): Promise<void> {
         if (s.phase === "finished") return;
         if (this.voiceBusy === s.id) this.voiceBusy = undefined;
+        const webcamOpen = this.webcamActive(s);
+        if (s.webcam) await this.d.webcam?.close(s.id).catch((e) => this.log(`web カメラ: ${errorText(e)}`));
         this.setPhase(s, "finished");
         if (reason) s.abortReason = reason;
         const ch = this.activeChannel(s);
@@ -1740,7 +1891,7 @@ export class TechcheckService {
             });
             this.saveUploads();
         }
-        await this.post(s, { content: this.closingMessage(s, result) }).catch(() => undefined);
+        await this.post(s, { content: this.closingMessage(s, result, webcamOpen) }).catch(() => undefined);
         try {
             await this.d.webhook.send(buildWebhookPayload({ session: s, checks: this.checks, result, threadUrl, sheetUrl: this.d.sheet.url(), sheetError }));
         } catch (e) {
@@ -1754,7 +1905,7 @@ export class TechcheckService {
         );
     }
 
-    private closingMessage(s: Session, result: "done" | "aborted"): string {
+    private closingMessage(s: Session, result: "done" | "aborted", webcamOpen: boolean): string {
         const lines = [this.t(s.lang, result === "done" ? "finish.summaryTitle" : "finish.abortedTitle")];
         lines.push(this.t(s.lang, "finish.protocol", { protocol: s.protocol.toUpperCase() }));
         if (s.protocol === "srt" && s.confirmedLatencyMs) lines.push(this.t(s.lang, "finish.latency", { latencyUs: obsLatency(s.confirmedLatencyMs) }));
@@ -1762,6 +1913,8 @@ export class TechcheckService {
             const range = r.recFrom !== undefined ? ` ${formatRecPos(r.recFrom)}-${formatRecPos(r.recTo)}` : "";
             lines.push(`- ${this.stepLabel(s, r.id)}: ${this.verdictText(s, r)}${range}`);
         }
+        // カメラのページを開いたままにすると、同じ URL を使う次の人のテストに、この人の映像が届いてしまう
+        if (webcamOpen) lines.push(this.t(s.lang, "finish.webcamClose"));
         lines.push(this.t(s.lang, "finish.bye"));
         return lines.join("\n");
     }
@@ -1866,6 +2019,7 @@ export class TechcheckService {
         const step = this.checks[s.checkIndex];
         return [
             `${s.displayName}: ${s.phase}${s.phase === "checks" && step ? ` (${step.id})` : ""} / ${s.protocol.toUpperCase()} / latency ${obsLatency(s.latencyMs)} μs / 上げた回数 ${s.raises}`,
+            ...(s.webcam ? [`web カメラ: ${describeWebcam(s)}`] : []),
             a ? `推奨 ${a.recommendMs ? `${obsLatency(a.recommendMs)} μs` : "計測中"} / RTT 最大 ${a.rttMs} ms / ロス ${a.lossPct}% / 回復できなかった ${a.drops} / 判定 ${a.verdict}` : "計測前",
             this.d.chat.threadUrl(s.threadId),
         ].join("\n");

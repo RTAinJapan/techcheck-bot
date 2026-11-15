@@ -15,7 +15,7 @@ bot を直す人に向けた文書。準備と動かし方、使い方は [READM
 | `src/config.ts` | 設定ファイルの読み込みと検証 |
 | `src/i18n.ts` | 日本語 / 英語の文言 |
 | `src/ports.ts` | 外とのやりとりの口 (本物は `src/adapters/` と `src/discord/`、試験では `test/helpers.ts` の偽物) |
-| `src/adapters/` | MediaConnect / CloudWatch、denpachan の受信口、シート、webhook、DNS、静止画 (`still.ts`)、ボイスチャンネルの録音 (`voice.ts`。Ogg の書き出しは `ogg.ts`) |
+| `src/adapters/` | MediaConnect / CloudWatch、denpachan の受信口、シート、webhook、DNS、静止画 (`still.ts`)、ボイスチャンネルの録音 (`voice.ts`。Ogg の書き出しは `ogg.ts`)、web カメラの受信用のページを開くブラウザ (`webcam.ts`) |
 | `src/discord/` | `/techcheck` の定義と、コマンド・ボタン・モーダル・スレッド |
 
 ## 試験
@@ -24,6 +24,8 @@ bot を直す人に向けた文書。準備と動かし方、使い方は [READM
 npm test          # 外 (Discord、AWS、denpachan、シート) を偽物にして、テストの流れを 1 秒ずつ進めて確かめる
 npm run typecheck
 ```
+
+`test/webcam.test.ts` だけは、実際のブラウザ (Chrome 系) を画面なしで起動し、ページの中で WebRTC を繋いで、`src/adapters/webcam.ts` が映像を見つけられるかを確かめる。ブラウザが見つからなければ飛ばす。場所は環境変数 `TECHCHECK_TEST_BROWSER` で指せる。
 
 CI (`.github/workflows/ci.yml`) でも、型の確認・試験・ビルドを回す。CI が使うのは、自動で発行される `GITHUB_TOKEN` の `contents: read` だけで、リポジトリのシークレットは要らない。
 
@@ -52,7 +54,7 @@ bot の動きは、すべてコンソール (標準出力) に 1 行ずつ出る
 
 | 設定 | 起動し直したとき | 保存してある状態との関係 |
 | --- | --- | --- |
-| `discord.*`、`notify.webhookUrl`、`aws.region`、`rtmp.*`、`denpachan.*`、`google.*`、`guide.*`、`judge.*`、`timeouts.*`、`i18n.*`、`ffmpeg.path`、`voice.*` | そのまま効く | 保存していない (`voice.enabled` を変えると既定の手順の数が変わるので、進行中のテストは下の `checks` と同じ) |
+| `discord.*`、`notify.webhookUrl`、`aws.region`、`rtmp.*`、`denpachan.*`、`google.*`、`guide.*`、`judge.*`、`timeouts.*`、`i18n.*`、`ffmpeg.path`、`voice.*`、`webcam.*` | そのまま効く | 保存していない (進行中のテストは、web カメラの URL の組を `webcam.links` の位置で覚えている。`voice.enabled` を変えると既定の手順の数が変わるので、進行中のテストは下の `checks` と同じ) |
 | `flows` (ARN、ドメイン、パスフレーズ) | そのまま効く。`/techcheck` の選択肢も登録し直す | 進行中のテストは、フローを名前で覚えている。ARN とドメインは今の設定ファイルの値に合わせ直す。名前ごと無くなっていたら、そのテストは中断する (`abortOrphans`) |
 | `slots` | 書き換えた枠は、設定ファイルの値になる | 書き換えていない枠は、`/techcheck slot` で変えた値が残る。比べるために、保存したときの設定ファイルの値も保存している (`loadSlots`、`slotConfigSnapshot`) |
 | 枠の「止めている」 | bot が問題を見つけて止めた枠は、受付を再開する | 運営が `/techcheck slot off` で止めた枠は、止めたまま (`stoppedByProblem`) |
@@ -85,6 +87,7 @@ Discord の権限の名前は、README と createToken.md では Developer Porta
 | 「使い方」のコマンドの表 | `src/discord/commands.ts` (定義)、`src/discord/bot.ts` の `InteractionHandler` (運営のロールの確認) |
 | 「denpachan」の、受信の設定を bot に入れさせる (`denpachan.configure`、`flows[].output`) | `src/service.ts` (`srtSourceFor`、`prepare`、`goRtmp`、`slotMismatches`)、`src/adapters/receiver.ts` (`hello` の `allowConfigure`)、`src/adapters/aws.ts` (フローの出力) |
 | 「マイクの声を録音する」と、「トークンと権限」の Discord のボイスチャンネル | `src/adapters/voice.ts` (ボイスチャンネルに入る、声を受ける、音量を測る)、`src/adapters/ogg.ts`、`src/service.ts` (`promptVoice` が空いているボイスチャンネルを選んで案内する。`recordVoice`、`onButton` の `step-start` と `voice-skip`)、`src/checks.ts` (`voiceStep`)、`src/index.ts` (`GuildVoiceStates`) |
+| 「web カメラを確かめる」 | `src/adapters/webcam.ts` (playwright-core でブラウザを起動し、`<video>` と WebRTC の統計を読む)、`src/service.ts` (`askWebcam`、`tickAwaitingWebcam`、`watchWebcam`、`summarizeWebcam`、`onButton` の `webcam-skip`)、`src/config.ts` (`webcam`)、`src/record.ts` (`describeWebcam`) |
 | 「同時に複数人をテストする」の A (SRT の枠を並べる) | `src/config.ts` (`slots.srt`)、`src/service.ts` (`loadSlots`、`freeSrtSlots`、`tickQueue`) |
 
 設定の項目を足したり変えたりしたら、`src/config.ts`、`config.example.yaml`、[design.md の「設定値の一覧」](design.md#設定値の一覧) をそろえる。
@@ -104,6 +107,10 @@ Discord の権限の名前は、README と createToken.md では Developer Porta
 - 受信の設定を bot が入れる動作 ([design.md の §5.8](design.md#58-枠のチャンネルの受信の設定を-bot-が入れる)) のうち、出力が SRT caller の場合 (denpachan が listener で待つ) と、RTMP の枠。出力が SRT listener の場合は、実機で、bot が入れた設定で denpachan が受けてテストが最後まで進むことを確かめた。
 - 録画から静止画を取る動作のうち、RTMP の枠の録画と、bot を別の PC で動かしたときの予備 (フローのサムネイル)。SRT の枠の録画中のファイルから ffmpeg で取り出せることは、実機で確かめた。
 - 録画と録音を Google ドライブに上げる動作 ([design.md の §8.1](design.md#81-録画と録音を-google-ドライブに上げる))。Drive API の代わりの偽物での試験だけで、実際の共有ドライブには上げていない。サービスアカウントを共有ドライブのメンバーにする手順、スコープ `drive` で足りること、数百 MB のファイルを 16 MB ずつ送ったときの時間は、実際に上げて確かめる。
+- web カメラの確認 ([design.md の §5.9](design.md#59-web-カメラ-vdoninja))。
+  - 実際の vdo.ninja で、偽のカメラ (Chrome の試験用のカメラ) を同じ PC のブラウザから送り、bot のブラウザ (画面なしの Chromium) で受けて、映像の検出・統計・静止画が取れることは確かめた (2026-11-15)。
+  - 配信者の実際のカメラと回線 (別の PC、NAT 越し) では、通していない。PC に入っている Chrome / Edge を `webcam.browser.channel` で起動する動作 (Windows) も、実機で一度確かめる。
+  - OBS の配信と同時に送ったときの、判定への影響の大きさは見ていない。
 - マイクの声の録音 ([design.md の §7.3](design.md#73-マイクの声の録音-discord-のボイスチャンネル))。
   - 実際のサーバのボイスチャンネルで、1 人の声を受けて .ogg に書き、ffmpeg で音量を測れることは確かめた (`@discordjs/voice` 0.19.2)。
   - 同じボイスチャンネルに複数人がいるときに、その配信者の声だけが録れることは、見ていない。

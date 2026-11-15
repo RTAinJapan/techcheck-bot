@@ -21,6 +21,8 @@ import type {
     VoicePort,
     VoiceChannelInfo,
     VoiceRecording,
+    WebcamPort,
+    WebcamStatus,
     WebhookPort,
 } from "../src/ports.js";
 import { TechcheckService } from "../src/service.js";
@@ -349,6 +351,44 @@ export class FakeVoice implements VoicePort {
     }
 }
 
+/** web カメラの URL の組を 1 つ書いた設定 */
+export const webcamYaml = `
+webcam:
+  links:
+    - { push: "https://vdo.ninja/?push=cam1", view: "https://vdo.ninja/?view=cam1" }
+`;
+
+export class FakeWebcam implements WebcamPort {
+    /** 開いているページ (テストの ID → 受信用の URL と状態) */
+    views = new Map<string, { url: string; status: WebcamStatus }>();
+    opened: string[] = [];
+    closed: string[] = [];
+    /** 設定すると、ページを開けないことにする */
+    error: string | undefined;
+    open(key: string, viewUrl: string): void {
+        this.opened.push(viewUrl);
+        this.views.set(key, { url: viewUrl, status: this.error ? { state: "error", error: this.error, playing: false } : { state: "open", playing: false } });
+    }
+    status(key: string): WebcamStatus | undefined {
+        return this.views.get(key)?.status;
+    }
+    async still(key: string): Promise<Buffer | undefined> {
+        return this.views.get(key)?.status.playing ? Buffer.from("webcam still") : undefined;
+    }
+    async close(key: string): Promise<void> {
+        if (this.views.delete(key)) this.closed.push(key);
+    }
+    /** その URL を見ているページに、映像が届いている (届いていない) 状態にする */
+    play(viewUrl: string, stats: Partial<WebcamStatus> = {}): void {
+        for (const v of this.views.values()) {
+            if (v.url === viewUrl) v.status = { state: "open", playing: true, width: 1280, height: 720, fps: 30, packetsReceived: 1000, packetsLost: 0, freezes: 0, ...stats };
+        }
+    }
+    stopPlaying(viewUrl: string): void {
+        for (const v of this.views.values()) if (v.url === viewUrl) v.status = { ...v.status, playing: false };
+    }
+}
+
 export class FakeDns implements DnsPort {
     answers: Record<string, string[]> = { "srt-a.example.jp": ["203.0.113.10"], "srt-b.example.jp": ["203.0.113.10"], "rtmp.example.jp": ["198.51.100.1"] };
     async resolve(domain: string): Promise<string[]> {
@@ -367,6 +407,7 @@ export function makeWorld(extraYaml = "", baseYamlText = baseYaml, existingStore
     const still = new FakeStill();
     const voice = new FakeVoice();
     const drive = new FakeDrive();
+    const webcam = new FakeWebcam();
     const chat = new FakeChat();
     const sheet = new FakeSheet();
     const webhook = new FakeWebhook();
@@ -382,6 +423,7 @@ export function makeWorld(extraYaml = "", baseYamlText = baseYaml, existingStore
         still,
         voice: config.voice.enabled ? voice : undefined,
         voiceDir: "voice-dir",
+        webcam: config.webcam.links.length > 0 ? webcam : undefined,
         drive: config.google.drive.folderId ? drive : undefined,
         dns,
         chat,
@@ -406,7 +448,7 @@ export function makeWorld(extraYaml = "", baseYamlText = baseYaml, existingStore
             await flush();
         }
     };
-    return { config, clock, flow, rx, still, voice, drive, chat, sheet, webhook, dns, store, service, logs, flush, run };
+    return { config, clock, flow, rx, still, voice, drive, webcam, chat, sheet, webhook, dns, store, service, logs, flush, run };
 }
 
 export type World = ReturnType<typeof makeWorld>;

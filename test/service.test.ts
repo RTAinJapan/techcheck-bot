@@ -5,7 +5,7 @@ import { describe, it } from "node:test";
 import type { SrtSample } from "../src/advisor.js";
 import { defaultChecks, reconnectStep } from "../src/checks.js";
 import { columnLetter, describeRange, formatRecPos, sheetColumns } from "../src/record.js";
-import { baseYaml, driveYaml, goodSample, makeWorld, twoSlotsYaml, type World } from "./helpers.js";
+import { baseYaml, driveYaml, goodSample, makeWorld, twoSlotsYaml, webcamYaml, type World } from "./helpers.js";
 
 /** シートの列の番号を、見出しの名前で引く (列の順を変えても、試験が何を見ているかが分かるように) */
 const col = (name: (typeof sheetColumns)[number]) => sheetColumns.indexOf(name);
@@ -1305,5 +1305,150 @@ describe("チェック", () => {
         await press(w, thread, "step-next");
         await w.service.cancel("U1");
         assert.match(String(w.sheet.rows[0]![kChecks]), /mic: おかしい \(そのまま進めた\)/);
+    });
+});
+
+describe("web カメラ (VDO.ninja)", () => {
+    const kView = "https://vdo.ninja/?view=cam1";
+    const kCam = col("web カメラ");
+
+    /** 配信が届いて、web カメラの案内が出るところまで進める */
+    async function untilAsked(w: World, user = U1, ch = 7) {
+        await w.service.start(user, "C-test", undefined, "ja");
+        await w.flush();
+        const thread = w.chat.threads.find((t) => t.userId === user.id)!.id;
+        w.flow.sampleAt = (t) => goodSample(t);
+        await w.run(3, () => w.rx.live(ch));
+        return thread;
+    }
+
+    it("配信が届いたら送信用の URL を渡し、受信用の URL で映像が届いてから計測する。結果はシートに書く", async () => {
+        const w = makeWorld(webcamYaml);
+        const thread = await untilAsked(w);
+        assert.ok(w.chat.texts(thread).some((x) => x.includes("https://vdo.ninja/?push=cam1")));
+        // 受信用の URL は、bot が開くだけ (配信者には見せない)
+        assert.ok(!w.chat.texts(thread).some((x) => x.includes("view=cam1")));
+        assert.deepEqual(w.webcam.opened, [kView]);
+
+        // カメラが届くまでは、計測を始めない
+        await w.run(200, () => w.rx.live(7));
+        assert.match(await w.service.status("U1"), /awaitingWebcam/);
+        assert.ok(!w.chat.texts(thread).some((x) => x.includes("映像は問題なく届いています")));
+
+        // 届いたら (3 秒続けて)、静止画を付けて知らせ、計測を始める
+        await w.run(5, () => {
+            w.rx.live(7);
+            w.webcam.play(kView);
+        });
+        const arrived = w.chat.posts.find((p) => p.msg.content.includes("web カメラの映像が届きました"))!;
+        assert.equal(arrived.msg.image?.data.toString(), "webcam still");
+        assert.match(await w.service.status("U1"), /measuring/);
+        let received = 1000;
+        await w.run(140, () => {
+            w.rx.live(7);
+            w.webcam.play(kView, { packetsReceived: (received += 100), packetsLost: 0 });
+        });
+        assert.ok(w.chat.texts(thread).some((x) => x.includes("映像は問題なく届いています")));
+        assert.ok(!w.chat.opsLog.some((l) => l.includes("web カメラの映像が乱れています")));
+
+        // 終わったら、受信用のページを閉じ、配信者にもカメラのページを閉じてもらう
+        await w.service.cancel("U1");
+        assert.equal(w.webcam.views.size, 0);
+        assert.match(w.chat.lastPost(thread)!.content, /web カメラのページ.*を閉じてください/);
+        assert.equal(w.sheet.rows[0]![kCam], "1280x720 / 30 fps / ロス 0 % / 固まった 0 回");
+    });
+
+    it("「web カメラは使わない」で飛ばすと、そのまま計測する", async () => {
+        const w = makeWorld(webcamYaml);
+        const thread = await untilAsked(w);
+        await press(w, thread, "webcam-skip");
+        assert.equal(w.webcam.views.size, 0);
+        await w.run(140, () => w.rx.live(7));
+        assert.ok(w.chat.texts(thread).some((x) => x.includes("映像は問題なく届いています")));
+        await w.service.cancel("U1");
+        assert.equal(w.sheet.rows[0]![kCam], "使わない");
+        assert.ok(!w.chat.lastPost(thread)!.content.includes("web カメラのページ"));
+    });
+
+    it("映像の判定の間にカメラが届かなくなったら、待ち直して、届いてから測り直す", async () => {
+        const w = makeWorld(webcamYaml);
+        const thread = await untilAsked(w);
+        const both = () => {
+            w.rx.live(7);
+            w.webcam.play(kView);
+        };
+        await w.run(40, both);
+        assert.match(await w.service.status("U1"), /measuring/);
+        // 一瞬 (10 秒未満) の途切れでは、待ち直さない
+        w.webcam.stopPlaying(kView);
+        await w.run(5, () => w.rx.live(7));
+        await w.run(5, both);
+        assert.match(await w.service.status("U1"), /measuring/);
+        // 10 秒続けて届かなければ、案内し直す
+        w.webcam.stopPlaying(kView);
+        await w.run(12, () => w.rx.live(7));
+        assert.match(await w.service.status("U1"), /awaitingWebcam/);
+        assert.match(w.chat.lastPost(thread)!.content, /届かなくなりました/);
+        await w.run(145, both);
+        assert.ok(w.chat.texts(thread).some((x) => x.includes("映像は問題なく届いています")));
+        // 途切れたことは、運営に知らせて、シートにも残す
+        assert.ok(w.chat.opsLog.some((l) => l.includes("web カメラの映像が乱れています") && l.includes("途切れ 1 回")));
+        await w.service.cancel("U1");
+        assert.match(String(w.sheet.rows[0]![kCam]), /途切れ 1 回/);
+    });
+
+    it("判定の間のロスや固まりは、運営に知らせる (テストは進める)", async () => {
+        const w = makeWorld(webcamYaml);
+        const thread = await untilAsked(w);
+        let n = 0;
+        await w.run(150, () => {
+            w.rx.live(7);
+            n++;
+            w.webcam.play(kView, { packetsReceived: 1000 + n * 95, packetsLost: n * 5, freezes: n > 100 ? 2 : 0 });
+        });
+        assert.ok(w.chat.texts(thread).some((x) => x.includes("映像は問題なく届いています")));
+        assert.ok(w.chat.opsLog.some((l) => l.includes("web カメラの映像が乱れています") && l.includes("ロス 5 %") && l.includes("固まった 2 回")));
+    });
+
+    it("受信用のページを開けなければ、運営に知らせて、web カメラなしで進める", async () => {
+        const w = makeWorld(webcamYaml);
+        w.webcam.error = "Chrome が見つかりません";
+        const thread = await untilAsked(w);
+        await w.run(140, () => w.rx.live(7));
+        assert.ok(w.chat.opsLog.some((l) => l.includes("web カメラの映像を確認できませんでした") && l.includes("Chrome が見つかりません")));
+        assert.ok(w.chat.texts(thread).some((x) => x.includes("こちらの都合で web カメラ")));
+        assert.ok(w.chat.texts(thread).some((x) => x.includes("映像は問題なく届いています")));
+        await w.service.cancel("U1");
+        assert.equal(w.sheet.rows[0]![kCam], "確認できず (bot の側の問題)");
+    });
+
+    it("届かないまま 10 分で催促し、20 分で中断する", async () => {
+        const w = makeWorld(webcamYaml);
+        const thread = await untilAsked(w);
+        await w.run(601, () => w.rx.live(7));
+        assert.ok(w.chat.texts(thread).some((x) => x.includes("まだ web カメラの映像が届いていません")));
+        await w.run(600, () => w.rx.live(7));
+        assert.match(String(w.sheet.rows[0]![col("理由")]), /web カメラが届かないまま時間切れ/);
+        assert.equal(w.sheet.rows[0]![kCam], "届いていない");
+    });
+
+    it("同時にテストしている 2 人には、別々の URL の組を渡す", async () => {
+        const two = webcamYaml + '    - { push: "https://vdo.ninja/?push=cam2", view: "https://vdo.ninja/?view=cam2" }\n';
+        const w = makeWorld(two, twoSlotsYaml);
+        const t1 = await untilAsked(w, U1, 7);
+        const t2 = await untilAsked(w, U2, 6);
+        assert.ok(w.chat.texts(t1).some((x) => x.includes("push=cam1")));
+        assert.ok(w.chat.texts(t2).some((x) => x.includes("push=cam2")));
+        assert.deepEqual(w.webcam.opened, [kView, "https://vdo.ninja/?view=cam2"]);
+    });
+
+    it("bot を起動し直したら、受信用のページを開き直す", async () => {
+        const w = makeWorld(webcamYaml);
+        await untilAsked(w);
+        const w2 = makeWorld(webcamYaml, baseYaml, w.store);
+        w2.clock.t = w.clock.t;
+        w2.rx.channels.get(7)!.status = "live";
+        await w2.run(1, () => w2.rx.live(7));
+        assert.deepEqual(w2.webcam.opened, [kView]);
     });
 });

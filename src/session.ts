@@ -7,6 +7,7 @@ import type { Lang } from "./config.js";
 export type Phase =
     | "preparing" // フローの開始、denpachan のチャンネルと録画の開始
     | "waitingStream" // 初回の案内を出して、配信の開始を待つ
+    | "awaitingWebcam" // web カメラ (VDO.ninja) が届くのを待つ。届いてから計測する (設計書 §5.9)
     | "measuring" // 計測の窓を溜めている
     | "confirming" // 安定の確定
     | "awaitingLatency" // latency の変更を頼んで、始め直すのを待つ
@@ -85,6 +86,8 @@ export interface Session {
     stillWarned?: boolean;
     /** マイクの声の録音 (Discord のボイスチャンネル)。skipped は「マイクは使わない」 */
     voice?: { file?: string; audioMs?: number; maxDb?: number; meanDb?: number; clippedPct?: number; skipped?: boolean };
+    /** web カメラ (VDO.ninja。設計書 §5.9)。案内したときに作る */
+    webcam?: WebcamState;
     /** 「静かにする」手順で、ゲームの音を完全には消せないと申告した (その手順は判定せず、測った大きさをあとの手順の基準にする) */
     cannotMute?: boolean;
     /** 録音の手順で、この人に案内したボイスチャンネル。手順が終わるまで、ほかの人には案内しない */
@@ -105,6 +108,33 @@ export interface Session {
     summary: Summary;
     memo?: string;
     abortReason?: string;
+}
+
+export interface WebcamState {
+    /** 使っている送信用と受信用の URL の組 (設定の webcam.links の位置) */
+    link: number;
+    /** 「web カメラは使わない」 */
+    skipped?: boolean;
+    /** bot の側の問題で、受信用のページを開けなかった (web カメラなしで進めた) */
+    failed?: boolean;
+    /** 案内のメッセージ (届いたらボタンを外す) */
+    messageId?: string;
+    /** 映像が続けて届き始めた時刻 (届いたとみなすまでの間) */
+    playingSince?: number;
+    /** 届いたとみなした時刻 */
+    arrivedAt?: number;
+    /** 映像の判定の間に、届かなくなった時刻 */
+    lostAt?: number;
+    /** 映像の判定の間に途切れて、待ち直した回数 */
+    drops?: number;
+    /** 計測を始めたときの、受信の統計 (ここからの差で、判定の間のロスと固まった回数を出す) */
+    base?: { packetsReceived?: number; packetsLost?: number; freezes?: number };
+    /** 映像の判定が終わったときの値 (シートに書く) */
+    width?: number;
+    height?: number;
+    fps?: number;
+    lossPct?: number;
+    freezes?: number;
 }
 
 export interface Summary {

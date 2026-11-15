@@ -182,6 +182,27 @@ export const configSchema = z
                 dir: z.string().min(1).prefault("./voice"), // 録音 (.ogg) の置き場所
             })
             .prefault({}),
+        // web カメラ (VDO.ninja)。links が空なら使わない。
+        // 配信が届いたあと、配信者に送信用の URL (push) を渡し、bot は受信用の URL (view) をブラウザで開いて、映っているかを見る。
+        // そのまま (OBS の配信と WebRTC の両方を送っている状態で) 映像の判定と latency の調整をする
+        webcam: z
+            .object({
+                // 送信用と受信用の URL の組。同時にテストする人数 (SRT の枠の数) だけ並べる (同じ組を 2 人に使わせない)
+                links: z.array(z.object({ push: nonEmpty, view: nonEmpty })).prefault([]),
+                browser: z
+                    .object({
+                        // 受信用のページを開くブラウザ (Chrome 系) の実行ファイル。空なら、channel のブラウザを探す
+                        path: optionalText,
+                        // インストールしてあるブラウザの種類 (chrome、msedge など。Playwright の channel)
+                        channel: z.string().min(1).prefault("chrome"),
+                    })
+                    .prefault({}),
+                // 映像が届かなくなってから、「途切れた」とみなすまで (秒)
+                lostSec: z.number().int().min(1).prefault(10),
+            })
+            // webcam: の下が全部空 (null) でもよい
+            .nullish()
+            .transform((v) => v ?? { links: [], browser: { path: "", channel: "chrome" }, lostSec: 10 }),
         // 配信の静止画を、denpachan の録画から取り出すのに使う ffmpeg。既定は PATH の ffmpeg
         ffmpeg: z.object({ path: z.string().min(1).prefault("ffmpeg") }).prefault({}),
         i18n: z.object({ dir: z.string().prefault("./messages"), fallback: lang.prefault("en") }).prefault({}),
@@ -227,6 +248,20 @@ export const configSchema = z
                 slotChannels.add(slot.channel);
             }
         });
+        // web カメラの URL の組は、同時にテストする人数だけ要る。同じ URL を 2 つの組に書かない
+        if (c.webcam.links.length > 0) {
+            if (c.webcam.links.length < c.slots.srt.length) {
+                ctx.addIssue({ code: "custom", path: ["webcam", "links"], message: `webcam.links は、SRT の枠の数 (${c.slots.srt.length}) 以上の組を書いてください (同時にテストする人ごとに、別の URL を使います)` });
+            }
+            const urls = new Set<string>();
+            c.webcam.links.forEach((l, i) => {
+                for (const k of ["push", "view"] as const) {
+                    if (!/^https:\/\//.test(l[k])) ctx.addIssue({ code: "custom", path: ["webcam", "links", i, k], message: `webcam.links の ${k} は https:// で始まる URL にしてください` });
+                    if (urls.has(l[k])) ctx.addIssue({ code: "custom", path: ["webcam", "links", i, k], message: `webcam.links: 同じ URL を 2 回書いています (${k})` });
+                    urls.add(l[k]);
+                }
+            });
+        }
         if (c.notify.webhookUrl && !/^https:\/\//.test(c.notify.webhookUrl)) {
             ctx.addIssue({ code: "custom", path: ["notify", "webhookUrl"], message: "notify.webhookUrl は https:// で始まる URL にしてください" });
         }

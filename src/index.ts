@@ -12,6 +12,7 @@ import { WsReceiver } from "./adapters/receiver.js";
 import { GoogleSheet } from "./adapters/sheet.js";
 import { FfmpegStill } from "./adapters/still.js";
 import { DiscordVoice } from "./adapters/voice.js";
+import { BrowserWebcam } from "./adapters/webcam.js";
 import { DiscordWebhook } from "./adapters/webhook.js";
 import { loadConfig } from "./config.js";
 import { buildCommand } from "./discord/commands.js";
@@ -38,6 +39,8 @@ async function main(): Promise<void> {
     const google = config.google;
     const credentialsFile = resolve(baseDir, google.credentialsFile);
     const voice = config.voice.enabled ? new DiscordVoice(client, config.discord.guildId, config.ffmpeg.path, log) : undefined;
+    // web カメラ (VDO.ninja) の受信用のページを開くブラウザ。使うとき (webcam.links があるとき) だけ
+    const webcam = config.webcam.links.length > 0 ? new BrowserWebcam(config.webcam.browser, log) : undefined;
     const rx = new WsReceiver(WsReceiver.urlFor(config.denpachan.host, config.denpachan.port, config.denpachan.token), log);
     // AWS の認証: 設定にアクセスキーがあればそれ、無ければ AWS SDK の既定の探し方 (環境変数、AWS_PROFILE のプロファイルなど)
     const awsKey = config.aws.accessKeyId ? { accessKeyId: config.aws.accessKeyId, secretAccessKey: config.aws.secretAccessKey } : undefined;
@@ -51,6 +54,7 @@ async function main(): Promise<void> {
         still: new FfmpegStill(config.ffmpeg.path),
         voice,
         voiceDir,
+        webcam,
         // サービスアカウントのキーは、シートと同じもの (google.credentialsFile)
         drive: google.drive.folderId ? new GoogleDrive(google.drive.folderId, credentialsFile) : undefined,
         dns: new NodeDns(),
@@ -77,6 +81,13 @@ async function main(): Promise<void> {
     log(
         `マイクの声の録音 (ボイスチャンネル): ${
             config.voice.enabled ? `する (置き場所 ${voiceDir}。案内するボイスチャンネルは、bot が入れる所のうち空いている所)` : "しない (voice.enabled)"
+        }`,
+    );
+    log(
+        `web カメラ (VDO.ninja) の確認: ${
+            webcam
+                ? `する (URL の組 ${config.webcam.links.length} つ。ブラウザ: ${config.webcam.browser.path || `PC に入っている ${config.webcam.browser.channel}`})`
+                : "しない (webcam.links が未設定)"
         }`,
     );
     log(`録画と録音の Google ドライブへのアップロード: ${google.drive.folderId ? `する (フォルダ ${google.drive.folderId})` : "しない (google.drive.folderId が未設定)"}`);
@@ -142,6 +153,7 @@ async function main(): Promise<void> {
     const stop = () => {
         log("止めます");
         rx.stop();
+        void webcam?.stop();
         void client.destroy().finally(() => {
             store.close();
             process.exit(0);

@@ -117,6 +117,37 @@ export interface VoicePort {
     record(channelId: string, userId: string, file: string, seconds: number): Promise<VoiceRecording>;
 }
 
+// ---- web カメラ (VDO.ninja の受信用のページを、bot がブラウザで開いて見る) ----
+
+export interface WebcamStatus {
+    /** opening: ページを開いている途中 / open: 開けた / error: 開けなかった (bot の側の問題。error に理由) */
+    state: "opening" | "open" | "error";
+    error?: string;
+    /** 映像が届いて、再生が進んでいるか (最近の数秒のうちに、新しいフレームが届いた) */
+    playing: boolean;
+    width?: number;
+    height?: number;
+    fps?: number;
+    /** WebRTC の受信の統計 (ページを開いてからの累計)。取れなければ無い */
+    packetsReceived?: number;
+    packetsLost?: number;
+    /** 映像が固まった回数 (Chrome の freezeCount) */
+    freezes?: number;
+}
+
+export interface WebcamPort {
+    /**
+     * 受信用の URL を開いて、見続ける (key はテストの ID)。すぐ戻る (開くのは裏で進み、結果は status で見る)。
+     * VDO.ninja は見る側がいる間だけ送るので、bot が開いている間、配信者の PC から WebRTC の映像が送られる
+     */
+    open(key: string, viewUrl: string): void;
+    /** 開いていなければ undefined */
+    status(key: string): WebcamStatus | undefined;
+    /** いま映っている絵 (JPEG)。映っていなければ undefined */
+    still(key: string): Promise<Buffer | undefined>;
+    close(key: string): Promise<void>;
+}
+
 // ---- Google ドライブ (録画と録音のアップロード) ----
 
 export interface DrivePort {
