@@ -75,20 +75,25 @@ export const defaultChecks: CheckStep[] = [
             en: "Fix the scene in OBS, then press \"Retry\".",
         },
     },
-    {
-        id: "reconnect",
-        kind: "reconnect",
-        seconds: 60,
-        text: {
-            ja: "OBS の配信を一度止めて、もう一度始めてください (本番で切れたときの戻し方の練習です)。",
-            en: "Stop streaming in OBS once and start it again (practice for recovering if you drop during the event).",
-        },
-        failHint: {
-            ja: "配信が戻ってきません。OBS の配信の設定 (URL) が保存されているかを確かめてください。",
-            en: "Your stream did not come back. Check that the stream settings (URL) in OBS were saved.",
-        },
-    },
 ];
+
+/**
+ * 繋ぎ直しの手順 (配信を止めて始め直す練習)。既定の手順には入れていない: 配信者は OBS の使い方が分かっているので、
+ * 練習は要らない。要るイベントでは、設定の checks にこの形の手順を足す (kind: reconnect)。
+ */
+export const reconnectStep: CheckStep = {
+    id: "reconnect",
+    kind: "reconnect",
+    seconds: 60,
+    text: {
+        ja: "OBS の配信を一度止めて、もう一度始めてください (本番で切れたときの戻し方の練習です)。",
+        en: "Stop streaming in OBS once and start it again (practice for recovering if you drop during the event).",
+    },
+    failHint: {
+        ja: "配信が戻ってきません。OBS の配信の設定 (URL) が保存されているかを確かめてください。",
+        en: "Your stream did not come back. Check that the stream settings (URL) in OBS were saved.",
+    },
+};
 
 export type CheckVerdict = "ok" | "ng" | "unknown";
 

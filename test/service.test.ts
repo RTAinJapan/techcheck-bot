@@ -3,6 +3,7 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 import type { SrtSample } from "../src/advisor.js";
+import { defaultChecks, reconnectStep } from "../src/checks.js";
 import { baseYaml, goodSample, makeWorld, twoSlotsYaml, type World } from "./helpers.js";
 
 const U1 = { id: "U1", displayName: "Runner A" };
@@ -27,7 +28,7 @@ async function press(w: World, thread: string, action: string, user = U1) {
     return w.service.button(user.id, false, w.chat.buttonId(thread, action));
 }
 
-/** 音声とその他のチェックを全部 OK で通す */
+/** 音声とその他のチェック (既定の 5 手順) を全部 OK で通す */
 async function passChecks(w: World, thread: string) {
     const audio = (peak: number) => () => w.rx.live(7, { peak });
     await press(w, thread, "step-start");
@@ -39,9 +40,6 @@ async function passChecks(w: World, thread: string) {
     await press(w, thread, "step-start");
     await w.run(13, audio(-80)); // PC の音 (載らない)
     await press(w, thread, "yes"); // 画面
-    await press(w, thread, "step-start"); // 繋ぎ直し
-    await w.run(3, () => w.rx.drop(7));
-    await w.run(3, () => w.rx.live(7));
 }
 
 describe("テストの流れ", () => {
@@ -84,9 +82,11 @@ describe("テストの流れ", () => {
         assert.equal(row[3], "ja");
         assert.equal(row[6], "完了");
         assert.equal(row[9], 120);
-        assert.equal(row[19], 0, "繋ぎ直しの手順は「切れた回数」に数えない");
+        assert.equal(row[19], 0);
         assert.equal(row[27], "OK");
-        assert.match(String(row[25]), /game-audio: OK.*mic: OK.*reconnect: OK/);
+        assert.match(String(row[25]), /game-audio: OK.*mic: OK.*picture: OK/);
+        assert.ok(!String(row[25]).includes("reconnect"), "繋ぎ直しは既定の手順に無い");
+        assert.ok(texts.concat(w.chat.texts(thread)).some((x) => x.includes("(5 手順)")));
         assert.equal(row[30], "問題なし");
         assert.equal(w.webhook.sent.length, 1);
         const payload = w.webhook.sent[0] as { allowed_mentions: { parse: unknown[] }; embeds: { fields: { name: string; value: string }[] }[] };
@@ -98,6 +98,21 @@ describe("テストの流れ", () => {
         // 後日の音声の判定
         assert.match(await w.service.review("U1", true, "きれい"), /書きました/);
         assert.deepEqual(w.sheet.updates[0], { range: "techcheck!AC2:AD2", values: ["OK", "きれい"] });
+    });
+
+    it("繋ぎ直しの手順は、設定の checks に足せば使える (切れた回数には数えない)", async () => {
+        const w = makeWorld(`checks: ${JSON.stringify([...defaultChecks, reconnectStep])}\n`);
+        const { thread } = await startAndStream(w);
+        await passChecks(w, thread);
+        assert.match(w.chat.lastPost(thread)!.content, /手順 6\/6[\s\S]*OBS の配信を一度止めて/);
+        await press(w, thread, "step-start");
+        await w.run(3, () => w.rx.drop(7));
+        await w.run(3, () => w.rx.live(7));
+        assert.match(w.chat.lastPost(thread)!.content, /確認はすべて終わりました/);
+        await w.service.complete(sessionIdOf(w, thread), "");
+        const row = w.sheet.rows[0]!;
+        assert.equal(row[19], 0, "繋ぎ直しの手順は「切れた回数」に数えない");
+        assert.match(String(row[25]), /reconnect: OK/);
     });
 
     it("フローにパスフレーズが無ければ、案内する URL にも入れない", async () => {
