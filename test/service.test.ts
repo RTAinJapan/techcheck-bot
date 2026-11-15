@@ -589,6 +589,72 @@ describe("準備と枠", () => {
 });
 
 describe("チェック", () => {
+    it("チェックの間は、無音を知らせない (ゲームの音を止めたままの手順が続くので)", async () => {
+        const w = makeWorld();
+        const { thread } = await startAndStream(w);
+        const audio = (peak: number) => () => w.rx.live(7, { peak });
+        await press(w, thread, "step-start");
+        await w.run(18, audio(-20)); // ゲーム音
+        await press(w, thread, "step-start");
+        await w.run(13, audio(-80)); // 静か
+        await press(w, thread, "step-start");
+        await w.run(13, audio(-80)); // マイク (載らない)
+        await press(w, thread, "step-start");
+        await w.run(13, audio(-80)); // PC の音 (載らない)
+        // 「画面」の手順。ゲームの音は止めたままで、無音が 40 秒以上続いている
+        await w.run(15, audio(-80));
+        assert.match(w.chat.lastPost(thread)!.content, /配信に映っている画面は正しいですか/);
+        assert.ok(!w.chat.texts(thread).some((x) => x.includes("音が届いていません")));
+    });
+
+    it("映像を判定している間に無音が続いたら、知らせる", async () => {
+        const w = makeWorld();
+        await w.service.start(U1, "C-test", undefined, "ja");
+        await w.flush();
+        w.flow.sampleAt = (t) => goodSample(t);
+        await w.run(30, () => w.rx.live(7, { peak: -80 }));
+        assert.ok(w.chat.texts(w.chat.threads[0]!.id).some((x) => x.includes("音が届いていません")));
+    });
+
+    it("静止画を取れないときは、理由を運営に知らせ、OBS のプレビューで答えてもらう", async () => {
+        const w = makeWorld();
+        w.flow.thumbnail = async () => {
+            throw new Error("This action can only be performed on a flow with ThumbnailState in SourceMonitoringConfiguration set to ENABLED.");
+        };
+        const { thread } = await startAndStream(w);
+        // 繋がったときに 1 回だけ知らせる (あとの手順で同じ知らせを繰り返さない)
+        const warned = () => w.chat.opsLog.filter((l) => l.includes("配信の静止画を取れません"));
+        assert.equal(warned().length, 1);
+        assert.match(warned()[0]!, /フローのサムネイルが無効です。.*ThumbnailState.*を有効にしてください/);
+        const audio = (peak: number) => () => w.rx.live(7, { peak });
+        await press(w, thread, "step-start");
+        await w.run(18, audio(-20));
+        for (let i = 0; i < 3; i++) {
+            await press(w, thread, "step-start");
+            await w.run(13, audio(-80));
+        }
+        const picture = w.chat.posts.filter((p) => p.threadId === thread).at(-1)!.msg;
+        assert.match(picture.content, /配信に映っている画面は正しいですか[\s\S]*こちらで配信の静止画を取れませんでした。OBS のプレビューを見て答えてください/);
+        assert.equal(picture.image, undefined);
+        assert.equal(warned().length, 1);
+        assert.match((await w.service.shot("U1")).text, /静止画を取れませんでした: フローのサムネイルが無効です/);
+    });
+
+    it("静止画を取れるときは、画面の手順に付ける", async () => {
+        const w = makeWorld();
+        const { thread } = await startAndStream(w);
+        const audio = (peak: number) => () => w.rx.live(7, { peak });
+        await press(w, thread, "step-start");
+        await w.run(18, audio(-20));
+        for (let i = 0; i < 3; i++) {
+            await press(w, thread, "step-start");
+            await w.run(13, audio(-80));
+        }
+        const picture = w.chat.posts.filter((p) => p.threadId === thread).at(-1)!.msg;
+        assert.ok(picture.image, "静止画が付いている");
+        assert.ok(!picture.content.includes("静止画を取れませんでした"));
+    });
+
     it("マイクが載っていたら直し方を出し、そのまま進めると印を付ける", async () => {
         const w = makeWorld();
         const { thread } = await startAndStream(w);

@@ -357,8 +357,32 @@ export class TechcheckService {
         const s = this.sessions.find((x) => x.userId === userId);
         if (!s) return { text: "その配信者のテストは進行中ではありません" };
         if (s.protocol !== "srt") return { text: "RTMP では静止画を取れません (MediaConnect を通らないため)" };
-        const image = await this.d.flow.thumbnail(s.srt.flowArn).catch(() => undefined);
-        return image ? { text: `${s.displayName} の静止画`, image } : { text: "静止画を取れませんでした (フローのサムネイルが有効か確かめてください)" };
+        try {
+            const image = await this.d.flow.thumbnail(s.srt.flowArn);
+            return image ? { text: `${s.displayName} の静止画`, image } : { text: "静止画を取れませんでした (フローが静止画を返しませんでした)" };
+        } catch (e) {
+            return { text: `静止画を取れませんでした: ${thumbnailReason(e)}` };
+        }
+    }
+
+    /**
+     * 配信の静止画 (SRT のときだけ。RTMP は MediaConnect を通らないので無い)。
+     * 取れなければ undefined を返し、理由をコンソールと運営への通知に出す (同じテストでは 1 回だけ)。
+     * 黙って失敗すると、フローのサムネイルが無効なままでも気付けない。
+     */
+    private async still(s: Session): Promise<Buffer | undefined> {
+        if (s.protocol !== "srt") return undefined;
+        try {
+            const image = await this.d.flow.thumbnail(s.srt.flowArn);
+            if (image) return image;
+            throw new Error("フローが静止画を返しませんでした");
+        } catch (e) {
+            if (!s.stillWarned) {
+                s.stillWarned = true;
+                await this.ops(`配信の静止画を取れません (${s.srt.flowName})。${s.displayName} のスレッドには静止画なしで案内します: ${thumbnailReason(e)}`);
+            }
+            return undefined;
+        }
     }
 
     async setLatency(userId: string, ms: number): Promise<string> {
@@ -871,10 +895,11 @@ export class TechcheckService {
 
     private async silenceAlert(s: Session, ch: ReceiverChannel | undefined): Promise<void> {
         if (!ch || ch.status !== "live") return;
-        const step = this.checks[s.checkIndex];
-        const quietStep = s.phase === "checks" && (step?.kind === "silence" || step?.kind === "quiet");
+        // 知らせるのは、映像を判定している間だけ。チェックの間は知らせない: 手順が「ゲームの音を止めて」と頼み、
+        // そのあとの手順 (画面、繋ぎ直し) でも止めたままなので、無音は頼んだとおりの状態。
+        // 音が届いているかは、チェックの最初の手順 (ゲーム音) が確かめる
         const silent = (ch.audio?.silentSec ?? 0) > this.cfg.judge.silentAlertSec;
-        if (silent && !s.rx.silenceAlerted && !quietStep && ["measuring", "confirming", "checks"].includes(s.phase)) {
+        if (silent && !s.rx.silenceAlerted && ["measuring", "confirming"].includes(s.phase)) {
             s.rx.silenceAlerted = true;
             await this.post(s, { content: this.t(s.lang, "audio.silent") });
         } else if (!silent && (ch.audio?.silentSec ?? 0) === 0) {
@@ -908,7 +933,7 @@ export class TechcheckService {
     }
 
     private async onConnected(s: Session): Promise<void> {
-        const image = s.protocol === "srt" ? await this.d.flow.thumbnail(s.srt.flowArn).catch(() => undefined) : undefined;
+        const image = await this.still(s);
         await this.post(s, { content: this.t(s.lang, "wait.arrived"), image: image ? { name: "stream.jpg", data: image } : undefined });
         if (s.protocol === "srt" && !s.metadataChecked) {
             s.metadataChecked = true;
@@ -1183,9 +1208,11 @@ export class TechcheckService {
         s.lastActivity = this.now();
         const header = this.t(s.lang, "checks.header", { n: s.checkIndex + 1, total: this.checks.length });
         if (step.kind === "confirm") {
-            const image = s.protocol === "srt" ? await this.d.flow.thumbnail(s.srt.flowArn).catch(() => undefined) : undefined;
+            // 静止画を見て答える手順。静止画が無いとき (サムネイルが無効、RTMP) は、OBS のプレビューで確かめてもらう
+            const image = await this.still(s);
+            const note = image ? "" : `\n${this.t(s.lang, "checks.noImage")}`;
             await this.post(s, {
-                content: `${header}\n${step.text[s.lang]}`,
+                content: `${header}\n${step.text[s.lang]}${note}`,
                 image: image ? { name: "stream.jpg", data: image } : undefined,
                 buttons: [this.btn(s, "yes", "button.yes", "success"), this.btn(s, "no", "button.no", "danger")],
             });
@@ -1591,6 +1618,14 @@ function round1(v: number | undefined): number | undefined {
 
 export function errorText(e: unknown): string {
     return e instanceof Error ? e.message : String(e);
+}
+
+/** 静止画を取れなかった理由。いちばん多い「フローのサムネイルが無効」は、直し方を付ける */
+function thumbnailReason(e: unknown): string {
+    const text = errorText(e);
+    return /ThumbnailState/i.test(text)
+        ? "フローのサムネイルが無効です。MediaConnect のフローの source の監視の設定で、サムネイル (ThumbnailState) を有効にしてください"
+        : text;
 }
 
 /** 受信の設定をログ用に書く (パスフレーズそのものは出さない) */

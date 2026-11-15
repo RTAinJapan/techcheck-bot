@@ -75,6 +75,8 @@ export interface Session {
     cw: { lastUpTime?: number; reconnectAt?: number; missingWarned: boolean };
     disconnects: number;
     metadataChecked: boolean;
+    /** 静止画を取れないことを、このテストで運営に知らせたか (同じ知らせを繰り返さない) */
+    stillWarned?: boolean;
     streamFps?: number;
     checkIndex: number;
     checkState: "prompt" | "running" | "result";
