@@ -109,13 +109,13 @@ export const configSchema = z
         }),
         guide: z.object({
             obsProfile: nonEmpty,
-            // 配布している走者配信用の OBS の設定の出力は 1536x864 / 60 fps
+            // 既定は、配布している走者配信用の OBS のプロファイルの値 (出力 1536x864 / 60 fps、x264 3000 kbps、キーフレーム 2 秒)
             expected: z
                 .object({
                     width: z.number().int().prefault(1536),
                     height: z.number().int().prefault(864),
                     fps: z.number().prefault(60),
-                    bitrateKbps: z.number().int().prefault(6000),
+                    bitrateKbps: z.number().int().prefault(3000),
                     keyframeSec: z.number().prefault(2),
                 })
                 .prefault({}),

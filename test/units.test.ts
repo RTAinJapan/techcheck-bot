@@ -96,7 +96,7 @@ describe("config", () => {
         assert.equal(c.flows[0]!.pbkeylen, 16);
         assert.equal(c.i18n.fallback, "en");
         assert.equal(c.guide.expected.fps, 60);
-        assert.deepEqual([c.guide.expected.width, c.guide.expected.height], [1536, 864]);
+        assert.deepEqual([c.guide.expected.width, c.guide.expected.height, c.guide.expected.bitrateKbps, c.guide.expected.keyframeSec], [1536, 864, 3000, 2]);
         assert.equal(c.checks.length, defaultChecks.length);
     });
     it("webhook の URL は省ける", () => {
