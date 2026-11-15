@@ -7,6 +7,14 @@ import { z } from "zod";
 import { defaultChecks } from "./checks.js";
 
 const nonEmpty = z.string().min(1);
+/**
+ * 省ける文字列。書いていないときも、値が空のときも "" にする。
+ * `key: ${ENV}` で環境変数が無いと、置き換えたあとが `key:` (YAML では null) になるので、null も受ける。
+ */
+const optionalText = z
+    .string()
+    .nullish()
+    .transform((v) => v ?? "");
 const lang = z.enum(["ja", "en"]);
 const localized = z.object({ ja: nonEmpty, en: nonEmpty });
 
@@ -50,14 +58,18 @@ export const configSchema = z
             staffRoleId: nonEmpty,
             opsChannelId: nonEmpty,
         }),
-        notify: z.object({ webhookUrl: z.string().prefault("") }).prefault({}),
+        // notify: の下が全部空 (null) でもよい
+        notify: z
+            .object({ webhookUrl: optionalText })
+            .nullish()
+            .transform((v) => v ?? { webhookUrl: "" }),
         aws: z.object({ region: nonEmpty }),
         flows: z.array(flowSchema).min(1),
         rtmp: z.object({
             domain: nonEmpty,
             app: nonEmpty,
             key: nonEmpty,
-            statsUrl: z.string().prefault(""),
+            statsUrl: optionalText,
         }),
         slots: z
             .object({
@@ -73,7 +85,7 @@ export const configSchema = z
             .object({
                 host: z.string().prefault("127.0.0.1"),
                 port: z.number().int().prefault(9100),
-                token: z.string().prefault(""),
+                token: optionalText,
             })
             .prefault({}),
         sheet: z.object({

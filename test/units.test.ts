@@ -102,6 +102,21 @@ describe("config", () => {
         const c = parseConfig(baseYaml.replace(/notify:\n {2}webhookUrl: .*\n/, ""), {});
         assert.equal(c.notify.webhookUrl, "");
     });
+    it("省ける項目は、${ENV} の環境変数が無くても (値が空になっても) 読める", () => {
+        // `webhookUrl: ${TECHCHECK_WEBHOOK_URL}` は、環境変数が無いと `webhookUrl:` (null) になる
+        const yaml = baseYaml.replace("webhookUrl: https://discord.com/api/webhooks/1/x", "webhookUrl: ${TECHCHECK_WEBHOOK_URL}");
+        assert.equal(parseConfig(yaml, {}).notify.webhookUrl, "");
+        assert.equal(parseConfig(yaml, { TECHCHECK_WEBHOOK_URL: "https://example.com/hook" }).notify.webhookUrl, "https://example.com/hook");
+        const c = parseConfig(`${baseYaml}denpachan: { token: \${DENPACHAN_TOKEN} }\n`.replace("  key: key-1\n", "  key: key-1\n  statsUrl: ${RTMP_STATS_URL}\n"), {});
+        assert.equal(c.denpachan.token, "");
+        assert.equal(c.rtmp.statsUrl, "");
+    });
+    it("見本の設定 (config.example.yaml) は、必須の環境変数だけで読める", () => {
+        const example = readFileSync(join(here, "..", "config.example.yaml"), "utf8");
+        const c = parseConfig(example, { DISCORD_TOKEN: "t", FLOW_A_PASSPHRASE: "a", FLOW_B_PASSPHRASE: "b", RTMP_KEY: "k" });
+        assert.equal(c.notify.webhookUrl, "", "TECHCHECK_WEBHOOK_URL が無ければ、結果の通知を送らない");
+        assert.equal(c.slots.srt.length, 1);
+    });
     it("必須の項目が無ければ、場所と環境変数の名前を出す", () => {
         assert.throws(
             () => parseConfig(baseYaml.replace("token: t", "token: ${DISCORD_TOKEN}"), {}),
