@@ -52,7 +52,7 @@ bot の動きは、すべてコンソール (標準出力) に 1 行ずつ出る
 
 | 設定 | 起動し直したとき | 保存してある状態との関係 |
 | --- | --- | --- |
-| `discord.*`、`notify.webhookUrl`、`aws.region`、`rtmp.*`、`denpachan.*`、`sheet.*`、`guide.*`、`judge.*`、`timeouts.*`、`i18n.*`、`ffmpeg.path`、`voice.*` | そのまま効く | 保存していない (`voice.enabled` を変えると既定の手順の数が変わるので、進行中のテストは下の `checks` と同じ) |
+| `discord.*`、`notify.webhookUrl`、`aws.region`、`rtmp.*`、`denpachan.*`、`google.*`、`guide.*`、`judge.*`、`timeouts.*`、`i18n.*`、`ffmpeg.path`、`voice.*` | そのまま効く | 保存していない (`voice.enabled` を変えると既定の手順の数が変わるので、進行中のテストは下の `checks` と同じ) |
 | `flows` (ARN、ドメイン、パスフレーズ) | そのまま効く。`/techcheck` の選択肢も登録し直す | 進行中のテストは、フローを名前で覚えている。ARN とドメインは今の設定ファイルの値に合わせ直す。名前ごと無くなっていたら、そのテストは中断する (`abortOrphans`) |
 | `slots` | 書き換えた枠は、設定ファイルの値になる | 書き換えていない枠は、`/techcheck slot` で変えた値が残る。比べるために、保存したときの設定ファイルの値も保存している (`loadSlots`、`slotConfigSnapshot`) |
 | 枠の「止めている」 | bot が問題を見つけて止めた枠は、受付を再開する | 運営が `/techcheck slot off` で止めた枠は、止めたまま (`stoppedByProblem`) |
@@ -97,7 +97,7 @@ Discord の権限の名前は、README と createToken.md では Developer Porta
   - `/techcheck shot` の返事 (実行した人だけに見える返事) にファイルを付けるのに、「ファイルを添付」が要るかどうか。
   - IAM Identity Center のプロファイルで bot を動かしたときの動作。とくに、サインインの期限が切れたあと、`aws sso login` をし直せば bot を起動し直さなくても AWS の呼び出しが戻るかどうか。
   - createToken.md の画面の手順 (Developer Portal、IAM Identity Center のコンソール、`aws configure sso` の聞かれること、Google Cloud のコンソール)。公式の文書から書いたもので、実際の画面で通してはいない。
-  - `sheet.tabName` の名前のシート (タブ) が無いときの動作。Sheets API がエラーを返すはずなので、先に作っておく手順にしてある。
+  - `google.sheet.tabName` の名前のシート (タブ) が無いときの動作。Sheets API がエラーを返すはずなので、先に作っておく手順にしてある。
 - 同時に複数人をテストする動作 ([design.md の §5.7](design.md#57-同時に複数人をテストする))。
   - A (SRT の枠を増やす) は、偽物の外の口での試験だけ。実際に 2 件以上を同時に受けたときの回線と PC の負荷は見ていない。
   - B (bot を別々に動かす) は、コードを変えずにできるはずだが、実際に 2 つ動かしてはいない。サーバの設定でコマンドを使えるチャンネルを bot ごとに絞る手順も、Discord の機能の説明から書いたもの。

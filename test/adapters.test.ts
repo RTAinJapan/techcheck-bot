@@ -178,7 +178,7 @@ describe("Google ドライブへのアップロード", () => {
 
     it("サービスアカウントでマイドライブに上げようとしたときは、直し方を添える", async () => {
         const fetchFn = (async () => new Response('{"error":{"errors":[{"reason":"storageQuotaExceeded"}],"message":"Service Accounts do not have storage quota."}}', { status: 403 })) as unknown as typeof fetch;
-        await assert.rejects(new GoogleDrive("ROOT", token, fetchFn).createFolder("x"), /403 \(サービスアカウントには保存容量がありません。drive\.folderId を、サービスアカウントをメンバーにした共有ドライブの中のフォルダにしてください\)/);
+        await assert.rejects(new GoogleDrive("ROOT", token, fetchFn).createFolder("x"), /403 \(サービスアカウントには保存容量がありません。google\.drive\.folderId を、サービスアカウントをメンバーにした共有ドライブの中のフォルダにしてください\)/);
     });
 });
 

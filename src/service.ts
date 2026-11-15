@@ -41,7 +41,7 @@ export interface Deps {
     voice?: VoicePort;
     /** 録音の置き場所 (voice.dir を、設定ファイルのフォルダから見た場所にしたもの) */
     voiceDir?: string;
-    /** 録画と録音を上げる Google ドライブ (設定の drive.folderId があるときだけ渡す) */
+    /** 録画と録音を上げる Google ドライブ (設定の google.drive.folderId があるときだけ渡す) */
     drive?: DrivePort;
     dns: DnsPort;
     chat: ChatPort;
@@ -931,7 +931,7 @@ export class TechcheckService {
             lines.push(
                 this.d.drive
                     ? `Google ドライブに上げるのを待っているテスト: ${this.uploads.map((j) => j.displayName).join("、")} (続きから上げます)`
-                    : `Google ドライブに上げるのを待っているテストがありますが、drive.folderId が未設定なので上げません: ${this.uploads.map((j) => j.displayName).join("、")}`,
+                    : `Google ドライブに上げるのを待っているテストがありますが、google.drive.folderId が未設定なので上げません: ${this.uploads.map((j) => j.displayName).join("、")}`,
             );
         }
         // 保存してあった状態を、今の設定ファイルに合わせて変えたこと

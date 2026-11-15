@@ -120,7 +120,7 @@ export interface VoicePort {
 // ---- Google ドライブ (録画と録音のアップロード) ----
 
 export interface DrivePort {
-    /** アップロード先 (設定の drive.folderId) の中にフォルダを作り、その ID を返す */
+    /** アップロード先 (設定の google.drive.folderId) の中にフォルダを作り、その ID を返す */
     createFolder(name: string): Promise<string>;
     /** ローカルのファイルを、フォルダに上げる (名前はファイル名のまま) */
     upload(file: string, folderId: string): Promise<void>;

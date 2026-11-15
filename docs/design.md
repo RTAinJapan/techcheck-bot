@@ -268,9 +268,10 @@ bot は denpachan の区間の数字を判定には使わず、記録 (運営の
 | denpachan | `denpachan.host` / `denpachan.port` | メトリクスの受信口 (§3.2) | `127.0.0.1` / `9100` |
 | | `denpachan.token` | 受信口のトークン (秘密)。loopback 以外に繋ぐときは必須 | |
 | | `denpachan.configure` | true なら、テストを始めるときに、bot が枠のチャンネルに受信の設定を入れる (§5.8)。denpachan の `allowConfigure` が on であること。false なら、受信の設定は denpachan の画面で合わせておく | `false` |
-| シート | `sheet.spreadsheetId` | 記録するスプレッドシートの ID | ◯ |
-| | `sheet.tabName` | 記録するシートの名前 | `techcheck` |
-| | `sheet.credentialsFile` | Google のサービスアカウントの鍵のファイル (秘密) | ◯ |
+| Google | `google.credentialsFile` | Google のサービスアカウントの鍵のファイル (秘密)。シートとドライブで同じものを使う | ◯ |
+| | `google.sheet.spreadsheetId` | 記録するスプレッドシートの ID | ◯ |
+| | `google.sheet.tabName` | 記録するシートの名前 | `techcheck` |
+| | `google.drive.folderId` | 録画と録音を上げる先の、共有ドライブ (またはその中のフォルダ) の ID (§8.1)。サービスアカウントを、その共有ドライブのメンバーにしておく。**未設定なら上げない** | |
 | 案内 | `guide.obsProfile` | 配布した OBS の設定 (プロファイルとシーンコレクション) の名前 | ◯ |
 | | `guide.expected` | 期待する出力 (`width`、`height`、`fps`、`bitrateKbps`、`keyframeSec`)。`DescribeFlowSourceMetadata` の値と比べる (比べるのは解像度と fps。違えば配信者に伝える)。ビットレートとキーフレーム間隔は、最初の案内で見せるだけで、比べない。既定は、配布している走者配信用の OBS のプロファイルの値 (出力 1536x864 / 60 fps、x264 3000 kbps、キーフレーム 2 秒) | 1536 / 864 / 60 / 3000 / 2 |
 | latency | `latency.initialMs` | 最初に案内する latency。フローの `MinLatency` はこれ以下にしておく | 120 |
@@ -293,7 +294,6 @@ bot は denpachan の区間の数字を判定には使わず、記録 (運営の
 | | `voice.dir` | 録音 (.ogg) の置き場所 | `./voice` |
 | 言語 | `i18n.dir` | 配信者への案内の文言のファイル (`ja.yaml`、`en.yaml`) のフォルダ (§4.3) | `./messages` |
 | | `i18n.fallback` | Discord の言語設定が日本語でも英語でもないときに使う言語 | `en` |
-| Google ドライブ | `drive.folderId` | 録画と録音を上げる先の、共有ドライブ (またはその中のフォルダ) の ID (§8.1)。サービスアカウント (`sheet.credentialsFile`) を、その共有ドライブのメンバーにしておく。**未設定なら上げない** | |
 | 保存 | `db.path` | SQLite のファイル | `./techcheck.db` |
 
 #### 設定ファイルの例
@@ -328,9 +328,12 @@ slots:
 denpachan:
   host: 127.0.0.1
   port: 9100
-sheet:
-  spreadsheetId: 1AbC...
+google:
   credentialsFile: ./google-service-account.json
+  sheet:
+    spreadsheetId: 1AbC...
+  drive:
+    folderId: 0AbC...                    # 未設定なら上げない
 guide:
   obsProfile: "RTA 配信用 2026"
   expected: { width: 1536, height: 864, fps: 60, bitrateKbps: 3000, keyframeSec: 2 }
@@ -689,10 +692,10 @@ sequenceDiagram
 
 ### 8.1 録画と録音を Google ドライブに上げる
 
-録画 (denpachan の mkv) と録音 (マイクの声の .ogg) は、bot と denpachan を動かしている PC にある。後日、音声を聞いて判定する人がその PC を触れるとは限らないので、テストが終わったら Google ドライブに上げ、シートにリンクを書く。使うのは `drive.folderId` を書いたときだけ。
+録画 (denpachan の mkv) と録音 (マイクの声の .ogg) は、bot と denpachan を動かしている PC にある。後日、音声を聞いて判定する人がその PC を触れるとは限らないので、テストが終わったら Google ドライブに上げ、シートにリンクを書く。使うのは `google.drive.folderId` を書いたときだけ。
 
-- **上げる先**: `drive.folderId` のフォルダの中に、テストごとのフォルダ (スレッドと同じ名前。`配信テスト 2026-11-15 20:08 pasta`) を作り、そのテストの間に書いた録画ファイルすべてと、録音を入れる。ファイル名は PC の上のものと同じ (シートの録画の区間に添えるファイル名と対応する)。
-- **共有ドライブが要る**: bot はサービスアカウント (シートと同じキー) で上げる。サービスアカウントには保存容量が無く、ファイルを持てないので、マイドライブのフォルダには上げられない。`drive.folderId` は、共有ドライブ (またはその中のフォルダ) の ID にし、サービスアカウントをその共有ドライブのメンバー (投稿者以上) にしておく。マイドライブのフォルダを書いたときは、理由を付けて失敗する。
+- **上げる先**: `google.drive.folderId` のフォルダの中に、テストごとのフォルダ (スレッドと同じ名前。`配信テスト 2026-11-15 20:08 pasta`) を作り、そのテストの間に書いた録画ファイルすべてと、録音を入れる。ファイル名は PC の上のものと同じ (シートの録画の区間に添えるファイル名と対応する)。
+- **共有ドライブが要る**: bot はサービスアカウント (シートと同じキー) で上げる。サービスアカウントには保存容量が無く、ファイルを持てないので、マイドライブのフォルダには上げられない。`google.drive.folderId` は、共有ドライブ (またはその中のフォルダ) の ID にし、サービスアカウントをその共有ドライブのメンバー (投稿者以上) にしておく。マイドライブのフォルダを書いたときは、理由を付けて失敗する。
 - **いつ上げるか**: テストが終わって 10 秒たってから (denpachan が録画ファイルを閉じるのを待つ)。テストの進行とは別に裏で上げ、1 つずつ順に上げる (録画は 15 分のテストで 300 MB ほど。回線の上りを、複数のアップロードで取り合わない)。
 - **シート**: 行を書いたときは「アップロード待ち」、上げ終えたらフォルダのリンクに書き換える。運営への通知にも流す。
 - **失敗したとき**: 1 分、2 分と間を空けて 3 回まで試す。それでも上げられなければ、シートに「アップロード失敗: 理由」と書き、運営に知らせる。PC に無いファイルは飛ばし、ほかのファイルは上げる (シートに、上げられなかったものを添える)。PC の上のファイルは、上げたあとも消さない。

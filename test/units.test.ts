@@ -199,6 +199,18 @@ describe("config", () => {
         assert.equal(ok.flows[0]!.output, "sub");
         assert.equal(testConfig().denpachan.configure, false, "既定は false");
     });
+    it("Google の設定は google の下にまとめる。前の書き方 (いちばん上の sheet / drive) には、移し方を伝える", () => {
+        const c = parseConfig(baseYaml, {});
+        assert.deepEqual(c.google, { credentialsFile: "none.json", sheet: { spreadsheetId: "sheet-1", tabName: "techcheck" }, drive: { folderId: "" } });
+        const old = baseYaml.replace(/google:\n {2}credentialsFile: none\.json\n {2}sheet: \{ spreadsheetId: sheet-1 \}\n/, "sheet:\n  spreadsheetId: sheet-1\n  credentialsFile: none.json\ndrive:\n  folderId: ROOT\n");
+        assert.notEqual(old, baseYaml);
+        assert.throws(
+            () => parseConfig(old, {}),
+            (e: Error) => /sheet\.credentialsFile は google\.credentialsFile へ/.test(e.message) && /drive\.folderId は google\.drive\.folderId へ/.test(e.message),
+        );
+        // 新しい書き方に、前の drive だけが残っているときも、黙って無視しない
+        assert.throws(() => parseConfig(`${baseYaml}drive: { folderId: ROOT }\n`, {}), /drive\.folderId は google\.drive\.folderId へ/);
+    });
     it("voice の手順は voice.enabled が要る。有効なら既定の手順の最後に入る", () => {
         const custom = `checks: ${JSON.stringify([voiceStep])}\n`;
         assert.throws(() => parseConfig(baseYaml + custom, {}), /voice の手順を使うには、voice\.enabled を true/);

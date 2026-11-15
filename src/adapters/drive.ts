@@ -122,9 +122,9 @@ async function describeError(what: string, res: Response): Promise<string> {
     const text = (await res.text().catch(() => "")).slice(0, 300);
     // サービスアカウントでマイドライブに上げようとしたときの答え。直し方を添える
     const hint = /storageQuotaExceeded|do not have storage quota/i.test(text)
-        ? " (サービスアカウントには保存容量がありません。drive.folderId を、サービスアカウントをメンバーにした共有ドライブの中のフォルダにしてください)"
+        ? " (サービスアカウントには保存容量がありません。google.drive.folderId を、サービスアカウントをメンバーにした共有ドライブの中のフォルダにしてください)"
         : res.status === 404
-          ? " (drive.folderId のフォルダが見つかりません。サービスアカウントを、その共有ドライブのメンバーにしてあるかを確かめてください)"
+          ? " (google.drive.folderId のフォルダが見つかりません。サービスアカウントを、その共有ドライブのメンバーにしてあるかを確かめてください)"
           : "";
     return `Drive API: ${what}: ${res.status}${hint} ${text}`.trim();
 }

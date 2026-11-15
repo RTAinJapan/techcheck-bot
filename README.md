@@ -39,7 +39,7 @@ cp config.example.yaml config.yaml
 `config.yaml` を書き換える。項目の説明は [docs/design.md の「設定値の一覧」](docs/design.md#設定値の一覧)。
 
 - 秘密 (トークン、パスフレーズ、キー、webhook の URL) は、`${環境変数名}` と書くと環境変数から読める。
-- ファイルの場所 (`sheet.credentialsFile`、`db.path`、`i18n.dir`、`voice.dir`) を相対パスで書くと、`config.yaml` のあるフォルダから探す。
+- ファイルの場所 (`google.credentialsFile`、`db.path`、`i18n.dir`、`voice.dir`) を相対パスで書くと、`config.yaml` のあるフォルダから探す。
 
 ### トークンと権限
 
@@ -54,8 +54,8 @@ cp config.example.yaml config.yaml
 | Discord (webhook) | `notify.webhookUrl` | 無い (URL そのものが秘密) | 未設定なら結果の通知を送らない |
 | AWS MediaConnect | IAM Identity Center の許可セットを割り当てたプロファイル (環境変数 `AWS_PROFILE`)。リージョンは `aws.region` | 許可セットのポリシーに `mediaconnect:DescribeFlow`、`mediaconnect:StartFlow`、`mediaconnect:StopFlow`、`mediaconnect:DescribeFlowSourceMetadata`、`mediaconnect:DescribeFlowSourceThumbnail` | Resource は `flows` に書いたフローの ARN に絞る |
 | AWS CloudWatch | 同上 | 同じ許可セットのポリシーに `cloudwatch:GetMetricData` | Resource は `*` (リソースで絞れないアクション) |
-| Google スプレッドシート | `sheet.credentialsFile`、`sheet.spreadsheetId`、`sheet.tabName` | シートを、サービスアカウントのメールアドレスに「編集者」で共有する | Google Cloud のプロジェクトで Google Sheets API を有効にしておく。IAM ロールは要らない。`sheet.tabName` の名前のシート (タブ) を作っておく |
-| Google ドライブ | `drive.folderId` (キーは `sheet.credentialsFile` のもの) | サービスアカウントを、上げる先の共有ドライブのメンバー (投稿者以上) にする | 録画と録音を上げるときだけ。Google Cloud のプロジェクトで Google Drive API を有効にしておく。未設定なら上げない |
+| Google スプレッドシート | `google.credentialsFile`、`google.sheet.spreadsheetId`、`google.sheet.tabName` | シートを、サービスアカウントのメールアドレスに「編集者」で共有する | Google Cloud のプロジェクトで Google Sheets API を有効にしておく。IAM ロールは要らない。`google.sheet.tabName` の名前のシート (タブ) を作っておく |
+| Google ドライブ | `google.drive.folderId` (キーは、シートと同じ `google.credentialsFile`) | サービスアカウントを、上げる先の共有ドライブのメンバー (投稿者以上) にする | 録画と録音を上げるときだけ。Google Cloud のプロジェクトで Google Drive API を有効にしておく。未設定なら上げない |
 | denpachan | `denpachan.host`、`denpachan.port`、`denpachan.token` | 下の「denpachan」のとおり | トークンは、loopback (同じ PC) に繋ぐなら無くてよい。それ以外では必須 |
 
 - Discord の権限の名前は、Developer Portal の日本語の表示のもの。
@@ -145,8 +145,12 @@ voice:
 録画と録音は、bot と denpachan を動かしている PC に残る。後日聞く人がその PC を触れないときは、Google ドライブに上げる。既定では上げない。
 
 ```yaml
-drive:
-  folderId: 0AbCdEfGhIjKlMnOpQ      # 共有ドライブ (またはその中のフォルダ) の ID
+google:
+  credentialsFile: ./google-service-account.json
+  sheet:
+    spreadsheetId: 1AbCdEfGhIjKlMnOpQrStUvWxYz
+  drive:
+    folderId: 0AbCdEfGhIjKlMnOpQ    # 共有ドライブ (またはその中のフォルダ) の ID
 ```
 
 - **共有ドライブが要る。** bot はサービスアカウント (シートと同じキー) で上げるが、サービスアカウントには保存容量が無く、マイドライブのフォルダには上げられない。Google Workspace の共有ドライブを使い、サービスアカウントのメールアドレスをその共有ドライブのメンバー (投稿者以上) にする。手順は [docs/createToken.md](docs/createToken.md)。

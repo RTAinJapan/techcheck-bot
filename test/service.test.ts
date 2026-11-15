@@ -5,7 +5,7 @@ import { describe, it } from "node:test";
 import type { SrtSample } from "../src/advisor.js";
 import { defaultChecks, reconnectStep } from "../src/checks.js";
 import { describeRange, formatRecPos, sheetColumns } from "../src/record.js";
-import { baseYaml, goodSample, makeWorld, twoSlotsYaml, type World } from "./helpers.js";
+import { baseYaml, driveYaml, goodSample, makeWorld, twoSlotsYaml, type World } from "./helpers.js";
 
 const U1 = { id: "U1", displayName: "Runner A" };
 const U2 = { id: "U2", displayName: "Runner B" };
@@ -449,10 +449,10 @@ describe("録画ファイルが途中で切り替わる", () => {
 });
 
 describe("録画と録音を Google ドライブに上げる", () => {
-    const driveOn = 'drive: { folderId: "ROOT" }\n';
-    /** テストを 1 つ最後まで通す (録音が有効なら、録音も) */
-    async function finishedTest(extra = driveOn, store?: Parameters<typeof makeWorld>[2]) {
-        const w = makeWorld(extra, undefined, store);
+    const voiceToo = "voice: { enabled: true }\n";
+    /** テストを 1 つ最後まで通す (録音が有効なら、録音も)。base を省くと、ドライブに上げる設定 */
+    async function finishedTest(extra = "", base = driveYaml) {
+        const w = makeWorld(extra, base);
         const { thread } = await startAndStream(w);
         await passChecks(w, thread);
         if (w.config.voice.enabled) {
@@ -466,7 +466,7 @@ describe("録画と録音を Google ドライブに上げる", () => {
     const lastCell = (w: World) => w.sheet.updates.at(-1);
 
     it("テストが終わったら、テストごとのフォルダに録画と録音を上げ、シートにリンクを書く", async () => {
-        const w = await finishedTest(`${driveOn}voice: { enabled: true }\n`);
+        const w = await finishedTest(voiceToo);
         assert.equal(w.sheet.rows[0]!.at(-1), "アップロード待ち");
         // denpachan が録画ファイルを閉じるのを待ってから上げる
         await w.run(5);
@@ -484,8 +484,8 @@ describe("録画と録音を Google ドライブに上げる", () => {
         assert.equal(w.drive.uploaded.length, 2);
     });
 
-    it("drive.folderId が無ければ、上げない", async () => {
-        const w = await finishedTest("");
+    it("google.drive.folderId が無ければ、上げない", async () => {
+        const w = await finishedTest("", baseYaml);
         assert.equal(w.sheet.rows[0]!.at(-1), "");
         await w.run(30);
         assert.equal(w.drive.folders.length, 0);
@@ -514,7 +514,7 @@ describe("録画と録音を Google ドライブに上げる", () => {
     });
 
     it("PC に無いファイルは飛ばして、ほかのファイルは上げる", async () => {
-        const w = await finishedTest(`${driveOn}voice: { enabled: true }\n`);
+        const w = await finishedTest(voiceToo);
         w.drive.missing = ["rec-ch7.mkv"];
         await w.run(12);
         assert.equal(w.drive.uploaded.length, 1);
@@ -523,7 +523,7 @@ describe("録画と録音を Google ドライブに上げる", () => {
 
     it("上げる前に bot を起動し直しても、続きから上げる", async () => {
         const w = await finishedTest();
-        const again = makeWorld(driveOn, undefined, w.store);
+        const again = makeWorld("", driveYaml, w.store);
         again.clock.t = w.clock.t;
         assert.ok(again.service.startupSummary().some((l) => l.includes("Google ドライブに上げるのを待っているテスト: Runner A")));
         await again.run(12);

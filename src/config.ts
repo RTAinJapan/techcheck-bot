@@ -102,10 +102,16 @@ export const configSchema = z
                 configure: z.boolean().prefault(false),
             })
             .prefault({}),
-        sheet: z.object({
-            spreadsheetId: nonEmpty,
-            tabName: z.string().prefault("techcheck"),
-            credentialsFile: nonEmpty,
+        // Google のものは、ここにまとめる。サービスアカウントのキーは、シートとドライブで同じものを使う
+        google: z.object({
+            credentialsFile: nonEmpty, // サービスアカウントのキーのファイル (秘密)
+            sheet: z.object({
+                spreadsheetId: nonEmpty,
+                tabName: z.string().prefault("techcheck"),
+            }),
+            // テストの録画と録音を Google ドライブに上げる。folderId が空なら上げない。
+            // サービスアカウントには保存容量が無いので、共有ドライブ (またはその中のフォルダ) の ID を書く
+            drive: z.object({ folderId: optionalText }).prefault({}),
         }),
         guide: z.object({
             obsProfile: nonEmpty,
@@ -167,9 +173,6 @@ export const configSchema = z
                 dir: z.string().min(1).prefault("./voice"), // 録音 (.ogg) の置き場所
             })
             .prefault({}),
-        // テストの録画と録音を Google ドライブに上げる。folderId が空なら上げない。
-        // サービスアカウント (sheet.credentialsFile) には保存容量が無いので、共有ドライブ (またはその中のフォルダ) の ID を書く
-        drive: z.object({ folderId: optionalText }).prefault({}),
         // 配信の静止画を、denpachan の録画から取り出すのに使う ffmpeg。既定は PATH の ffmpeg
         ffmpeg: z.object({ path: z.string().min(1).prefault("ffmpeg") }).prefault({}),
         i18n: z.object({ dir: z.string().prefault("./messages"), fallback: lang.prefault("en") }).prefault({}),
@@ -259,8 +262,17 @@ export function parseConfig(yamlText: string, env: NodeJS.ProcessEnv = process.e
     const { text, missing } = expandEnv(yamlText, env);
     const raw: unknown = parseYaml(text);
     const result = configSchema.safeParse(raw);
-    if (!result.success) {
-        const lines = result.error.issues.map((i) => `- ${i.path.join(".") || "(全体)"}: ${i.message}`);
+    // 前の書き方 (いちばん上の sheet / drive) は、google の下に移した。黙って無視せずに、移し方を伝える
+    const moved = raw && typeof raw === "object" ? ["sheet", "drive"].filter((k) => k in raw) : [];
+    if (!result.success || moved.length > 0) {
+        const lines = (result.error?.issues ?? []).map((i) => `- ${i.path.join(".") || "(全体)"}: ${i.message}`);
+        for (const k of moved) {
+            lines.push(
+                k === "sheet"
+                    ? "- sheet: Google の設定は google の下にまとめました。sheet.credentialsFile は google.credentialsFile へ、sheet.spreadsheetId と sheet.tabName は google.sheet の下へ移してください"
+                    : "- drive: Google の設定は google の下にまとめました。drive.folderId は google.drive.folderId へ移してください",
+            );
+        }
         if (missing.length > 0) lines.push(`(設定されていない環境変数: ${[...new Set(missing)].join(", ")})`);
         throw new ConfigError(`設定ファイルが正しくありません:\n${lines.join("\n")}`);
     }

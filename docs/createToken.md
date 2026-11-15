@@ -210,7 +210,7 @@ bot は、Google Cloud のサービスアカウントのキー (JSON ファイ�
 
 1. サービスアカウントのメールアドレスを押して開き、`Keys` のタブを開く。
 2. `Add key` → `Create new key` を選び、`Key type` を `JSON` にして `Create` を押す。
-3. JSON ファイルがダウンロードされる。これが `sheet.credentialsFile` に書くファイル。見本の設定では、`config.yaml` と同じフォルダの `google-service-account.json`。
+3. JSON ファイルがダウンロードされる。これが `google.credentialsFile` に書くファイル。見本の設定では、`config.yaml` と同じフォルダの `google-service-account.json`。
 
 - キーのファイルは、あとからダウンロードし直せない。無くしたら、新しいキーを作り、古いキーを消す。
 - 作る人には、`Service Account Key Admin` (`roles/iam.serviceAccountKeyAdmin`) のロールが要る。
@@ -221,20 +221,20 @@ bot は、Google Cloud のサービスアカウントのキー (JSON ファイ�
 
 1. 結果を書くスプレッドシートを開き (無ければ作る)、共有 (`Share`) を開く。
 2. 2 で控えたサービスアカウントのメールアドレスを、「編集者」(`Editor`) で足す。通知 (`Notify people`) のチェックは外す。
-3. `sheet.tabName` (既定は `techcheck`) と同じ名前のシート (タブ) を作っておく。1 行目が空なら、bot が見出しを書く。
+3. `google.sheet.tabName` (既定は `techcheck`) と同じ名前のシート (タブ) を作っておく。1 行目が空なら、bot が見出しを書く。
 
 ### 5. 録画と録音を上げる共有ドライブを用意する (使うときだけ)
 
-録画と録音を Google ドライブに上げる (`drive.folderId`。[README の「録画と録音を Google ドライブに上げる」](../README.md#録画と録音を-google-ドライブに上げる)) ときだけ要る。キーは、上で作ったサービスアカウントのものをそのまま使う。
+録画と録音を Google ドライブに上げる (`google.drive.folderId`。[README の「録画と録音を Google ドライブに上げる」](../README.md#録画と録音を-google-ドライブに上げる)) ときだけ要る。キーは、上で作ったサービスアカウントのものをそのまま使う。
 
 サービスアカウントには保存容量が無く、ファイルを持てない。そのため、上げる先は Google Workspace の**共有ドライブ**にする。個人のマイドライブのフォルダをサービスアカウントに共有しても、上げられない (Drive API が、保存容量が無いというエラーを返す)。
 
 1. Google Cloud のコンソールの `APIs & Services` → `Library` で `Google Drive API` を探し、`Enable` を押す (1 と同じプロジェクト)。
 2. Google ドライブで、共有ドライブを作る (すでにあるものを使ってもよい)。作れるのは、Google Workspace のアカウントで、管理者が共有ドライブの作成を許しているとき。
 3. 共有ドライブの「メンバーを管理」で、サービスアカウントのメールアドレスを足す。役割は「投稿者」以上 (ファイルを足せればよい。「コンテンツ管理者」でもよい)。組織の外のアカウントを足せない設定になっていると足せないので、そのときは管理者に相談する。
-4. 上げる先のフォルダを決める。共有ドライブの直下でも、その中に作ったフォルダでもよい。ブラウザで開いたときの URL の `folders/` のあとの部分が ID で、これが `drive.folderId`。
+4. 上げる先のフォルダを決める。共有ドライブの直下でも、その中に作ったフォルダでもよい。ブラウザで開いたときの URL の `folders/` のあとの部分が ID で、これが `google.drive.folderId`。
 
 - 録画と録音を聞く人には、その共有ドライブ (または上げる先のフォルダ) を見られるようにしておく。
 - bot は、このフォルダの中にテストごとのフォルダを作り、ファイルを足すだけで、消したり書き換えたりはしない。
 
-スプレッドシートの ID は、URL の `https://docs.google.com/spreadsheets/d/<ここ>/edit` の部分。これが `sheet.spreadsheetId`。
+スプレッドシートの ID は、URL の `https://docs.google.com/spreadsheets/d/<ここ>/edit` の部分。これが `google.sheet.spreadsheetId`。

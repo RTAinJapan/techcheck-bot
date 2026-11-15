@@ -52,9 +52,9 @@ rtmp:
 slots:
   srt: { flow: flow-a, channel: 7 }
   rtmp: { channel: 8 }
-sheet:
-  spreadsheetId: sheet-1
+google:
   credentialsFile: none.json
+  sheet: { spreadsheetId: sheet-1 }
 guide:
   obsProfile: RTA 2026
 `;
@@ -63,6 +63,9 @@ guide:
 export const twoSlotsYaml = baseYaml
     .replace("    passphrase: pass-a\n", "    passphrase: pass-a\n  - name: flow-b\n    arn: arn:flow-b\n    domain: srt-b.example.jp\n    passphrase: pass-b\n")
     .replace("  srt: { flow: flow-a, channel: 7 }\n", "  srt:\n    - { flow: flow-a, channel: 7 }\n    - { flow: flow-b, channel: 6 }\n");
+
+/** 録画と録音を Google ドライブに上げる設定にしたもの */
+export const driveYaml = baseYaml.replace("  sheet: { spreadsheetId: sheet-1 }\n", "  sheet: { spreadsheetId: sheet-1 }\n  drive: { folderId: ROOT }\n");
 
 export function testConfig(extra = "", base = baseYaml): Config {
     return parseConfig(base + extra, {});
@@ -379,7 +382,7 @@ export function makeWorld(extraYaml = "", baseYamlText = baseYaml, existingStore
         still,
         voice: config.voice.enabled ? voice : undefined,
         voiceDir: "voice-dir",
-        drive: config.drive.folderId ? drive : undefined,
+        drive: config.google.drive.folderId ? drive : undefined,
         dns,
         chat,
         sheet,

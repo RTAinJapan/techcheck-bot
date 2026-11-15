@@ -1,5 +1,5 @@
 // 起動: node dist/src/index.js [config.yaml]  (または環境変数 TECHCHECK_CONFIG。どちらも無ければ、今いるフォルダの config.yaml)
-// 設定の中の相対パス (i18n.dir、db.path、sheet.credentialsFile、voice.dir) は、設定ファイルのあるフォルダから探す。
+// 設定の中の相対パス (i18n.dir、db.path、google.credentialsFile、voice.dir) は、設定ファイルのあるフォルダから探す。
 // ここを変えたら、README の「準備」「動かす」も直す。
 
 import { Client, Events, GatewayIntentBits } from "discord.js";
@@ -34,6 +34,8 @@ async function main(): Promise<void> {
     const intents = config.voice.enabled ? [GatewayIntentBits.Guilds, GatewayIntentBits.GuildVoiceStates] : [GatewayIntentBits.Guilds];
     const client = new Client({ intents });
     const voiceDir = resolve(baseDir, config.voice.dir);
+    const google = config.google;
+    const credentialsFile = resolve(baseDir, google.credentialsFile);
     const voice = config.voice.enabled ? new DiscordVoice(client, config.discord.guildId, config.ffmpeg.path, log) : undefined;
     const rx = new WsReceiver(WsReceiver.urlFor(config.denpachan.host, config.denpachan.port, config.denpachan.token), log);
     const service = new TechcheckService({
@@ -45,11 +47,11 @@ async function main(): Promise<void> {
         still: new FfmpegStill(config.ffmpeg.path),
         voice,
         voiceDir,
-        // サービスアカウントのキーは、シートと同じもの
-        drive: config.drive.folderId ? new GoogleDrive(config.drive.folderId, resolve(baseDir, config.sheet.credentialsFile)) : undefined,
+        // サービスアカウントのキーは、シートと同じもの (google.credentialsFile)
+        drive: google.drive.folderId ? new GoogleDrive(google.drive.folderId, credentialsFile) : undefined,
         dns: new NodeDns(),
         chat: new DiscordChat(client, config),
-        sheet: new GoogleSheet(config.sheet.spreadsheetId, config.sheet.tabName, resolve(baseDir, config.sheet.credentialsFile)),
+        sheet: new GoogleSheet(google.sheet.spreadsheetId, google.sheet.tabName, credentialsFile),
         webhook: new DiscordWebhook(config.notify.webhookUrl),
         clock: { now: () => Date.now() },
         log,
@@ -64,13 +66,13 @@ async function main(): Promise<void> {
         `denpachan: ${config.denpachan.host}:${config.denpachan.port} (トークン${config.denpachan.token ? "あり" : "なし"}) / 枠のチャンネルの受信の設定: ` +
             (config.denpachan.configure ? "bot が入れる (denpachan.configure)" : "denpachan の画面で合わせる"),
     );
-    log(`シート: ${config.sheet.spreadsheetId} / ${config.sheet.tabName}`);
+    log(`シート: ${google.sheet.spreadsheetId} / ${google.sheet.tabName}`);
     log(
         `マイクの声の録音 (ボイスチャンネル): ${
             config.voice.enabled ? `する (置き場所 ${voiceDir}。案内するボイスチャンネルは、bot が入れる所のうち空いている所)` : "しない (voice.enabled)"
         }`,
     );
-    log(`録画と録音の Google ドライブへのアップロード: ${config.drive.folderId ? `する (フォルダ ${config.drive.folderId})` : "しない (drive.folderId が未設定)"}`);
+    log(`録画と録音の Google ドライブへのアップロード: ${google.drive.folderId ? `する (フォルダ ${google.drive.folderId})` : "しない (google.drive.folderId が未設定)"}`);
     // 通知は 2 つあり、設定も別。どちらも、未設定なら送らない
     log(`運営への通知 (途中の経過と問題。bot がチャンネルに書く): ${config.discord.opsChannelId ? `チャンネル ${config.discord.opsChannelId} に送る` : "discord.opsChannelId が未設定なので送らない (コンソールにだけ出る)"}`);
     log(`結果の通知 (テストが終わったとき。webhook): ${config.notify.webhookUrl ? "送る" : "notify.webhookUrl が未設定なので送らない"}`);

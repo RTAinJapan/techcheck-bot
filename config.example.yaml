@@ -1,7 +1,7 @@
 # 配信テストの bot の設定。config.yaml にコピーして書き換える。
 # 項目の説明は docs/design.md の「設定値の一覧」(§4.1)、トークンに要る権限は README の「トークンと権限」。
 # 秘密 (トークン、パスフレーズ、キー、webhook の URL) は ${環境変数名} で環境変数から読める。
-# 相対パス (credentialsFile、i18n.dir、db.path、voice.dir) は、このファイルのあるフォルダから探す。
+# 相対パス (google.credentialsFile、i18n.dir、db.path、voice.dir) は、このファイルのあるフォルダから探す。
 
 discord:
   token: ${DISCORD_TOKEN}
@@ -57,16 +57,18 @@ denpachan:
   # configure: true                          # 枠のチャンネルの受信の設定を bot が入れる (flows の output が要る。
   #                                          # denpachan の全体設定で「受信の設定の変更も許す」を on にする)
 
-sheet:
-  spreadsheetId: 1AbCdEfGhIjKlMnOpQrStUvWxYz
-  tabName: techcheck
+# Google のもの。サービスアカウントのキーは、シートとドライブで同じものを使う (作り方は docs/createToken.md)
+google:
   credentialsFile: ./google-service-account.json
-
-# テストの録画と録音を Google ドライブに上げる (README の「録画と録音を Google ドライブに上げる」)。
-# 共有ドライブ (またはその中のフォルダ) の ID を書く。サービスアカウントには保存容量が無いので、マイドライブのフォルダには上げられない。
-# サービスアカウント (sheet.credentialsFile のもの) を、その共有ドライブのメンバーにしておく。書かなければ上げない
-# drive:
-#   folderId: 0AbCdEfGhIjKlMnOpQ
+  # 結果を書くスプレッドシート。サービスアカウントに「編集者」で共有しておく
+  sheet:
+    spreadsheetId: 1AbCdEfGhIjKlMnOpQrStUvWxYz
+    tabName: techcheck
+  # テストの録画と録音を Google ドライブに上げる (README の「録画と録音を Google ドライブに上げる」)。書かなければ上げない。
+  # 共有ドライブ (またはその中のフォルダ) の ID を書く。サービスアカウントには保存容量が無いので、マイドライブのフォルダには上げられない。
+  # サービスアカウントを、その共有ドライブのメンバーにしておく
+  # drive:
+  #   folderId: 0AbCdEfGhIjKlMnOpQ
 
 guide:
   obsProfile: "RTA 配信用 2026"
