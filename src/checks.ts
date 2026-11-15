@@ -125,6 +125,26 @@ export const voiceStep: CheckStep = {
     },
 };
 
+/**
+ * マイクの声の録音 (VDO.ninja)。設定の webcam.links があり、webcam.mic が true (既定) のとき、既定の手順の最後に足す。
+ * 本番のマイクの声は、web カメラと同じ VDO.ninja のページから届くので、その経路の音を bot のブラウザで録って、あとで運営が聞く。
+ * 送信用の URL は、この文言の下に付けて案内する (service.ts の promptWebcamVoice)。
+ */
+export const webcamVoiceStep: CheckStep = {
+    id: "voice",
+    label: { ja: "マイク音", en: "Microphone voice" },
+    kind: "webcamVoice",
+    seconds: 15,
+    text: {
+        ja: "(マイクを使う方だけ) web カメラのページ (VDO.ninja) から届くマイクの声を録音します (あとで運営が聞いて確かめます)。カメラのページで本番で使うマイクが選ばれていて、ミュートになっていないことを確かめ、「始める」を押してから、普段の声で 15 秒ほど話してください。マイクを使わない方は「マイクは使わない」を押してください。",
+        en: "(Only if you use a microphone) We record your voice as it reaches us from the webcam page (VDO.ninja) (staff will listen to it later). Check that the microphone you will use at the event is selected on the webcam page and is not muted, press \"Start\", then talk in your normal voice for about 15 seconds. If you don't use a microphone, press \"I don't use a mic\".",
+    },
+    failHint: {
+        ja: "声が届いていません。web カメラのページで、マイクが選ばれているか (本番で使うマイクか)、ミュートになっていないかを確かめてください。",
+        en: "Your voice did not reach us. On the webcam page, check that the right microphone is selected and that it is not muted.",
+    },
+};
+
 export type CheckVerdict = "ok" | "ng" | "unknown";
 
 export interface CheckResult {

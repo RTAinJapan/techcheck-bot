@@ -375,6 +375,14 @@ export class FakeWebcam implements WebcamPort {
     async still(key: string): Promise<Buffer | undefined> {
         return this.views.get(key)?.status.playing ? Buffer.from("webcam still") : undefined;
     }
+    /** 次の録音の結果 */
+    nextAudio: Partial<VoiceRecording> = { audioMs: 15_000, maxDb: -6, meanDb: -24, clippedPct: 0, waveform: Buffer.from("waveform") };
+    recorded: { key: string; file: string; seconds: number }[] = [];
+    async recordAudio(key: string, file: string, seconds: number): Promise<VoiceRecording> {
+        this.recorded.push({ key, file, seconds });
+        if (!this.views.get(key)?.status.audio) throw new Error("音声 (マイク) が届いていません");
+        return { file, packets: 0, bytes: 1000, audioMs: 0, ...this.nextAudio };
+    }
     async close(key: string): Promise<void> {
         if (this.views.delete(key)) this.closed.push(key);
     }

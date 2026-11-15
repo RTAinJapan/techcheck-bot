@@ -40,7 +40,7 @@ async function main(): Promise<void> {
     const credentialsFile = resolve(baseDir, google.credentialsFile);
     const voice = config.voice.enabled ? new DiscordVoice(client, config.discord.guildId, config.ffmpeg.path, log) : undefined;
     // web カメラ (VDO.ninja) の受信用のページを開くブラウザ。使うとき (webcam.links があるとき) だけ
-    const webcam = config.webcam.links.length > 0 ? new BrowserWebcam(config.webcam.browser, log) : undefined;
+    const webcam = config.webcam.links.length > 0 ? new BrowserWebcam(config.webcam.browser, log, config.ffmpeg.path) : undefined;
     const rx = new WsReceiver(WsReceiver.urlFor(config.denpachan.host, config.denpachan.port, config.denpachan.token), log);
     // AWS の認証: 設定にアクセスキーがあればそれ、無ければ AWS SDK の既定の探し方 (環境変数、AWS_PROFILE のプロファイルなど)
     const awsKey = config.aws.accessKeyId ? { accessKeyId: config.aws.accessKeyId, secretAccessKey: config.aws.secretAccessKey } : undefined;

@@ -4,7 +4,7 @@
 import { readFileSync } from "node:fs";
 import { parse as parseYaml } from "yaml";
 import { z } from "zod";
-import { defaultChecks, voiceStep } from "./checks.js";
+import { defaultChecks, voiceStep, webcamVoiceStep } from "./checks.js";
 
 const nonEmpty = z.string().min(1);
 /**
@@ -26,7 +26,8 @@ export const checkStepSchema = z.object({
     // sound: 音が載ることを期待 / silence: 静かにする (ノイズの大きさを測る) / quiet: 載らないことを期待 (基準は silence)
     // confirm: 静止画を見て はい / いいえ / reconnect: 配信を止めて始め直す
     // voice: Discord のボイスチャンネルで話してもらい、その声を録音する (voice.enabled が要る)
-    kind: z.enum(["sound", "silence", "quiet", "confirm", "reconnect", "voice"]),
+    // webcamVoice: VDO.ninja で届くマイクの声を録音する (webcam.links が要る)
+    kind: z.enum(["sound", "silence", "quiet", "confirm", "reconnect", "voice", "webcamVoice"]),
     seconds: z.number().int().min(0).max(600),
     text: localized,
     failHint: localized,
@@ -199,10 +200,12 @@ export const configSchema = z
                     .prefault({}),
                 // 映像が届かなくなってから、「途切れた」とみなすまで (秒)
                 lostSec: z.number().int().min(1).prefault(10),
+                // true なら、チェックの最後に、VDO.ninja で届くマイクの声の録音の手順を足す (本番のマイクの経路)
+                mic: z.boolean().prefault(true),
             })
             // webcam: の下が全部空 (null) でもよい
             .nullish()
-            .transform((v) => v ?? { links: [], browser: { path: "", channel: "chrome" }, lostSec: 10 }),
+            .transform((v) => v ?? { links: [], browser: { path: "", channel: "chrome" }, lostSec: 10, mic: true }),
         // 配信の静止画を、denpachan の録画から取り出すのに使う ffmpeg。既定は PATH の ffmpeg
         ffmpeg: z.object({ path: z.string().min(1).prefault("ffmpeg") }).prefault({}),
         i18n: z.object({ dir: z.string().prefault("./messages"), fallback: lang.prefault("en") }).prefault({}),
@@ -276,6 +279,13 @@ export const configSchema = z
         if (!c.voice.enabled && checks.some((s) => s.kind === "voice")) {
             ctx.addIssue({ code: "custom", path: ["checks"], message: "checks: voice の手順を使うには、voice.enabled を true にしてください" });
         }
+        if (c.webcam.links.length === 0 && checks.some((s) => s.kind === "webcamVoice")) {
+            ctx.addIssue({ code: "custom", path: ["checks"], message: "checks: webcamVoice の手順を使うには、webcam.links を書いてください" });
+        }
+        // マイクの声の録音は、本番の経路の 1 つで行う (録音の記録は、テストごとに 1 つ)
+        if (c.voice.enabled && c.webcam.links.length > 0 && c.webcam.mic) {
+            ctx.addIssue({ code: "custom", path: ["voice", "enabled"], message: "マイクの声の録音は、VDO.ninja (webcam.mic。既定で true) か Discord のボイスチャンネル (voice.enabled) の、どちらか一方にしてください" });
+        }
         const ids = new Set<string>();
         for (const s of checks) {
             if (ids.has(s.id)) ctx.addIssue({ code: "custom", path: ["checks"], message: `checks: id "${s.id}" が重複しています` });
@@ -326,7 +336,8 @@ export function parseConfig(yamlText: string, env: NodeJS.ProcessEnv = process.e
         throw new ConfigError(`設定ファイルが正しくありません:\n${lines.join("\n")}`);
     }
     // 既定の手順。マイクの録音を使うなら、最後に足す
-    const defaults = result.data.voice.enabled ? [...defaultChecks, voiceStep] : defaultChecks;
+    const webcamMic = result.data.webcam.links.length > 0 && result.data.webcam.mic;
+    const defaults = result.data.voice.enabled ? [...defaultChecks, voiceStep] : webcamMic ? [...defaultChecks, webcamVoiceStep] : defaultChecks;
     return { ...result.data, checks: result.data.checks ?? defaults };
 }
 

@@ -115,6 +115,8 @@ export interface WebcamState {
     link: number;
     /** 「web カメラは使わない」 */
     skipped?: boolean;
+    /** マイクの声の録音の手順 (VDO.ninja) で、送信用の URL を案内した (カメラを使わない人も、ページを開いているかもしれない) */
+    micAsked?: boolean;
     /** bot の側の問題で、受信用のページを開けなかった (web カメラなしで進めた) */
     failed?: boolean;
     /** 案内のメッセージ (届いたらボタンを外す) */

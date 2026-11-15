@@ -7,8 +7,11 @@
 // - ブラウザは、PC に入っている Chrome 系を使う (設定の webcam.browser)。Playwright はブラウザを操作するのに使うだけで、
 //   ブラウザそのものは持ってこない (playwright-core)。
 
+import { mkdirSync, writeFileSync } from "node:fs";
+import { dirname } from "node:path";
 import { type Browser, type Page, chromium } from "playwright-core";
-import type { WebcamPort, WebcamStatus } from "../ports.js";
+import type { VoiceRecording, WebcamPort, WebcamStatus } from "../ports.js";
+import { measureLevel, waveformImage } from "./level.js";
 
 const kPollMs = 1_000;
 /** 新しいフレームがこれだけ届かなければ、再生が止まっているとみなす (ミリ秒) */
@@ -25,6 +28,8 @@ interface Probe {
     packetsReceived?: number;
     packetsLost?: number;
     freezes?: number;
+    /** 届いた音声のパケットの数 (音声のトラックが無ければ無い) */
+    audioPackets?: number;
 }
 
 interface View {
@@ -33,6 +38,8 @@ interface View {
     closed: boolean;
     lastProgress?: number;
     lastAdvanceAt?: number;
+    lastAudioPackets?: number;
+    lastAudioAt?: number;
 }
 
 /** ページが作る RTCPeerConnection を覚えておく (ページのスクリプトより先に入れる) */
@@ -64,12 +71,13 @@ const kProbeScript = `(async () => {
         const q = best.getVideoPlaybackQuality ? best.getVideoPlaybackQuality() : undefined;
         out.progress = q && q.totalVideoFrames ? q.totalVideoFrames : best.currentTime;
     }
-    let found = false, received = 0, lost = 0, freezes = 0;
+    let found = false, received = 0, lost = 0, freezes = 0, audio;
     for (const pc of window.__techcheckPeers || []) {
         if (pc.connectionState === "closed") continue;
         let stats;
         try { stats = await pc.getStats(); } catch { continue; }
         stats.forEach((r) => {
+            if (r.type === "inbound-rtp" && r.kind === "audio") audio = (audio || 0) + (r.packetsReceived || 0);
             if (r.type !== "inbound-rtp" || r.kind !== "video") return;
             found = true;
             received += r.packetsReceived || 0;
@@ -79,6 +87,7 @@ const kProbeScript = `(async () => {
         });
     }
     if (found) { out.packetsReceived = received; out.packetsLost = lost; out.freezes = freezes; }
+    if (audio !== undefined) out.audioPackets = audio;
     return out;
 })()`;
 
@@ -95,6 +104,34 @@ const kStillScript = `(() => {
     return c.toDataURL("image/jpeg", 0.85);
 })()`;
 
+/**
+ * 届いている音声のトラックを MediaRecorder で録り (WebM / Opus)、base64 で返す。音声のトラックが無ければ ""。
+ * トラックは、<video> ではなく RTCPeerConnection の受信側から取る (ページの作りに頼らない)
+ */
+const kRecordScript = `async (seconds) => {
+    let track;
+    for (const pc of window.__techcheckPeers || []) {
+        if (pc.connectionState === "closed") continue;
+        for (const r of pc.getReceivers()) {
+            // muted は「何も届いていない」トラック (送るだけの接続の受信側、など)
+            if (!track && r.track && r.track.kind === "audio" && r.track.readyState === "live" && !r.track.muted) track = r.track;
+        }
+    }
+    if (!track) return "";
+    const chunks = [];
+    const rec = new MediaRecorder(new MediaStream([track]), { mimeType: "audio/webm;codecs=opus", audioBitsPerSecond: 128000 });
+    rec.ondataavailable = (e) => chunks.push(e.data);
+    const stopped = new Promise((r) => (rec.onstop = r));
+    rec.start();
+    await new Promise((r) => setTimeout(r, seconds * 1000));
+    rec.stop();
+    await stopped;
+    const bytes = new Uint8Array(await new Blob(chunks).arrayBuffer());
+    let binary = "";
+    for (let i = 0; i < bytes.length; i += 0x8000) binary += String.fromCharCode.apply(null, bytes.subarray(i, i + 0x8000));
+    return btoa(binary);
+}`;
+
 export class BrowserWebcam implements WebcamPort {
     private browser: Promise<Browser> | undefined;
     private readonly views = new Map<string, View>();
@@ -103,6 +140,8 @@ export class BrowserWebcam implements WebcamPort {
     constructor(
         private readonly browserOptions: { path: string; channel: string },
         private readonly log: (msg: string) => void = () => undefined,
+        /** 録った声の音量を測る ffmpeg */
+        private readonly ffmpegPath = "ffmpeg",
     ) {}
 
     open(key: string, viewUrl: string): void {
@@ -122,6 +161,20 @@ export class BrowserWebcam implements WebcamPort {
         const dataUrl = (await page.evaluate(kStillScript)) as string;
         const base64 = dataUrl.split(",")[1];
         return base64 ? Buffer.from(base64, "base64") : undefined;
+    }
+
+    async recordAudio(key: string, file: string, seconds: number): Promise<VoiceRecording> {
+        const page = this.views.get(key)?.page;
+        if (!page) throw new Error("受信用のページを開いていません");
+        const base64 = (await page.evaluate(`(${kRecordScript})(${seconds})`)) as string;
+        if (!base64) throw new Error("音声 (マイク) が届いていません");
+        const data = Buffer.from(base64, "base64");
+        mkdirSync(dirname(file), { recursive: true });
+        writeFileSync(file, data);
+        const level = await measureLevel(this.ffmpegPath, file).catch(() => undefined);
+        const waveform = await waveformImage(this.ffmpegPath, file).catch(() => undefined);
+        // WebRTC は無音の間も送るので、長さは録った時間。届いたかどうかは音量で見る
+        return { file, packets: 0, bytes: data.length, audioMs: seconds * 1000, ...level, waveform };
     }
 
     async close(key: string): Promise<void> {
@@ -203,6 +256,9 @@ export class BrowserWebcam implements WebcamPort {
         // 映像が入れ替わる (配信者がページを開き直す) と、数え直しになる
         view.lastProgress = p.width > 0 ? p.progress : undefined;
         const playing = p.width > 0 && view.lastAdvanceAt !== undefined && now - view.lastAdvanceAt < kPlayingMs;
+        if (p.audioPackets !== undefined && view.lastAudioPackets !== undefined && p.audioPackets > view.lastAudioPackets) view.lastAudioAt = now;
+        view.lastAudioPackets = p.audioPackets;
+        const audio = view.lastAudioAt !== undefined && now - view.lastAudioAt < kPlayingMs;
         view.status = {
             state: "open",
             playing,
@@ -211,6 +267,7 @@ export class BrowserWebcam implements WebcamPort {
             packetsReceived: p.packetsReceived,
             packetsLost: p.packetsLost,
             freezes: p.freezes,
+            audio,
         };
     }
 }

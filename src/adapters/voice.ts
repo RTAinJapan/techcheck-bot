@@ -11,29 +11,15 @@
 
 import { EndBehaviorType, VoiceConnectionStatus, entersState, joinVoiceChannel } from "@discordjs/voice";
 import { ChannelType, PermissionFlagsBits, type Client } from "discord.js";
-import { spawn } from "node:child_process";
 import { createWriteStream, mkdirSync } from "node:fs";
 import { dirname } from "node:path";
 import type { VoiceChannelInfo, VoicePort, VoiceRecording } from "../ports.js";
+import { measureLevel, waveformImage } from "./level.js";
 import { OggOpusWriter } from "./ogg.js";
 
-const kJoinTimeoutMs = 20_000;
+export { parseVolumedetect } from "./level.js";
 
-/** ffmpeg の volumedetect の出力から、音量と、振り切れたサンプルの割合を読む */
-export function parseVolumedetect(text: string): { maxDb?: number; meanDb?: number; clippedPct?: number } {
-    const num = (re: RegExp) => {
-        const m = re.exec(text);
-        return m ? Number(m[1]) : undefined;
-    };
-    // n_samples は最初に 0 で 1 回出て、終わりに本当の数が出る。0 でない方を読む
-    const samples = num(/n_samples:\s*([1-9]\d*)/);
-    const at0 = num(/histogram_0db:\s*(\d+)/);
-    return {
-        maxDb: num(/max_volume:\s*(-?[\d.]+) dB/),
-        meanDb: num(/mean_volume:\s*(-?[\d.]+) dB/),
-        clippedPct: samples ? Math.round(((at0 ?? 0) / samples) * 10000) / 100 : undefined,
-    };
-}
+const kJoinTimeoutMs = 20_000;
 
 export class DiscordVoice implements VoicePort {
     constructor(
@@ -91,62 +77,11 @@ export class DiscordVoice implements VoicePort {
                 out.on("error", reject);
                 out.end(() => resolve());
             });
-            const level = ogg.packets > 0 ? await this.measure(file).catch(() => undefined) : undefined;
-            const waveform = ogg.packets > 0 ? await this.waveform(file).catch(() => undefined) : undefined;
+            const level = ogg.packets > 0 ? await measureLevel(this.ffmpegPath, file).catch(() => undefined) : undefined;
+            const waveform = ogg.packets > 0 ? await waveformImage(this.ffmpegPath, file).catch(() => undefined) : undefined;
             return { file, packets: ogg.packets, bytes, audioMs: Math.round(ogg.audioMs), ...level, waveform };
         } finally {
             connection.destroy();
         }
-    }
-
-    /**
-     * 録った声の波形の画像 (PNG、800x200)。配信者に、どれくらいの音量で届いたかを見せる。
-     * 列ごとのピークで描くので、上下の赤い線 (0 dBFS) に届いていれば、音が割れている。
-     */
-    private waveform(file: string): Promise<Buffer | undefined> {
-        const graph =
-            "color=c=0x2B2D31:s=800x200[bg];" +
-            "[0:a]aformat=channel_layouts=mono,showwavespic=s=800x200:colors=0x57F287:filter=peak[fg];" +
-            "[bg][fg]overlay=format=auto," +
-            "drawbox=x=0:y=0:w=800:h=2:color=0xED4245:t=fill,drawbox=x=0:y=198:w=800:h=2:color=0xED4245:t=fill";
-        const args = ["-hide_banner", "-loglevel", "error", "-i", file, "-filter_complex", graph, "-frames:v", "1", "-f", "image2pipe", "-vcodec", "png", "pipe:1"];
-        return new Promise((resolve, reject) => {
-            const child = spawn(this.ffmpegPath, args, { stdio: ["ignore", "pipe", "ignore"], windowsHide: true });
-            const out: Buffer[] = [];
-            const timer = setTimeout(() => child.kill(), 15_000);
-            child.stdout.on("data", (d: Buffer) => out.push(d));
-            child.on("error", (e) => {
-                clearTimeout(timer);
-                reject(e);
-            });
-            child.on("close", () => {
-                clearTimeout(timer);
-                const image = Buffer.concat(out);
-                resolve(image.length > 0 ? image : undefined);
-            });
-        });
-    }
-
-    /** 録ったファイルの音量 (dBFS) を ffmpeg の volumedetect で測る */
-    private measure(file: string): Promise<{ maxDb?: number; meanDb?: number; clippedPct?: number }> {
-        return new Promise((resolve, reject) => {
-            const child = spawn(this.ffmpegPath, ["-hide_banner", "-nostats", "-i", file, "-af", "volumedetect", "-f", "null", "-"], {
-                stdio: ["ignore", "ignore", "pipe"],
-                windowsHide: true,
-            });
-            let err = "";
-            const timer = setTimeout(() => child.kill(), 15_000);
-            child.stderr.on("data", (d: Buffer) => {
-                err += d.toString("utf8");
-            });
-            child.on("error", (e) => {
-                clearTimeout(timer);
-                reject(e);
-            });
-            child.on("close", () => {
-                clearTimeout(timer);
-                resolve(parseVolumedetect(err));
-            });
-        });
     }
 }

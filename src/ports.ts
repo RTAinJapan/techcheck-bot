@@ -133,6 +133,8 @@ export interface WebcamStatus {
     packetsLost?: number;
     /** 映像が固まった回数 (Chrome の freezeCount) */
     freezes?: number;
+    /** 音声 (マイク) が届いているか (最近の数秒のうちに、音声のパケットが届いた。無音でも、送っていれば届く) */
+    audio?: boolean;
 }
 
 export interface WebcamPort {
@@ -145,6 +147,8 @@ export interface WebcamPort {
     status(key: string): WebcamStatus | undefined;
     /** いま映っている絵 (JPEG)。映っていなければ undefined */
     still(key: string): Promise<Buffer | undefined>;
+    /** 届いている音声 (マイク) を seconds 秒録って、file (.webm) に書く。packets は使わない (0) */
+    recordAudio(key: string, file: string, seconds: number): Promise<VoiceRecording>;
     close(key: string): Promise<void>;
 }
 

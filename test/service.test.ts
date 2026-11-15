@@ -1442,6 +1442,78 @@ describe("web カメラ (VDO.ninja)", () => {
         assert.deepEqual(w.webcam.opened, [kView, "https://vdo.ninja/?view=cam2"]);
     });
 
+    /** 映像の判定が終わり、音声のチェックの 5 手順を通して、マイクの声の録音の手順が出るところまで進める */
+    async function untilMicStep(w: World, skipCamera = false) {
+        const thread = await untilAsked(w);
+        if (skipCamera) await press(w, thread, "webcam-skip");
+        const both = () => {
+            w.rx.live(7);
+            if (!skipCamera) w.webcam.play(kView, { audio: true });
+        };
+        await w.run(145, both);
+        const audio = (peak: number) => () => {
+            w.rx.live(7, { peak });
+            if (!skipCamera) w.webcam.play(kView, { audio: true });
+        };
+        for (const [sec, peak] of [[18, -20], [13, -80], [13, -80], [13, -80]] as const) {
+            await press(w, thread, "step-start");
+            await w.run(sec, audio(peak));
+        }
+        await press(w, thread, "yes");
+        return thread;
+    }
+
+    it("マイクの声の録音は、VDO.ninja で届く音声を録る (Discord のボイスチャンネルは使わない)", async () => {
+        const w = makeWorld(webcamYaml);
+        assert.deepEqual(w.config.checks.map((c) => c.kind).slice(-1), ["webcamVoice"]);
+        const thread = await untilMicStep(w);
+        assert.match(w.chat.lastPost(thread)!.content, /手順 6\/6[\s\S]*VDO\.ninja[\s\S]*push=cam1/);
+        await press(w, thread, "step-start");
+        await w.flush();
+        assert.equal(w.webcam.recorded[0]!.seconds, 15);
+        assert.match(w.webcam.recorded[0]!.file, /^voice-dir\/.* Runner_A U1\.webm$/);
+        const post = w.chat.lastPost(thread)!;
+        assert.match(post.content, /録音しました[\s\S]*最大 -6 dB、平均 -24 dB/);
+        assert.equal(post.image?.name, "voice-waveform.png");
+        await press(w, thread, "step-next");
+        assert.match(w.chat.lastPost(thread)!.content, /確認はすべて終わりました[\s\S]*マイク音: OK/);
+        // ボイスチャンネルからの退出は頼まない
+        assert.ok(!w.chat.texts(thread).some((x) => x.includes("ボイスチャンネル")));
+        await w.service.cancel("U1");
+        assert.match(String(w.sheet.rows[0]![col("マイクの録音 (VC)")]), /\.webm \(声 15 秒、最大 -6 dB、平均 -24 dB\)/);
+    });
+
+    it("マイクの音声が届いていなければ「始める」で録らずに伝え、無音なら直し方を出す", async () => {
+        const w = makeWorld(webcamYaml);
+        const thread = await untilMicStep(w);
+        w.webcam.play(kView, { audio: false });
+        const r = await press(w, thread, "step-start");
+        assert.match(r.ephemeral ?? "", /マイクの音声がまだ届いていません/);
+        assert.equal(w.webcam.recorded.length, 0);
+        // 届いてはいるが、無音 (ページでミュート、別のマイク)
+        w.webcam.play(kView, { audio: true });
+        w.webcam.nextAudio = { audioMs: 15_000, maxDb: -91, meanDb: -91 };
+        await press(w, thread, "step-start");
+        await w.flush();
+        assert.match(w.chat.lastPost(thread)!.content, /声が届いていません。web カメラのページで/);
+        await press(w, thread, "step-retry");
+        await press(w, thread, "voice-skip");
+        assert.match(w.chat.lastPost(thread)!.content, /マイク音: マイクは使わない/);
+    });
+
+    it("web カメラを使わない人も、マイクの手順では受信用のページを開き直して録れる", async () => {
+        const w = makeWorld(webcamYaml);
+        const thread = await untilMicStep(w, true);
+        assert.deepEqual(w.webcam.opened, [kView, kView]);
+        assert.match(w.chat.lastPost(thread)!.content, /push=cam1/);
+        w.webcam.play(kView, { audio: true });
+        await press(w, thread, "step-start");
+        await w.flush();
+        assert.match(w.chat.lastPost(thread)!.content, /録音しました/);
+        await w.service.cancel("U1");
+        assert.match(w.chat.lastPost(thread)!.content, /web カメラのページ.*を閉じてください/);
+    });
+
     it("bot を起動し直したら、受信用のページを開き直す", async () => {
         const w = makeWorld(webcamYaml);
         await untilAsked(w);

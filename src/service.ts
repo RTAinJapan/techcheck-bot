@@ -96,6 +96,8 @@ const kVoiceGraceSec = 45;
 
 /** web カメラ: 映像がこれだけ続けて届いたら、届いたとみなす (ミリ秒) */
 const kWebcamStableMs = 3_000;
+/** マイクの録音 (VDO.ninja): 最大の音量がこれより小さければ「届いていない」とみなす (dBFS) */
+const kWebcamVoiceSilentDb = -50;
 /** web カメラ: 映像の判定の間のロス率がこれ以上なら、運営に知らせる (%) */
 const kWebcamLossPct = 2;
 
@@ -185,6 +187,8 @@ export class TechcheckService {
     private orphansChecked = false;
     /** いまマイクの声を録音しているテスト (bot は 1 つのサーバで同時に 1 つのボイスチャンネルにしか入れない) */
     private voiceBusy: string | undefined;
+    /** いま VDO.ninja のマイクの声を録音しているテスト */
+    private readonly webcamRecording = new Set<string>();
     /** Google ドライブに上げるのを待っている、終わったテスト (設計書 §8.1)。1 つずつ上げる */
     private uploads: UploadJob[];
     private uploading = false;
@@ -957,11 +961,13 @@ export class TechcheckService {
         this.observeReceiver(s, rxCh);
         if (s.protocol === "srt" && !s.srt.released) await this.pollCloudWatch(s);
         await this.silenceAlert(s, rxCh);
-        if (this.webcamActive(s)) {
+        // マイクの声の録音の手順 (VDO.ninja) の間は、web カメラを使わない人のテストでも、受信用のページを開いておく
+        const micStep = s.phase === "checks" && this.checks[s.checkIndex]?.kind === "webcamVoice" && this.d.webcam !== undefined && s.webcam !== undefined && !s.webcam.failed;
+        if (this.webcamActive(s) || micStep) {
             // bot を起動し直したあとは、受信用のページを開き直す
             const link = this.cfg.webcam.links[s.webcam!.link];
             if (link && !this.d.webcam!.status(s.id)) this.d.webcam!.open(s.id, link.view);
-            if ((s.phase === "measuring" || s.phase === "confirming") && (await this.watchWebcam(s))) return;
+            if (this.webcamActive(s) && (s.phase === "measuring" || s.phase === "confirming") && (await this.watchWebcam(s))) return;
         }
 
         switch (s.phase) {
@@ -1150,7 +1156,8 @@ export class TechcheckService {
 
     /** ほかのテストが使っていない、送信用と受信用の URL の組 (設定の webcam.links の位置) */
     private freeWebcamLink(s: Session): number | undefined {
-        const used = new Set(this.sessions.filter((x) => x.id !== s.id && x.webcam && !x.webcam.skipped && !x.webcam.failed).map((x) => x.webcam!.link));
+        // 「web カメラは使わない」の人の組も、空けない (マイクの声の録音の手順で、同じ組を使う)
+        const used = new Set(this.sessions.filter((x) => x.id !== s.id && x.webcam && !x.webcam.failed).map((x) => x.webcam!.link));
         const i = this.cfg.webcam.links.findIndex((_, n) => !used.has(n));
         return i < 0 ? undefined : i;
     }
@@ -1511,6 +1518,7 @@ export class TechcheckService {
             return;
         }
         if (step.kind === "voice") return this.promptVoice(s, step, false);
+        if (step.kind === "webcamVoice") return this.promptWebcamVoice(s, step);
         const buttons = [this.btn(s, "step-start", "button.stepStart", "primary")];
         // ゲームによっては、音を完全には消せない。その人は「音を消せない」で、できるだけ小さくした状態を測って進む
         if (step.kind === "silence") buttons.push(this.btn(s, "cannot-mute", "button.cannotMute", "secondary"));
@@ -1567,6 +1575,22 @@ export class TechcheckService {
         });
     }
 
+    /**
+     * マイクの声の録音の手順 (VDO.ninja。設計書 §7.4) を出す。本番と同じく、web カメラのページから届く音声を録る。
+     * 送信用の URL も添える (web カメラを使わない人や、ページを閉じた人が、開き直せるように)
+     */
+    private async promptWebcamVoice(s: Session, step: CheckStep): Promise<void> {
+        const link = s.webcam ? this.cfg.webcam.links[s.webcam.link] : undefined;
+        if (!this.d.webcam || !s.webcam || !link || s.webcam.failed) return this.voiceFailed(s, step, "web カメラの受信用のページを開けません");
+        if (!this.d.webcam.status(s.id)) this.d.webcam.open(s.id, link.view);
+        s.webcam.micAsked = true;
+        const header = this.t(s.lang, "checks.header", { n: s.checkIndex + 1, total: this.checks.length });
+        await this.post(s, {
+            content: `${header}\n${step.text[s.lang]}\n${this.t(s.lang, "webcam.micUrl", { url: link.push })}`,
+            buttons: [this.btn(s, "step-start", "button.stepStart", "primary"), this.btn(s, "voice-skip", "button.voiceSkip", "secondary")],
+        });
+    }
+
     /** bot の側の問題で録音できない (入れるボイスチャンネルが無い、入れない、など)。配信者のせいではないので、運営に知らせて次へ進める */
     private async voiceFailed(s: Session, step: CheckStep, error: string): Promise<void> {
         await this.ops(`マイクの声を録音できませんでした: ${s.displayName} (${error})`);
@@ -1582,22 +1606,24 @@ export class TechcheckService {
      * 終わったら、声が届いていれば次の手順へ、届いていなければ「おかしい」として直し方を出す。
      */
     private async recordVoice(sessionId: string, channelId: string, step: CheckStep): Promise<void> {
-        const voice = this.d.voice!;
+        const webcam = step.kind === "webcamVoice";
         const s0 = this.sessions.find((x) => x.id === sessionId);
         if (!s0) return;
         // 秒まで入れる: 録り直しが同じ分のうちに始まっても、前の録音を上書きしない (分までだと、同じ名前になる)
         const stamp = `${formatTime(this.now()).replace(/[: ]/g, "-")}-${String(Math.floor(this.now() / 1000) % 60).padStart(2, "0")}`;
         const safeName = s0.displayName.replace(/[^\p{L}\p{N}_-]+/gu, "_").slice(0, 40);
-        const file = `${this.d.voiceDir ?? "."}/${stamp} ${safeName} ${s0.userId}.ogg`;
+        // Discord の声は届いた Opus のまま .ogg、VDO.ninja の声はブラウザが録った .webm
+        const file = `${this.d.voiceDir ?? "."}/${stamp} ${safeName} ${s0.userId}.${webcam ? "webm" : "ogg"}`;
         let result: VoiceRecording | undefined;
         let error: string | undefined;
         try {
-            result = await voice.record(channelId, s0.userId, file, step.seconds);
+            result = webcam ? await this.d.webcam!.recordAudio(sessionId, file, step.seconds) : await this.d.voice!.record(channelId, s0.userId, file, step.seconds);
         } catch (e) {
             error = errorText(e);
         }
         await this.locked(async () => {
             if (this.voiceBusy === sessionId) this.voiceBusy = undefined;
+            this.webcamRecording.delete(sessionId);
             const s = this.sessions.find((x) => x.id === sessionId);
             // 録っている間に中断された、またはやり直された
             if (!s || s.phase !== "checks" || s.checkState !== "running" || this.checks[s.checkIndex]?.id !== step.id) return;
@@ -1608,7 +1634,9 @@ export class TechcheckService {
             }
             this.log(`マイクの録音 (${s.displayName}): ${result.file} / 声 ${result.audioMs} ms / 最大 ${result.maxDb ?? "?"} dB / 平均 ${result.meanDb ?? "?"} dB / 振り切れ ${result.clippedPct ?? "?"} %`);
             s.voice = { file: result.file, audioMs: result.audioMs, maxDb: result.maxDb, meanDb: result.meanDb, clippedPct: result.clippedPct };
-            if (result.audioMs < kVoiceMinMs) {
+            // VDO.ninja (WebRTC) は無音の間も送るので、届いたかどうかは音量で見る (測れなかったときは、届いたものとして進める)
+            const silent = webcam && result.maxDb !== undefined && result.maxDb < kWebcamVoiceSilentDb;
+            if (result.audioMs < kVoiceMinMs || silent) {
                 await this.stepResult(s, step, { verdict: "ng" });
                 this.save();
                 return;
@@ -1643,6 +1671,13 @@ export class TechcheckService {
         if (s.checkState === "waiting") return step.kind === "voice" ? this.promptVoice(s, step, true) : this.promptStep(s);
         if (s.checkState !== "running") return this.idleTimeout(s);
         const elapsed = now - (s.checkStartedAt ?? now);
+        if (step.kind === "webcamVoice") {
+            if (!this.webcamRecording.has(s.id) || elapsed > (step.seconds + kVoiceGraceSec) * 1000) {
+                this.webcamRecording.delete(s.id);
+                await this.promptStep(s);
+            }
+            return;
+        }
         if (step.kind === "voice") {
             // 録音は recordVoice が進める。録音が動いていない (bot を起動し直した、いつまでも終わらない) なら、手順を出し直す
             if (this.voiceBusy !== s.id || elapsed > (step.seconds + kVoiceGraceSec) * 1000) {
@@ -1707,7 +1742,7 @@ export class TechcheckService {
      */
     private verdictText(s: Session, r: StepRecord): string {
         const kind = this.checks.find((c) => c.id === r.id)?.kind;
-        if (kind === "voice" && s.voice?.skipped) return this.t(s.lang, "voice.notUsed");
+        if ((kind === "voice" || kind === "webcamVoice") && s.voice?.skipped) return this.t(s.lang, "voice.notUsed");
         if (kind === "silence" && s.cannotMute && r.verdict === "unknown") return this.t(s.lang, "checks.cannotMuteResult");
         return this.t(s.lang, `verdict.${r.verdict}`);
     }
@@ -1757,6 +1792,17 @@ export class TechcheckService {
             case "step-start": {
                 if (s.phase !== "checks" || s.checkState !== "prompt") return { ephemeral: this.t(s.lang, "button.ack") };
                 const step = this.checks[s.checkIndex]!;
+                if (step.kind === "webcamVoice") {
+                    if (!this.d.webcam || this.webcamRecording.has(s.id)) return { ephemeral: this.t(s.lang, "button.ack") };
+                    // マイクの音声が届いているか (ページを開いていない、マイクを許可していない、なら届かない)
+                    if (!this.d.webcam.status(s.id)?.audio) return { ephemeral: this.t(s.lang, "webcam.micNotYet") };
+                    s.checkState = "running";
+                    s.checkStartedAt = this.now();
+                    this.webcamRecording.add(s.id);
+                    await this.post(s, { content: this.t(s.lang, "voice.recording", { seconds: step.seconds }) });
+                    void this.recordVoice(s.id, "", step);
+                    return {};
+                }
                 if (step.kind === "voice") {
                     if (!this.d.voice) return { ephemeral: this.t(s.lang, "button.ack") };
                     if (this.voiceBusy && this.voiceBusy !== s.id) return { ephemeral: this.t(s.lang, "voice.busy") };
@@ -1811,7 +1857,7 @@ export class TechcheckService {
             case "voice-skip": {
                 const step = this.checks[s.checkIndex];
                 // ボイスチャンネルが空くのを待っている間も、飛ばせる
-                if (s.phase !== "checks" || step?.kind !== "voice" || (s.checkState !== "prompt" && s.checkState !== "waiting")) return { ephemeral: this.t(s.lang, "button.ack") };
+                if (s.phase !== "checks" || (step?.kind !== "voice" && step?.kind !== "webcamVoice") || (s.checkState !== "prompt" && s.checkState !== "waiting")) return { ephemeral: this.t(s.lang, "button.ack") };
                 s.voice = { skipped: true };
                 s.results = s.results.filter((x) => x.id !== step.id);
                 s.results.push({ id: step.id, verdict: "unknown" });
@@ -1852,7 +1898,9 @@ export class TechcheckService {
     private async finish(s: Session, result: "done" | "aborted", reason?: string): Promise<void> {
         if (s.phase === "finished") return;
         if (this.voiceBusy === s.id) this.voiceBusy = undefined;
-        const webcamOpen = this.webcamActive(s);
+        this.webcamRecording.delete(s.id);
+        // 配信者がカメラのページを開いているかもしれないか (使わない人も、マイクの録音の手順で開いたかもしれない)
+        const webcamOpen = this.webcamActive(s) || (s.webcam !== undefined && !s.webcam.failed && s.webcam.micAsked === true);
         if (s.webcam) await this.d.webcam?.close(s.id).catch((e) => this.log(`web カメラ: ${errorText(e)}`));
         this.setPhase(s, "finished");
         if (reason) s.abortReason = reason;

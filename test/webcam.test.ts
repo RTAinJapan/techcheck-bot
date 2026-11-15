@@ -3,7 +3,10 @@
 // ブラウザが無ければ飛ばす (環境変数 TECHCHECK_TEST_BROWSER に、Chrome 系の実行ファイルの場所を書くと、それを使う)。
 
 import assert from "node:assert/strict";
-import { existsSync } from "node:fs";
+import { spawnSync } from "node:child_process";
+import { existsSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { type Server, createServer } from "node:http";
 import type { AddressInfo } from "node:net";
 import { after, before, describe, it } from "node:test";
@@ -27,6 +30,15 @@ const kPage = `<!doctype html><video id="v" autoplay muted playsinline></video><
     b.onicecandidate = (e) => e.candidate && a.addIceCandidate(e.candidate);
     b.ontrack = (e) => { document.getElementById("v").srcObject = e.streams[0]; };
     const stream = document.getElementById("c").captureStream(30);
+    // マイクの代わりに、440 Hz の音 (振幅 0.25。およそ -12 dBFS)
+    const audio = new AudioContext();
+    const osc = audio.createOscillator();
+    const gain = audio.createGain();
+    gain.gain.value = 0.25;
+    const dest = audio.createMediaStreamDestination();
+    osc.connect(gain).connect(dest);
+    osc.start();
+    stream.addTrack(dest.stream.getAudioTracks()[0]);
     for (const t of stream.getTracks()) a.addTrack(t, stream);
     await a.setLocalDescription(await a.createOffer());
     await b.setRemoteDescription(a.localDescription);
@@ -80,6 +92,28 @@ describe("web カメラの受信用のページ (ブラウザ)", { skip: browser
         assert.equal(cam.status("a"), undefined);
     });
 
+    it("届いた音声 (マイク) を録って、音量を測る", async () => {
+        cam.open("m", url);
+        await until(
+            () => cam.status("m"),
+            (x) => x.audio === true,
+        );
+        const dir = mkdtempSync(join(tmpdir(), "techcheck-webcam-"));
+        try {
+            const r = await cam.recordAudio("m", join(dir, "sub", "voice.webm"), 2);
+            assert.equal(r.audioMs, 2000);
+            // WebM (EBML) の先頭
+            assert.deepEqual([...readFileSync(r.file).subarray(0, 4)], [0x1a, 0x45, 0xdf, 0xa3]);
+            if (spawnSync("ffmpeg", ["-version"]).status === 0) {
+                assert.ok(r.maxDb !== undefined && r.maxDb > -30 && r.maxDb <= 0, `maxDb ${r.maxDb}`);
+                assert.ok(r.waveform && r.waveform.length > 100);
+            }
+        } finally {
+            rmSync(dir, { recursive: true, force: true });
+            await cam.close("m");
+        }
+    });
+
     it("映像が無いページは、開けても「届いていない」", async () => {
         cam.open("b", `${url}?stop`);
         const s = await until(
@@ -90,6 +124,8 @@ describe("web カメラの受信用のページ (ブラウザ)", { skip: browser
         assert.equal(cam.status("b")?.playing, false);
         assert.equal(s.width, undefined);
         assert.equal(await cam.still("b"), undefined);
+        assert.equal(cam.status("b")?.audio, false);
+        await assert.rejects(cam.recordAudio("b", "unused.webm", 1), /届いていません/);
         await cam.close("b");
     });
 

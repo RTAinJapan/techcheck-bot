@@ -87,7 +87,7 @@ Discord の権限の名前は、README と createToken.md では Developer Porta
 | 「使い方」のコマンドの表 | `src/discord/commands.ts` (定義)、`src/discord/bot.ts` の `InteractionHandler` (運営のロールの確認) |
 | 「denpachan」の、受信の設定を bot に入れさせる (`denpachan.configure`、`flows[].output`) | `src/service.ts` (`srtSourceFor`、`prepare`、`goRtmp`、`slotMismatches`)、`src/adapters/receiver.ts` (`hello` の `allowConfigure`)、`src/adapters/aws.ts` (フローの出力) |
 | 「マイクの声を録音する」と、「トークンと権限」の Discord のボイスチャンネル | `src/adapters/voice.ts` (ボイスチャンネルに入る、声を受ける、音量を測る)、`src/adapters/ogg.ts`、`src/service.ts` (`promptVoice` が空いているボイスチャンネルを選んで案内する。`recordVoice`、`onButton` の `step-start` と `voice-skip`)、`src/checks.ts` (`voiceStep`)、`src/index.ts` (`GuildVoiceStates`) |
-| 「web カメラを確かめる」 | `src/adapters/webcam.ts` (playwright-core でブラウザを起動し、`<video>` と WebRTC の統計を読む)、`src/service.ts` (`askWebcam`、`tickAwaitingWebcam`、`watchWebcam`、`summarizeWebcam`、`onButton` の `webcam-skip`)、`src/config.ts` (`webcam`)、`src/record.ts` (`describeWebcam`) |
+| 「web カメラを確かめる」 | `src/adapters/webcam.ts` (playwright-core でブラウザを起動し、`<video>` と WebRTC の統計を読む)、`src/service.ts` (`askWebcam`、`tickAwaitingWebcam`、`watchWebcam`、`summarizeWebcam`、`onButton` の `webcam-skip`。マイクの声の録音は `promptWebcamVoice`、`recordVoice`、`onButton` の `step-start`)、`src/checks.ts` (`webcamVoiceStep`)、`src/adapters/level.ts` (ffmpeg で音量と波形)、`src/config.ts` (`webcam`)、`src/record.ts` (`describeWebcam`) |
 | 「同時に複数人をテストする」の A (SRT の枠を並べる) | `src/config.ts` (`slots.srt`)、`src/service.ts` (`loadSlots`、`freeSrtSlots`、`tickQueue`) |
 
 設定の項目を足したり変えたりしたら、`src/config.ts`、`config.example.yaml`、[design.md の「設定値の一覧」](design.md#設定値の一覧) をそろえる。
@@ -108,7 +108,8 @@ Discord の権限の名前は、README と createToken.md では Developer Porta
 - 録画から静止画を取る動作のうち、RTMP の枠の録画と、bot を別の PC で動かしたときの予備 (フローのサムネイル)。SRT の枠の録画中のファイルから ffmpeg で取り出せることは、実機で確かめた。
 - 録画と録音を Google ドライブに上げる動作 ([design.md の §8.1](design.md#81-録画と録音を-google-ドライブに上げる))。Drive API の代わりの偽物での試験だけで、実際の共有ドライブには上げていない。サービスアカウントを共有ドライブのメンバーにする手順、スコープ `drive` で足りること、数百 MB のファイルを 16 MB ずつ送ったときの時間は、実際に上げて確かめる。
 - web カメラの確認 ([design.md の §5.9](design.md#59-web-カメラ-vdoninja))。
-  - 実際の vdo.ninja で、偽のカメラ (Chrome の試験用のカメラ) を同じ PC のブラウザから送り、bot のブラウザ (画面なしの Chromium) で受けて、映像の検出・統計・静止画が取れることは確かめた (2026-11-15)。
+  - 実際の vdo.ninja で、偽のカメラ (Chrome の試験用のカメラ) を同じ PC のブラウザから送り、bot のブラウザ (画面なしの Chromium) で受けて、映像の検出・統計・静止画と、マイクの音声の録音・音量の計測ができることは確かめた (2026-11-15)。
+  - bot の PC に音声の出力デバイスが無いときに、音声を録れるかは、Linux のコンテナでしか見ていない (録れた)。Windows では実機で一度確かめる。
   - 配信者の実際のカメラと回線 (別の PC、NAT 越し) では、通していない。PC に入っている Chrome / Edge を `webcam.browser.channel` で起動する動作 (Windows) も、実機で一度確かめる。
   - OBS の配信と同時に送ったときの、判定への影響の大きさは見ていない。
 - マイクの声の録音 ([design.md の §7.3](design.md#73-マイクの声の録音-discord-のボイスチャンネル))。

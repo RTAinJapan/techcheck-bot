@@ -105,6 +105,8 @@ latency:
 #       view: https://vdo.ninja/?view=${WEBCAM_ID_1}
 #     - push: https://vdo.ninja/?push=${WEBCAM_ID_2}
 #       view: https://vdo.ninja/?view=${WEBCAM_ID_2}
+#   # mic: false                             # マイクの声の録音を VDO.ninja でしない (既定は true: チェックの最後に録音の手順を足す。
+#   #                                        # voice.enabled とは、どちらか一方)
 #   # 受信用のページを開くブラウザ。既定は、PC に入っている Google Chrome
 #   browser:
 #     channel: msedge                        # Edge を使うとき (既定は chrome)

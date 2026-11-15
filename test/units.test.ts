@@ -106,6 +106,11 @@ describe("config", () => {
         const c = parseConfig(baseYaml + one, {});
         assert.equal(c.webcam.links[0]!.push, "https://vdo.ninja/?push=a");
         assert.deepEqual([c.webcam.browser.channel, c.webcam.browser.path, c.webcam.lostSec], ["chrome", "", 10]);
+        // マイクの声の録音は、VDO.ninja の手順が最後に足される。Discord のボイスチャンネルと両方は使えない
+        assert.equal(c.checks.at(-1)!.kind, "webcamVoice");
+        assert.equal(parseConfig(`${baseYaml + one}  mic: false\n`, {}).checks.length, defaultChecks.length);
+        assert.throws(() => parseConfig(`${baseYaml + one}voice: { enabled: true }\n`, {}), /どちらか一方/);
+        assert.equal(parseConfig(`${baseYaml + one}  mic: false\nvoice: { enabled: true }\n`, {}).checks.at(-1)!.kind, "voice");
         // 枠が 2 つなのに、組が 1 つ
         const twoSlots = baseYaml.replace("  srt: { flow: flow-a, channel: 7 }\n", "  srt:\n    - { flow: flow-a, channel: 7 }\n    - { channel: 6 }\n");
         assert.throws(() => parseConfig(twoSlots + one, {}), /SRT の枠の数 \(2\) 以上/);

@@ -142,6 +142,12 @@ webcam:
     ```
   skipped: "We skip the webcam check. Keep streaming for about 2 minutes."
   failed: "We could not check your webcam because of a problem on our side. Staff will look into it. Close the webcam page and keep streaming for about 2 minutes."
+  micUrl: |-
+    If you closed the webcam page, open this URL again and allow the microphone.
+    ```
+    {url}
+    ```
+  micNotYet: "Your microphone audio has not arrived yet. Open the webcam page, allow the microphone, press the start button, then press this again."
 
 verdict:
   ok: "OK"
