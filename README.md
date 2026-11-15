@@ -24,7 +24,7 @@
 | RTMP サーバ | SRT で安定しない配信者を案内する先 |
 | denpachan | フローの出力と RTMP サーバの配信を受ける。メトリクスの受信口を有効にする。bot と同じ PC で動かす (別の PC でも動くが、録画から静止画を取れない) |
 | Google スプレッドシート | 結果を書くシートと、サービスアカウントのキー (JSON ファイル) |
-| Google ドライブ (使うときだけ) | 録画と録音を上げる先の共有ドライブ。Google Workspace の共有ドライブが要る (マイドライブには上げられない) |
+| Google ドライブ (使うときだけ) | 録画と録音を上げる先の、Google Workspace の共有ドライブ |
 
 ## 準備
 
@@ -50,7 +50,7 @@ cp config.example.yaml config.yaml
 | Discord (bot の招待) | `discord.token` | OAuth2 スコープ `bot`、`applications.commands` | bot をサーバに招待するときに付ける。Privileged Gateway Intents は、どれも有効にしなくてよい |
 | Discord (配信テストのチャンネル) | `discord.techcheckChannelId` | チャンネルを表示、メッセージを送る、プライベートスレッドを作成、Threadsでメッセージを送る、スレッドを管理、ファイルを添付、メッセージ履歴を読む | 権限の整数は 360777354240 |
 | Discord (運営への通知のチャンネル) | `discord.opsChannelId` | チャンネルを表示、メッセージを送る | 未設定なら運営への通知 (途中の経過と問題) を送らない |
-| Discord (ボイスチャンネル) | `voice.enabled` | チャンネルを表示、接続 | マイクの声の録音を使うときだけ。**この 2 つの権限が bot にあるボイスチャンネルが、配信者に案内する候補になる**ので、配信テストに使うボイスチャンネルにだけ付ける (チャンネルの権限の設定で bot に付ける。bot のロールには「接続」を付けない)。Gateway Intent の `GuildVoiceStates` も使う (Privileged ではないので、Developer Portal での設定は要らない) |
+| Discord (ボイスチャンネル) | `voice.enabled` | チャンネルを表示、接続 | マイクの声の録音を使うときだけ。配信テストに使うボイスチャンネルに、チャンネルの権限の設定で付ける。**この 2 つの権限が bot にあるボイスチャンネルが、配信者に案内する候補になる。**Gateway Intent の `GuildVoiceStates` も使う (Privileged ではないので、Developer Portal での設定は要らない) |
 | Discord (webhook) | `notify.webhookUrl` | 無い (URL そのものが秘密) | 未設定なら結果の通知を送らない |
 | AWS MediaConnect | `aws.accessKeyId`、`aws.secretAccessKey` (bot 専用の IAM ユーザーのアクセスキー)。リージョンは `aws.region` | IAM ユーザーのポリシーに `mediaconnect:DescribeFlow`、`mediaconnect:StartFlow`、`mediaconnect:StopFlow`、`mediaconnect:DescribeFlowSourceMetadata`、`mediaconnect:DescribeFlowSourceThumbnail` | Resource は `flows` に書いたフローの ARN に絞る。IAM ユーザーには、このポリシーだけを付ける |
 | AWS CloudWatch | 同上 | 同じポリシーに `cloudwatch:GetMetricData` | Resource は `*` (リソースで絞れないアクション) |
@@ -154,7 +154,7 @@ google:
     folderId: 0AbCdEfGhIjKlMnOpQ    # 共有ドライブ (またはその中のフォルダ) の ID
 ```
 
-- **共有ドライブが要る。** bot はサービスアカウント (シートと同じキー) で上げるが、サービスアカウントには保存容量が無く、マイドライブのフォルダには上げられない。Google Workspace の共有ドライブを使い、サービスアカウントのメールアドレスをその共有ドライブのメンバー (投稿者以上) にする。手順は [docs/createToken.md](docs/createToken.md)。
+- 上げる先は、Google Workspace の共有ドライブにする。サービスアカウント (シートと同じキー) のメールアドレスを、その共有ドライブのメンバー (投稿者以上) にする。手順は [docs/createToken.md](docs/createToken.md)。
 - テストが終わると、テストごとのフォルダ (`配信テスト 2026-11-15 20:08 pasta`) を作り、そのテストの録画ファイルすべてと録音を入れる。シートの「Google ドライブ」の列に、フォルダのリンクを書く。
 - アップロードは、テストの進行とは別に裏で進む。録画は 15 分のテストで 300 MB ほどあるので、回線の上りによっては数分かかる。それまで、シートには「アップロード待ち」と出る。
 - 上げられなかったときは、間を空けて 3 回まで試し、だめならシートと運営への通知に理由を出す。PC の上のファイルは、上げたあとも消さない。

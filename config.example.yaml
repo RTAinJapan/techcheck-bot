@@ -69,8 +69,7 @@ google:
     spreadsheetId: 1AbCdEfGhIjKlMnOpQrStUvWxYz
     tabName: techcheck
   # テストの録画と録音を Google ドライブに上げる (README の「録画と録音を Google ドライブに上げる」)。書かなければ上げない。
-  # 共有ドライブ (またはその中のフォルダ) の ID を書く。サービスアカウントには保存容量が無いので、マイドライブのフォルダには上げられない。
-  # サービスアカウントを、その共有ドライブのメンバーにしておく
+  # 共有ドライブ (またはその中のフォルダ) の ID を書く。サービスアカウントを、その共有ドライブのメンバーにしておく
   # drive:
   #   folderId: 0AbCdEfGhIjKlMnOpQ
 
