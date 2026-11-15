@@ -554,10 +554,8 @@ export class TechcheckService {
             }
             if (await cancelled()) return;
             if (!info.ingestIp || !info.ingestPort) throw new Error("フローの ingest の IP / ポートが分かりません");
-            const ips = await this.d.dns.resolve(flowCfg.domain).catch(() => [] as string[]);
-            if (!ips.includes(info.ingestIp)) {
-                throw new Error(`ドメイン ${flowCfg.domain} がこのフローの ingest の IP (${info.ingestIp}) を指していません (${ips.join(", ") || "引けない"})`);
-            }
+            const domainProblem = await this.domainProblem(flowCfg.domain, info.ingestIp);
+            if (domainProblem) throw new Error(domainProblem);
             this.log(`${tag}: フロー ${flowCfg.name} は ACTIVE (ingest ${info.ingestIp}:${info.ingestPort})。denpachan の ch${channel} と録画を始めます`);
             channelStarted = true;
             await this.d.rx.call("startChannel", { ch: channel });
@@ -1339,17 +1337,36 @@ export class TechcheckService {
                     problems.push(`フローの MinLatency (${info.minLatencyMs} ms) が案内の初期値 (${this.cfg.latency.initialMs} ms) より大きい`);
                 }
                 if (info.status === "ACTIVE" && info.ingestIp) {
-                    const ips = await this.d.dns.resolve(f.domain).catch(() => [] as string[]);
-                    if (!ips.includes(info.ingestIp)) problems.push(`ドメイン ${f.domain} がこのフローの ingest の IP (${info.ingestIp}) を指していません`);
+                    const domainProblem = await this.domainProblem(f.domain, info.ingestIp);
+                    if (domainProblem) problems.push(domainProblem);
                 }
             } catch (e) {
                 problems.push(`フローを読めません: ${errorText(e)}`);
             }
         } else {
-            const ips = await this.d.dns.resolve(this.cfg.rtmp.domain).catch(() => [] as string[]);
-            if (ips.length === 0) problems.push(`RTMP サーバのドメイン ${this.cfg.rtmp.domain} が引けません`);
+            try {
+                const ips = await this.d.dns.resolve(this.cfg.rtmp.domain);
+                if (ips.length === 0) problems.push(`RTMP サーバのドメイン ${this.cfg.rtmp.domain} に A レコードがありません`);
+            } catch (e) {
+                problems.push(`RTMP サーバのドメイン ${this.cfg.rtmp.domain} を引けません (${errorText(e)})`);
+            }
         }
         return problems;
+    }
+
+    /**
+     * 配信用のドメインが、フローの ingest の IP を指しているかを確かめる。合っていれば undefined、合わなければ理由。
+     * 「引けなかった」(bot の側の DNS の問題かもしれない) と「別の IP を指している」(ドメインの設定の問題) を分けて伝える。
+     */
+    private async domainProblem(domain: string, ingestIp: string): Promise<string | undefined> {
+        let ips: string[];
+        try {
+            ips = await this.d.dns.resolve(domain);
+        } catch (e) {
+            return `ドメイン ${domain} を引けません (${errorText(e)})。ドメインの設定ではなく、bot を動かしている PC の DNS の問題かもしれません`;
+        }
+        if (ips.includes(ingestIp)) return undefined;
+        return `ドメイン ${domain} がこのフローの ingest の IP (${ingestIp}) を指していません (引いた結果: ${ips.join(", ") || "なし"})`;
     }
 
     // ================= 小物 =================

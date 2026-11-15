@@ -3,8 +3,36 @@ import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, it } from "node:test";
+import { NodeDns } from "../src/adapters/dns.js";
 import { WsReceiver } from "../src/adapters/receiver.js";
 import { SqliteStore } from "../src/store.js";
+
+describe("ドメインを引く", () => {
+    const fail = (code: string) => async () => {
+        throw Object.assign(new Error(`query ${code}`), { code });
+    };
+
+    it("DNS サーバに直接聞けない PC では、OS の引き方で引き直す", async () => {
+        // Windows で、Node が DNS サーバを見つけられずに 127.0.0.1 へ聞いて ECONNREFUSED になることがある
+        const dns = new NodeDns(fail("ECONNREFUSED"), async () => ["203.0.113.10"]);
+        assert.deepEqual(await dns.resolve("srt-a.example.jp"), ["203.0.113.10"]);
+    });
+
+    it("直接聞けたら、その答えを使う", async () => {
+        const dns = new NodeDns(async () => ["203.0.113.10"], fail("SHOULD_NOT_BE_CALLED"));
+        assert.deepEqual(await dns.resolve("srt-a.example.jp"), ["203.0.113.10"]);
+    });
+
+    it("名前が無いという答えは、そのまま失敗にする (OS の引き方では引き直さない)", async () => {
+        const dns = new NodeDns(fail("ENOTFOUND"), async () => ["203.0.113.10"]);
+        await assert.rejects(dns.resolve("nope.example.jp"), /A レコードがありません: ENOTFOUND/);
+    });
+
+    it("どちらでも引けなければ、両方の理由を付ける", async () => {
+        const dns = new NodeDns(fail("ECONNREFUSED"), fail("EAI_AGAIN"));
+        await assert.rejects(dns.resolve("srt-a.example.jp"), /DNS サーバに直接聞くと ECONNREFUSED、OS の引き方でも EAI_AGAIN/);
+    });
+});
 
 describe("denpachan の受信口のクライアント", () => {
     it("URL にトークンを付ける", () => {

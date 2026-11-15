@@ -355,6 +355,19 @@ describe("準備と枠", () => {
         assert.match(await w.service.start(U2, "C-test", undefined, "ja"), /受付を止めています/);
     });
 
+    it("ドメインを引けなかったときは、別の IP を指しているのとは分けて、理由を付けて知らせる", async () => {
+        const w = makeWorld();
+        w.dns.resolve = async () => {
+            throw new Error("DNS サーバに直接聞くと ECONNREFUSED、OS の引き方でも EAI_AGAIN");
+        };
+        await w.service.start(U1, "C-test", undefined, "ja");
+        await w.flush();
+        const ops = w.chat.opsLog.find((l) => l.includes("止めました"))!;
+        assert.match(ops, /ドメイン srt-a\.example\.jp を引けません \(DNS サーバに直接聞くと ECONNREFUSED、OS の引き方でも EAI_AGAIN\)/);
+        assert.match(ops, /bot を動かしている PC の DNS の問題かもしれません/);
+        assert.ok(!ops.includes("指していません"));
+    });
+
     it("準備の途中で中止したら、始めたフローとチャンネルを止める", async () => {
         const w = makeWorld();
         // 1 回目の describe は STANDBY (bot がフローを開始する)。2 回目 (ACTIVE になるのを待っているところ) で止めておき、その間に中止する
