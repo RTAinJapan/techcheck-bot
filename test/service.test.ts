@@ -496,6 +496,8 @@ describe("ゲームの音を完全には消せない", () => {
         assert.match(ng.content, /PC の音が配信に入っています[\s\S]*ゲームの音が大きくなっただけのこともあります/);
         await press(w, thread, "step-next");
         await press(w, thread, "yes");
+        // 結果のまとめには、選んだとおりに書く
+        assert.match(w.chat.lastPost(thread)!.content, /- 無音シーン: ゲームの音を消せない$/m);
         await w.service.complete(sessionIdOf(w, thread), "");
         const checks = String(w.sheet.rows[0]![kChecks]);
         assert.match(checks, /silence: 判定なし \(ゲームの音を消せない\) \(-45 dB\)/);
@@ -744,7 +746,10 @@ describe("マイクの声の録音 (ボイスチャンネル)", () => {
         await press(w, thread, "voice-skip");
         assert.ok(w.chat.texts(thread).some((x) => x.includes("マイクの確認は飛ばします")));
         assert.match(w.chat.lastPost(thread)!.content, /確認はすべて終わりました/);
+        // 結果のまとめには、選んだとおりに書く (「記録のみ」では、何が記録されたのか分からない)
+        assert.match(w.chat.lastPost(thread)!.content, /- マイク音: マイクは使わない$/m);
         await w.service.complete(sessionIdOf(w, thread), "");
+        assert.ok(w.chat.texts(thread).some((x) => x.includes("配信テストの結果") && /- マイク音: マイクは使わない$/m.test(x)));
         assert.equal(w.sheet.rows[0]![sheetColumns.indexOf("マイクの録音 (VC)")], "マイクは使わない");
         assert.equal(w.voice.calls.length, 0);
     });

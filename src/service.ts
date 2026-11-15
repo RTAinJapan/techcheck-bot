@@ -1560,8 +1560,19 @@ export class TechcheckService {
         return this.checks.find((c) => c.id === id)?.label?.[s.lang] ?? id;
     }
 
+    /**
+     * 配信者に見せる、手順の結果。判定の言葉 (OK / おかしい / 記録のみ) が基本だが、配信者が自分で選んだことは、選んだとおりに書く:
+     * 「マイクは使わない」を押した人に「記録のみ」と出すと、何が記録されたのか分からない
+     */
+    private verdictText(s: Session, r: StepRecord): string {
+        const kind = this.checks.find((c) => c.id === r.id)?.kind;
+        if (kind === "voice" && s.voice?.skipped) return this.t(s.lang, "voice.notUsed");
+        if (kind === "silence" && s.cannotMute && r.verdict === "unknown") return this.t(s.lang, "checks.cannotMuteResult");
+        return this.t(s.lang, `verdict.${r.verdict}`);
+    }
+
     private async checksDone(s: Session): Promise<void> {
-        const lines = s.results.map((r) => `- ${this.stepLabel(s, r.id)}: ${this.t(s.lang, `verdict.${r.verdict}`)}${r.skipped ? ` (${this.t(s.lang, "checks.skipped")})` : ""}`);
+        const lines = s.results.map((r) => `- ${this.stepLabel(s, r.id)}: ${this.verdictText(s, r)}${r.skipped ? ` (${this.t(s.lang, "checks.skipped")})` : ""}`);
         await this.post(s, {
             content: `${this.t(s.lang, "checks.done")}\n${lines.join("\n")}`,
             buttons: [this.btn(s, "done", "button.done", "success"), this.btn(s, "abort", "button.abort", "danger")],
@@ -1749,7 +1760,7 @@ export class TechcheckService {
         if (s.protocol === "srt" && s.confirmedLatencyMs) lines.push(this.t(s.lang, "finish.latency", { latencyUs: obsLatency(s.confirmedLatencyMs) }));
         for (const r of s.results) {
             const range = r.recFrom !== undefined ? ` ${formatRecPos(r.recFrom)}-${formatRecPos(r.recTo)}` : "";
-            lines.push(`- ${this.stepLabel(s, r.id)}: ${this.t(s.lang, `verdict.${r.verdict}`)}${range}`);
+            lines.push(`- ${this.stepLabel(s, r.id)}: ${this.verdictText(s, r)}${range}`);
         }
         lines.push(this.t(s.lang, "finish.bye"));
         return lines.join("\n");
