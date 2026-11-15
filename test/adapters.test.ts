@@ -96,7 +96,7 @@ describe("Google スプレッドシート", () => {
     });
 
     it("列があとから増えたシートでは、列を足してから、足りない後ろの見出しだけを書き足す", async () => {
-        // 「Google ドライブ」の列が増える前に作ったシート (見出しも、シートの列も 1 つ少ない)
+        // 最後の列が増える前に作ったシート (見出しも、シートの列も 1 つ少ない)
         const old = sheetColumns.slice(0, -1);
         const api = fakeSheetsApi([...old], old.length);
         const sheet = new GoogleSheet("SHEET", "techcheck", token, api.fetchFn);
@@ -104,7 +104,7 @@ describe("Google スプレッドシート", () => {
         assert.deepEqual(api.calls.find((c) => c.path === ":batchUpdate")!.body, { requests: [{ appendDimension: { sheetId: 7, dimension: "COLUMNS", length: 1 } }] });
         const header = api.calls.find((c) => c.method === "PUT")!;
         assert.equal(header.path, `/values/techcheck!${columnLetter(old.length)}1?valueInputOption=RAW`);
-        assert.deepEqual((header.body as { values: string[][] }).values[0], ["Google ドライブ"]);
+        assert.deepEqual((header.body as { values: string[][] }).values[0], [sheetColumns.at(-1)]);
         // 2 回目は、見出しもシートの列も確かめ直さない
         const before = api.calls.length;
         await sheet.append(["b"]);

@@ -4,8 +4,13 @@ import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 import type { SrtSample } from "../src/advisor.js";
 import { defaultChecks, reconnectStep } from "../src/checks.js";
-import { describeRange, formatRecPos, sheetColumns } from "../src/record.js";
+import { columnLetter, describeRange, formatRecPos, sheetColumns } from "../src/record.js";
 import { baseYaml, driveYaml, goodSample, makeWorld, twoSlotsYaml, type World } from "./helpers.js";
+
+/** シートの列の番号を、見出しの名前で引く (列の順を変えても、試験が何を見ているかが分かるように) */
+const col = (name: (typeof sheetColumns)[number]) => sheetColumns.indexOf(name);
+const kChecks = col("チェックの参考の判定と録画の区間");
+const kFiles = col("録画ファイル");
 
 const U1 = { id: "U1", displayName: "Runner A" };
 const U2 = { id: "U2", displayName: "Runner B" };
@@ -84,16 +89,19 @@ describe("テストの流れ", () => {
         assert.equal(row[2], "U1");
         assert.equal(row[3], "ja");
         assert.equal(row[6], "完了");
-        assert.equal(row[9], 120000, "確定した latency は μs (OBS の URL に入れる値) で書く");
-        assert.equal(row[19], 0);
-        assert.equal(row[27], "OK");
-        assert.match(String(row[25]), /game-audio: OK.*mic: OK.*picture: OK/);
-        assert.ok(!String(row[25]).includes("reconnect"), "繋ぎ直しは既定の手順に無い");
+        assert.equal(row[col("確定した latency (μs)")], 120000, "確定した latency は μs (OBS の URL に入れる値) で書く");
+        assert.equal(row[col("切れた回数")], 0);
+        assert.equal(row[col("映像の判定")], "OK");
+        // あとで聞く人が最初に開く 3 つは、I 列から並ぶ
+        assert.deepEqual([col("録画ファイル"), col("マイクの録音 (VC)"), col("Google ドライブ")].map(columnLetter), ["I", "J", "K"]);
+        assert.equal(row[kFiles], "rec-ch7.mkv");
+        assert.match(String(row[kChecks]), /game-audio: OK.*mic: OK.*picture: OK/);
+        assert.ok(!String(row[kChecks]).includes("reconnect"), "繋ぎ直しは既定の手順に無い");
         // 手順の数は、手順ごとの見出し (手順 n/5) で分かる。始めの案内には書かない
         const all = texts.concat(w.chat.texts(thread));
         assert.ok(all.some((x) => x.includes("**手順 1/5**")));
         assert.ok(all.some((x) => x.startsWith("次に、音声とその他の確認をします。手順ごとに")));
-        assert.equal(row[30], "問題なし");
+        assert.equal(row[col("配信者のメモ")], "問題なし");
         assert.equal(w.webhook.sent.length, 1);
         const payload = w.webhook.sent[0] as { allowed_mentions: { parse: unknown[] }; embeds: { fields: { name: string; value: string }[] }[] };
         assert.deepEqual(payload.allowed_mentions.parse, []);
@@ -105,7 +113,7 @@ describe("テストの流れ", () => {
 
         // 後日の音声の判定
         assert.match(await w.service.review("U1", true, "きれい"), /書きました/);
-        assert.deepEqual(w.sheet.updates[0], { range: "techcheck!AC2:AD2", values: ["OK", "きれい"] });
+        assert.deepEqual(w.sheet.updates[0], { range: "techcheck!AE2:AF2", values: ["OK", "きれい"] });
     });
 
     it("繋ぎ直しの手順は、設定の checks に足せば使える (切れた回数には数えない)", async () => {
@@ -119,8 +127,8 @@ describe("テストの流れ", () => {
         assert.match(w.chat.lastPost(thread)!.content, /確認はすべて終わりました/);
         await w.service.complete(sessionIdOf(w, thread), "");
         const row = w.sheet.rows[0]!;
-        assert.equal(row[19], 0, "繋ぎ直しの手順は「切れた回数」に数えない");
-        assert.match(String(row[25]), /reconnect: OK/);
+        assert.equal(row[col("切れた回数")], 0, "繋ぎ直しの手順は「切れた回数」に数えない");
+        assert.match(String(row[kChecks]), /reconnect: OK/);
     });
 
     it("フローにパスフレーズが無ければ、案内する URL にも入れない", async () => {
@@ -435,7 +443,7 @@ describe("結果のまとめ", () => {
         assert.match(closing, /- ゲーム音が来ている: OK \d\d:\d\d-\d\d:\d\d\n- 無音シーン: OK/);
         assert.ok(!closing.includes("game-audio"));
         // シートは運営向けなので、これまでどおりの名前
-        assert.match(String(w.sheet.rows[0]![25]), /^game-audio: OK/);
+        assert.match(String(w.sheet.rows[0]![kChecks]), /^game-audio: OK/);
 
         // 英語の案内では英語の名前
         const en = makeWorld();
@@ -472,16 +480,16 @@ describe("録画ファイルが途中で切り替わる", () => {
         await press(w, thread, "yes");
         await w.service.complete(sessionIdOf(w, thread), "");
         const row = w.sheet.rows[0]!;
-        assert.match(String(row[25]), /^game-audio: OK \(\d+%\) \d\d:\d\d〜\d\d:\d\d \[rec-ch7\.mkv\] \/ silence: OK \([^)]*\) 00:0\d〜00:\d\d \[rec-ch7-2\.mkv\] \//);
-        assert.equal(row[26], "rec-ch7.mkv / D:\\rec\\rec-ch7-2.mkv");
+        assert.match(String(row[kChecks]), /^game-audio: OK \(\d+%\) \d\d:\d\d〜\d\d:\d\d \[rec-ch7\.mkv\] \/ silence: OK \([^)]*\) 00:0\d〜00:\d\d \[rec-ch7-2\.mkv\] \//);
+        assert.equal(row[kFiles], "rec-ch7.mkv / D:\\rec\\rec-ch7-2.mkv");
 
         // 録画ファイルが 1 つのテストでは、区間にファイル名を添えない
         const one = makeWorld();
         const t = await startAndStream(one);
         await passChecks(one, t.thread);
         await one.service.complete(sessionIdOf(one, t.thread), "");
-        assert.ok(!String(one.sheet.rows[0]![25]).includes("["));
-        assert.equal(one.sheet.rows[0]![26], "rec-ch7.mkv");
+        assert.ok(!String(one.sheet.rows[0]![kChecks]).includes("["));
+        assert.equal(one.sheet.rows[0]![kFiles], "rec-ch7.mkv");
     });
 
     it("手順の途中で切り替わったら、始まりと終わりのそれぞれにファイル名を添える", () => {
@@ -511,7 +519,7 @@ describe("録画と録音を Google ドライブに上げる", () => {
 
     it("テストが終わったら、テストごとのフォルダに録画と録音を上げ、シートにリンクを書く", async () => {
         const w = await finishedTest(voiceToo);
-        assert.equal(w.sheet.rows[0]!.at(-1), "アップロード待ち");
+        assert.equal(w.sheet.rows[0]![col("Google ドライブ")], "アップロード待ち");
         // denpachan が録画ファイルを閉じるのを待ってから上げる
         await w.run(5);
         assert.equal(w.drive.uploaded.length, 0);
@@ -521,7 +529,7 @@ describe("録画と録音を Google ドライブに上げる", () => {
         assert.deepEqual(w.drive.uploaded.map((u) => u.folderId), ["F1", "F1"]);
         assert.equal(w.drive.uploaded[0]!.file, "rec-ch7.mkv");
         assert.match(w.drive.uploaded[1]!.file, /^voice-dir\/.* U1\.ogg$/);
-        assert.deepEqual(lastCell(w), { range: "techcheck!AH2", values: ["https://drive.google.com/drive/folders/F1"] });
+        assert.deepEqual(lastCell(w), { range: "techcheck!K2", values: ["https://drive.google.com/drive/folders/F1"] });
         assert.ok(w.chat.opsLog.some((l) => l.includes("録画と録音を Google ドライブに上げました: Runner A https://drive.google.com/drive/folders/F1")));
         // 上げ終えたら、もう上げない
         await w.run(120);
@@ -530,7 +538,7 @@ describe("録画と録音を Google ドライブに上げる", () => {
 
     it("google.drive.folderId が無ければ、上げない", async () => {
         const w = await finishedTest("", baseYaml);
-        assert.equal(w.sheet.rows[0]!.at(-1), "");
+        assert.equal(w.sheet.rows[0]![col("Google ドライブ")], "");
         await w.run(30);
         assert.equal(w.drive.folders.length, 0);
         assert.equal(w.sheet.updates.length, 0);
@@ -551,7 +559,7 @@ describe("録画と録音を Google ドライブに上げる", () => {
         const bad = await finishedTest();
         bad.drive.error = "Drive API: フォルダを作れません: 404";
         await bad.run(12 + 61 + 121);
-        assert.deepEqual(lastCell(bad), { range: "techcheck!AH2", values: ["アップロード失敗: Drive API: フォルダを作れません: 404"] });
+        assert.deepEqual(lastCell(bad), { range: "techcheck!K2", values: ["アップロード失敗: Drive API: フォルダを作れません: 404"] });
         assert.ok(bad.chat.opsLog.some((l) => l.includes("録画と録音を Google ドライブに上げられませんでした: Runner A") && l.includes("ファイルは PC に残っています")));
         await bad.run(300);
         assert.equal(bad.sheet.updates.length, 1, "あきらめたあとは、やり直さない");
@@ -572,7 +580,7 @@ describe("録画と録音を Google ドライブに上げる", () => {
         assert.ok(again.service.startupSummary().some((l) => l.includes("Google ドライブに上げるのを待っているテスト: Runner A")));
         await again.run(12);
         assert.deepEqual(again.drive.uploaded.map((u) => u.file), ["rec-ch7.mkv"]);
-        assert.deepEqual(lastCell(again), { range: "techcheck!AH2", values: ["https://drive.google.com/drive/folders/F1"] });
+        assert.deepEqual(lastCell(again), { range: "techcheck!K2", values: ["https://drive.google.com/drive/folders/F1"] });
     });
 });
 
@@ -622,7 +630,7 @@ describe("マイクの声の録音 (ボイスチャンネル)", () => {
         await w.service.complete(sessionIdOf(w, thread), "");
         const row = w.sheet.rows[0]!;
         assert.match(String(row[sheetColumns.indexOf("マイクの録音 (VC)")]), /^voice-dir\/.*U1\.ogg \(声 10 秒、最大 -6 dB、平均 -24 dB\)$/);
-        assert.match(String(row[25]), /voice: OK \(-24 dB\)$/);
+        assert.match(String(row[kChecks]), /voice: OK \(-24 dB\)$/);
     });
 
     it("録音のあと、音量を直して録り直せる。記録に残るのは最後の録音", async () => {
@@ -1140,7 +1148,7 @@ describe("チェック", () => {
         await press(w, thread, "yes");
         await press(w, thread, "done");
         await w.service.complete(sessionIdOf(w, thread), "");
-        const checks = String(w.sheet.rows[0]![25]);
+        const checks = String(w.sheet.rows[0]![kChecks]);
         return { rec, atStart, still, checks };
     }
 
@@ -1227,6 +1235,6 @@ describe("チェック", () => {
         assert.match(w.chat.lastPost(thread)!.content, /マイクの音が配信に入っています/);
         await press(w, thread, "step-next");
         await w.service.cancel("U1");
-        assert.match(String(w.sheet.rows[0]![25]), /mic: おかしい \(そのまま進めた\)/);
+        assert.match(String(w.sheet.rows[0]![kChecks]), /mic: おかしい \(そのまま進めた\)/);
     });
 });
