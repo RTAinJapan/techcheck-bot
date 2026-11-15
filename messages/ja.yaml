@@ -60,18 +60,18 @@ audio:
   silent: "音が届いていません。OBS の音声の設定 (ゲーム音の入力とミュート) を確かめてください。"
 
 judge:
-  ok: "映像は問題なく届いています。latency は **{latencyMs} ms** (OBS の URL では `latency={latencyUs}`) のままで本番もお願いします。"
-  generous: "(回線に余裕があります。latency は {recommendMs} ms (OBS の URL では `latency={recommendUs}`) まで下げても大丈夫です。下げなくても構いません。)"
+  ok: "映像は問題なく届いています。latency は **{latencyUs} μs** のままで本番もお願いします。"
+  generous: "(回線に余裕があります。latency は {recommendUs} μs まで下げても大丈夫です。下げなくても構いません。)"
   okRtmp: "RTMP で映像は問題なく届いています。本番も RTMP でお願いします。"
 
 latency:
   ask: |-
-    映像が乱れる可能性があります。latency を **{latencyMs} ms** に上げてください。
+    映像が乱れる可能性があります。latency を **{latencyUs} μs** に上げてください。
     OBS の配信を止め、URL の `latency=` を **{latencyUs}** にして (下の URL をそのまま貼れます)、配信を始め直してください。終わったら「設定した」を押してください。
     ```
     {url}
     ```
-  remeasure: "latency {latencyMs} ms で計測し直します。そのまま配信を続けてください。"
+  remeasure: "latency {latencyUs} μs で計測し直します。そのまま配信を続けてください。"
   remind: "latency の変更を待っています。OBS の配信を止めて URL を変え、配信を始め直してください。"
   waitRestart: "ありがとうございます。配信を始め直すと続きに進みます。"
 
@@ -119,7 +119,7 @@ finish:
   summaryTitle: "**配信テストの結果**"
   abortedTitle: "**配信テストを中断しました**"
   protocol: "プロトコル: {protocol}"
-  latency: "本番の latency: {latencyMs} ms (OBS の URL では `latency={latencyUs}`)"
+  latency: "本番の latency: {latencyUs} μs"
   bye: "OBS の配信を止めてください。おつかれさまでした。"
 
 modal:

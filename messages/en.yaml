@@ -60,18 +60,18 @@ audio:
   silent: "No audio is arriving. Check the audio settings in OBS (game audio source and mute)."
 
 judge:
-  ok: "Your video is arriving cleanly. Please keep the latency at **{latencyMs} ms** (`latency={latencyUs}` in the OBS URL) for the event."
-  generous: "(Your connection has headroom. You may lower the latency to {recommendMs} ms (`latency={recommendUs}` in the OBS URL), but you do not have to.)"
+  ok: "Your video is arriving cleanly. Please keep the latency at **{latencyUs} μs** for the event."
+  generous: "(Your connection has headroom. You may lower the latency to {recommendUs} μs, but you do not have to.)"
   okRtmp: "Your video is arriving cleanly over RTMP. Please use RTMP for the event."
 
 latency:
   ask: |-
-    Your video may break up. Please raise the latency to **{latencyMs} ms**.
+    Your video may break up. Please raise the latency to **{latencyUs} μs**.
     Stop streaming in OBS, change `latency=` in the URL to **{latencyUs}** (you can paste the URL below), and start streaming again. Then press "Done".
     ```
     {url}
     ```
-  remeasure: "Measuring again with latency {latencyMs} ms. Keep streaming."
+  remeasure: "Measuring again with latency {latencyUs} μs. Keep streaming."
   remind: "We are waiting for the latency change. Stop streaming, change the URL, and start streaming again."
   waitRestart: "Thanks. We continue once you start streaming again."
 
@@ -119,7 +119,7 @@ finish:
   summaryTitle: "**Stream test results**"
   abortedTitle: "**The stream test was stopped**"
   protocol: "Protocol: {protocol}"
-  latency: "Latency for the event: {latencyMs} ms (`latency={latencyUs}` in the OBS URL)"
+  latency: "Latency for the event: {latencyUs} μs"
   bye: "You can stop streaming in OBS now. Thank you!"
 
 modal:

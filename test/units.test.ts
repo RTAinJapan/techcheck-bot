@@ -246,15 +246,23 @@ describe("i18n", () => {
     });
     it("差し込み", () => {
         const i18n = I18n.load(messagesDir);
-        assert.match(i18n.t("en", "judge.ok", { latencyMs: 180, latencyUs: 180000 }), /180 ms.*`latency=180000`/);
-        assert.match(i18n.t("ja", "judge.ok", { latencyMs: 180, latencyUs: 180000 }), /180 ms.*`latency=180000`/);
+        assert.match(i18n.t("en", "judge.ok", { latencyUs: 180000 }), /180000 μs/);
+        assert.match(i18n.t("ja", "judge.ok", { latencyUs: 180000 }), /180000 μs/);
     });
-    it("配信者に latency を ms で伝える文には、OBS の URL に入れる値 (マイクロ秒) も出す", () => {
+    it("配信者には latency を、OBS の URL に入れる値 (μs) だけで伝える (ms は出さない)", () => {
         const i18n = I18n.load(messagesDir);
         for (const lang of ["ja", "en"] as const) {
-            assert.match(i18n.t(lang, "finish.latency", { latencyMs: 180, latencyUs: 180000 }), /180 ms.*`latency=180000`/);
-            assert.match(i18n.t(lang, "judge.generous", { recommendMs: 60, recommendUs: 60000 }), /60 ms.*`latency=60000`/);
-            assert.match(i18n.t(lang, "latency.ask", { latencyMs: 180, latencyUs: 180000, url: "srt://x" }), /180 ms[\s\S]*180000/);
+            const texts = [
+                i18n.t(lang, "judge.ok", { latencyUs: 180000 }),
+                i18n.t(lang, "judge.generous", { recommendUs: 180000 }),
+                i18n.t(lang, "latency.ask", { latencyUs: 180000, url: "srt://x" }),
+                i18n.t(lang, "latency.remeasure", { latencyUs: 180000 }),
+                i18n.t(lang, "finish.latency", { latencyUs: 180000 }),
+            ];
+            for (const text of texts) {
+                assert.match(text, /180000 μs/, text);
+                assert.doesNotMatch(text, /\d\s*ms\b|\{\w+\}/, `ms の数字や、差し込まれなかった {名前} が残っていない: ${text}`);
+            }
         }
     });
 });

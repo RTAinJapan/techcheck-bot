@@ -1100,10 +1100,8 @@ export class TechcheckService {
             const generous = s.lastAdvice?.verdict === "generous" && s.lastAdvice.recommendMs > 0;
             await this.post(s, {
                 content:
-                    this.t(s.lang, "judge.ok", { latencyMs: s.latencyMs, latencyUs: obsLatency(s.latencyMs) }) +
-                    (generous
-                        ? `\n${this.t(s.lang, "judge.generous", { recommendMs: s.lastAdvice!.recommendMs, recommendUs: obsLatency(s.lastAdvice!.recommendMs) })}`
-                        : ""),
+                    this.t(s.lang, "judge.ok", { latencyUs: obsLatency(s.latencyMs) }) +
+                    (generous ? `\n${this.t(s.lang, "judge.generous", { recommendUs: obsLatency(s.lastAdvice!.recommendMs) })}` : ""),
             });
             await this.ops(`映像 OK: ${s.displayName} (SRT、latency ${s.latencyMs} ms)`);
         } else {
@@ -1137,7 +1135,7 @@ export class TechcheckService {
             this.srtPort.set(s.id, port);
         }
         const msgId = await this.post(s, {
-            content: this.t(s.lang, "latency.ask", { latencyMs: target, latencyUs: obsLatency(target), url: this.srtUrl(s, port, target) }),
+            content: this.t(s.lang, "latency.ask", { latencyUs: obsLatency(target), url: this.srtUrl(s, port, target) }),
             buttons: [this.btn(s, "set", "button.set", "primary"), this.btn(s, "abort", "button.abort", "danger")],
         });
         s.pending = { kind: "latency", target, askedAt: this.now(), messageId: msgId, pressed: false, reminded: false };
@@ -1200,7 +1198,7 @@ export class TechcheckService {
                 s.raises++;
                 if (p.messageId) await this.d.chat.clearButtons(s.threadId, p.messageId).catch(() => undefined);
                 s.pending = undefined;
-                await this.post(s, { content: this.t(s.lang, "latency.remeasure", { latencyMs: s.latencyMs }) });
+                await this.post(s, { content: this.t(s.lang, "latency.remeasure", { latencyUs: obsLatency(s.latencyMs) }) });
                 this.startMeasuring(s, Math.floor(p.reconnectedAt / 1000) + kWarmupSec);
                 return;
             }
@@ -1593,7 +1591,7 @@ export class TechcheckService {
     private closingMessage(s: Session, result: "done" | "aborted"): string {
         const lines = [this.t(s.lang, result === "done" ? "finish.summaryTitle" : "finish.abortedTitle")];
         lines.push(this.t(s.lang, "finish.protocol", { protocol: s.protocol.toUpperCase() }));
-        if (s.protocol === "srt" && s.confirmedLatencyMs) lines.push(this.t(s.lang, "finish.latency", { latencyMs: s.confirmedLatencyMs, latencyUs: obsLatency(s.confirmedLatencyMs) }));
+        if (s.protocol === "srt" && s.confirmedLatencyMs) lines.push(this.t(s.lang, "finish.latency", { latencyUs: obsLatency(s.confirmedLatencyMs) }));
         for (const r of s.results) {
             const range = r.recFrom !== undefined ? ` ${formatRecPos(r.recFrom)}-${formatRecPos(r.recTo)}` : "";
             lines.push(`- ${r.id}: ${this.t(s.lang, `verdict.${r.verdict}`)}${range}`);
@@ -1819,7 +1817,8 @@ function sum(xs: number[]): number {
 
 /**
  * OBS の SRT の URL に入れる latency の値。URL の `latency=` はマイクロ秒 (180 ms なら 180000)。
- * 配信者に ms で伝える所には、URL に入れるこの値も並べて出す (ms の数字をそのまま URL に入れてしまわないように)
+ * 配信者には latency をこの値 (μs) だけで伝える: 配信者が触るのは OBS の URL だけなので、ms の数字を見せると、
+ * そのまま URL に入れてしまう。bot の中、運営への通知、シート、運営のコマンドは ms のまま
  */
 export function obsLatency(latencyMs: number): number {
     return latencyMs * 1000;
