@@ -1,5 +1,6 @@
 // シートの 1 行 (設計書 §8) と、webhook の通知 (§5.5) を作る。どちらも運営向けなので日本語。
 
+import { obsLatency } from "./advisor.js";
 import type { CheckStep } from "./config.js";
 import type { Session } from "./session.js";
 
@@ -13,8 +14,9 @@ export const sheetColumns = [
     "結果",
     "理由",
     "プロトコル",
-    "確定した latency (ms)",
-    "推奨値 (ms)",
+    // latency は μs (OBS の URL に入れる値) で書く。RTT とジッタは測った値なので ms のまま
+    "確定した latency (μs)",
+    "推奨値 (μs)",
     "RTT 最大 (ms)",
     "ロス率 (%)",
     "回復できなかったパケット",
@@ -113,8 +115,8 @@ export function buildRow(s: Session, checks: CheckStep[], result: "done" | "abor
         結果: result === "done" ? "完了" : "中断",
         理由: s.abortReason ?? "",
         プロトコル: s.protocol,
-        "確定した latency (ms)": s.protocol === "srt" ? (s.confirmedLatencyMs ?? "") : "",
-        "推奨値 (ms)": m.recommendMs ?? "",
+        "確定した latency (μs)": s.protocol === "srt" && s.confirmedLatencyMs !== undefined ? obsLatency(s.confirmedLatencyMs) : "",
+        "推奨値 (μs)": m.recommendMs !== undefined ? obsLatency(m.recommendMs) : "",
         "RTT 最大 (ms)": m.rttMaxMs ?? "",
         "ロス率 (%)": m.lossPct ?? "",
         回復できなかったパケット: m.drops ?? "",
@@ -158,7 +160,7 @@ export function buildWebhookPayload(input: WebhookInput): unknown {
         { name: "配信者", value: `${s.displayName} (${s.userId})`, inline: false },
         { name: "結果", value: result === "done" ? "完了" : `中断 (${s.abortReason ?? "理由なし"})`, inline: true },
         { name: "プロトコル", value: s.protocol.toUpperCase(), inline: true },
-        { name: "確定した latency", value: s.protocol === "srt" && s.confirmedLatencyMs ? `${s.confirmedLatencyMs} ms` : "—", inline: true },
+        { name: "確定した latency", value: s.protocol === "srt" && s.confirmedLatencyMs ? `${obsLatency(s.confirmedLatencyMs)} μs` : "—", inline: true },
         { name: "映像の判定", value: s.videoVerdict ?? "—", inline: true },
         { name: "おかしいが残った手順", value: ng.length > 0 ? ng.join(", ") : "なし", inline: true },
         { name: "スレッド", value: input.threadUrl, inline: false },

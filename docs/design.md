@@ -354,7 +354,7 @@ i18n:
 | `/techcheck slot off <srt\|rtmp> [slot]` / `/techcheck slot on <srt\|rtmp> [slot]` | 運営 | 枠を止める / 戻す (空いているフロー・チャンネルが無いとき)。止めている間も待ちの列は残す。`slot` を省くと、`off` は SRT の枠すべてを止める。`on` は、枠が 1 つならその枠を戻し、複数なら番号を求める (止めてある予備の枠まで、まとめて動かさないように) |
 | `/techcheck status [配信者]` | 運営 | 進行中のテストの段階と数字 (MediaConnect と denpachan の両方) を出す |
 | `/techcheck shot <配信者>` | 運営 | 配信の静止画を貼る (denpachan の録画から。§3.1 の「配信の静止画」) |
-| `/techcheck latency <配信者> <ms>` | 運営 | 配信者に案内する latency を手で決める (自動の途中でも)。`/techcheck latency-receiver <ch> <ms>` は denpachan 側 (MediaConnect → 運営の区間) |
+| `/techcheck latency <配信者> <us>` | 運営 | 配信者に案内する latency を手で決める (自動の途中でも)。値は μs (OBS の URL に入れる値。180 ms なら 180000)。`/techcheck latency-receiver <ch> <ms>` は denpachan 側 (MediaConnect → 運営の区間) で、denpachan の設定と画面に合わせて、これだけは ms |
 | `/techcheck rtmp <配信者>` | 運営 | RTMP (ECS の RTMP サーバ) の案内に切り替える (自動の判定を待たずに) |
 | `/techcheck cancel <配信者>` | 運営 | 中止して枠を空ける (記録は「中断」) |
 | `/techcheck review <配信者> <OK\|NG> [メモ]` | 運営 (後日) | 録画を聞いた結果をシートの音声の欄に書く (その配信者の最後のテストの行) |
@@ -507,7 +507,11 @@ sequenceDiagram
 
 - 判定のあいだは「そのまま配信を続けてください (ゲーム画面を動かしていると確かめやすいです)」と出し、静止画を 1 枚貼る。
 - **正しく配信できていそうなら**、その旨を伝える: 「映像は問題なく届いています。latency は **N000 μs** のままで本番もお願いします」。運営への通知にも流す。続けて音声とその他のチェック (5.4) に進む。
-  - **配信者には、latency を OBS の URL に入れる値 (μs) だけで伝える。ms は出さない** (この文、余裕があるときの「N000 μs まで下げても大丈夫です」、上げてもらう案内、「N000 μs で計測し直します」、最後のまとめの「本番の latency: N000 μs」)。配信者が触るのは OBS の SRT の URL の `latency=` だけで、その単位はマイクロ秒 (180 ms なら `latency=180000`)。ms の数字を見せると、そのまま URL に入れてしまう。両方を並べても、どちらを入れるのかで迷うだけなので、片方にする。bot の中の計算、設定 (`latency.initialMs` など)、運営への通知、運営のコマンド (`/techcheck latency <ms>`)、シートは ms のまま。
+  - **人に見せる latency は、OBS の URL に入れる値 (μs) だけにする。ms は出さない。配信者にも運営にも同じ。**
+    - 配信者向け: この文、余裕があるときの「N000 μs まで下げても大丈夫です」、上げてもらう案内、「N000 μs で計測し直します」、最後のまとめの「本番の latency: N000 μs」。
+    - 運営向け: 運営への通知 (「映像 OK: … latency N000 μs」)、`/techcheck status`、`/techcheck latency` (入れる値も返事も μs)、webhook の「確定した latency」、シートの「確定した latency (μs)」「推奨値 (μs)」。
+    - 配信者が触るのは OBS の SRT の URL の `latency=` だけで、その単位はマイクロ秒 (180 ms なら `latency=180000`)。運営も μs で覚えている。ms の数字を見せると、そのまま URL に入れてしまう。両方を並べても、どちらを入れるのかで迷うだけなので、片方にする (`src/advisor.ts` の `obsLatency`)。
+    - ms のままの所: bot の中の計算、設定ファイル (`latency.initialMs` など)、測った値 (RTT、ジッタ)、denpachan 側の latency (`/techcheck latency-receiver`。denpachan の設定と画面が ms)。
 - **できていなさそうなら** §6 の手順に入る (latency を上げてもらう → だめなら RTMP の案内)。直ったら上と同じく伝えて 5.4 へ。最後までだめなら、運営に知らせて「運営から連絡します」と伝え、音声のチェックだけは進める (録画は残る)。
 
 ### 5.4 音声とその他のチェック
@@ -664,7 +668,7 @@ sequenceDiagram
 | フロー、denpachan のチャンネル | SRT の枠の組の名前とチャンネル。RTMP に移ったら `7 → 8 (RTMP)` の形 |
 | 結果、理由 | 完了 / 中断。中断なら理由 (配信者が中断、運営が中止、時間切れ、準備の失敗) |
 | プロトコル | srt / rtmp |
-| 確定した latency (ms)、推奨値 (ms)、RTT 最大 (ms)、ロス率 (%)、回復できなかったパケット、ジッタ最大 (ms) | MediaConnect の source の数字 (§3.1)。確定した latency は SRT のときだけ |
+| 確定した latency (μs)、推奨値 (μs)、RTT 最大 (ms)、ロス率 (%)、回復できなかったパケット、ジッタ最大 (ms) | MediaConnect の source の数字 (§3.1)。確定した latency は SRT のときだけ。latency の 2 つは μs (OBS の URL に入れる値) で書く。2026-11-15 より前に書いた行は ms |
 | 解像度、fps (平均)、コーデック、ビットレート (kbps) | `DescribeFlowSourceMetadata`、denpachan の fps、`SourceBitRate` |
 | 切れた回数、デコードエラー、latency を上げた回数 | 切れた回数は、頼んでいない途切れ (latency の変更・RTMP への切り替え・繋ぎ直しの手順を除く) |
 | 運営の区間の RTT (ms)、運営の区間の取りこぼし | denpachan の数字 (MediaConnect → 運営の区間の健全性) |

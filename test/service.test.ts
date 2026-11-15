@@ -82,7 +82,7 @@ describe("テストの流れ", () => {
         assert.equal(row[2], "U1");
         assert.equal(row[3], "ja");
         assert.equal(row[6], "完了");
-        assert.equal(row[9], 120);
+        assert.equal(row[9], 120000, "確定した latency は μs (OBS の URL に入れる値) で書く");
         assert.equal(row[19], 0);
         assert.equal(row[27], "OK");
         assert.match(String(row[25]), /game-audio: OK.*mic: OK.*picture: OK/);
@@ -92,7 +92,7 @@ describe("テストの流れ", () => {
         assert.equal(w.webhook.sent.length, 1);
         const payload = w.webhook.sent[0] as { allowed_mentions: { parse: unknown[] }; embeds: { fields: { name: string; value: string }[] }[] };
         assert.deepEqual(payload.allowed_mentions.parse, []);
-        assert.ok(payload.embeds[0]!.fields.some((f) => f.name === "確定した latency" && f.value === "120 ms"));
+        assert.ok(payload.embeds[0]!.fields.some((f) => f.name === "確定した latency" && f.value === "120000 μs"));
         assert.ok(w.chat.threads[0]!.closed);
         assert.match(w.chat.texts(thread).at(-1)!, /OBS の配信を止めてください/);
         // 配信者には、OBS の URL に入れる値 (μs) で伝える。ms の数字を見せると、そのまま URL に入れてしまう
@@ -645,6 +645,22 @@ describe("latency の調整と RTMP", () => {
     function lossy(from: number, until: number) {
         return (t: number): SrtSample => ({ ...goodSample(t), notRecovered: t >= from && t < until ? 2 : 0 });
     }
+
+    it("運営にも latency は μs (OBS の URL に入れる値) で見せ、/techcheck latency も μs で受ける", async () => {
+        const w = makeWorld();
+        const { thread } = await startAndStream(w);
+        assert.ok(w.chat.opsLog.some((l) => l.includes("映像 OK") && l.includes("latency 120000 μs")), w.chat.opsLog.join("\n"));
+        assert.match(await w.service.status("U1"), /latency 120000 μs/);
+        // 運営が 300000 μs (300 ms) を案内する
+        assert.equal(await w.service.setLatency("U1", 300_000), "Runner A に latency 300000 μs を案内しました");
+        const ask = w.chat.texts(thread).at(-1)!;
+        assert.ok(ask.includes("latency を **300000 μs**") && ask.includes("latency=300000"), ask);
+        // 上限 (latency.maxMs) を超える値は上限に抑え、抑えた値を返す
+        assert.match(await w.service.setLatency("U1", 9_000_000), /latency 2000000 μs を案内しました/);
+        for (const text of [...w.chat.opsLog, await w.service.status("U1")]) {
+            assert.doesNotMatch(text, /latency \d+ ms|推奨 \d+ ms/, `運営向けの latency に ms が残っていない: ${text}`);
+        }
+    });
 
     it("取りこぼすと latency を上げてもらい、始め直したら測り直す", async () => {
         const w = makeWorld();

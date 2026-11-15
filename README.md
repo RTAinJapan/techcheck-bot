@@ -170,8 +170,8 @@ npm start
 | `/techcheck slot off <kind> [slot]` / `/techcheck slot on <kind> [slot]` | 運営 | 枠の受付を止める / 再開する。止めている間も待ちの列は残る。`slot` を省くと、`off` は SRT の枠すべてを止め、`on` は枠が複数なら番号を求める |
 | `/techcheck status [user]` | 運営 | 進行中のテストの段階と数字を見る |
 | `/techcheck shot <user>` | 運営 | 配信の静止画を貼る |
-| `/techcheck latency <user> <ms>` | 運営 | 配信者に案内する latency を手で決める |
-| `/techcheck latency-receiver <channel> <ms>` | 運営 | denpachan の側の latency を変える |
+| `/techcheck latency <user> <us>` | 運営 | 配信者に案内する latency を手で決める。値は μs (OBS の URL に入れる値。180 ms なら 180000) |
+| `/techcheck latency-receiver <channel> <ms>` | 運営 | denpachan の側の latency を変える (denpachan の設定の値なので、これだけは ms) |
 | `/techcheck rtmp <user>` | 運営 | RTMP の案内に切り替える |
 | `/techcheck cancel <user>` | 運営 | テストを中止して枠を空ける |
 | `/techcheck review <user> <audio> [memo]` | 運営 | 後日、録画を聞いた音声の判定 (OK / NG) をシートに書く |

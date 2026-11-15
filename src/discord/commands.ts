@@ -66,12 +66,21 @@ export function buildCommand(flows: FlowConfig[]) {
     cmd.addSubcommand((s) =>
         d(s.setName("latency"), "[Staff] Ask the streamer to use this latency", "[運営] 配信者に案内する latency を決める")
             .addUserOption(userOpt(true))
-            .addIntegerOption((o) => d(o.setName("ms"), "Latency (ms)", "latency (ms)").setRequired(true).setMinValue(20).setMaxValue(10000)),
+            // 配信者の OBS の URL に入れる値 (μs) で入れる。20 ms 〜 10 秒
+            .addIntegerOption((o) =>
+                d(o.setName("us"), "Latency in μs (the value for the OBS URL)", "latency (μs。OBS の URL に入れる値)")
+                    .setRequired(true)
+                    .setMinValue(20_000)
+                    .setMaxValue(10_000_000),
+            ),
     );
     cmd.addSubcommand((s) =>
         d(s.setName("latency-receiver"), "[Staff] Set denpachan's receiver latency", "[運営] denpachan 側の latency を変える")
             .addIntegerOption((o) => d(o.setName("channel"), "denpachan channel", "denpachan のチャンネル").setRequired(true).setMinValue(1).setMaxValue(8))
-            .addIntegerOption((o) => d(o.setName("ms"), "Latency (ms)", "latency (ms)").setRequired(true).setMinValue(20).setMaxValue(10000)),
+            // denpachan の設定と画面が ms なので、ここだけは ms
+            .addIntegerOption((o) =>
+                d(o.setName("ms"), "Latency in ms (as in denpachan's settings)", "latency (ms。denpachan の設定の値)").setRequired(true).setMinValue(20).setMaxValue(10000),
+            ),
     );
     cmd.addSubcommand((s) => d(s.setName("rtmp"), "[Staff] Guide the streamer to RTMP", "[運営] RTMP に案内する").addUserOption(userOpt(true)));
     cmd.addSubcommand((s) => d(s.setName("cancel"), "[Staff] Cancel a test", "[運営] テストを中止する").addUserOption(userOpt(true)));

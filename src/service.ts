@@ -3,7 +3,7 @@
 // 外とのやりとりは ports.ts の口を通すので、試験では偽物に差し替えられる。
 
 import { randomUUID } from "node:crypto";
-import { type Advice, type SrtSample, advise, nextLatency } from "./advisor.js";
+import { type Advice, type SrtSample, advise, kMinLatencyMs, nextLatency, obsLatency } from "./advisor.js";
 import { evaluateAudioStep } from "./checks.js";
 import type { CheckStep, Config, FlowConfig, Lang } from "./config.js";
 import type { I18n } from "./i18n.js";
@@ -441,21 +441,24 @@ export class TechcheckService {
         return undefined;
     }
 
-    async setLatency(userId: string, ms: number): Promise<string> {
+    /** us は運営がコマンドで入れた値 (μs。OBS の URL に入れる値)。bot の中では ms で持つ */
+    async setLatency(userId: string, us: number): Promise<string> {
         return this.locked(async () => {
             const s = this.sessions.find((x) => x.userId === userId);
             if (!s) return "その配信者のテストは進行中ではありません";
             if (s.protocol !== "srt") return "RTMP のテストでは latency を変えられません";
-            await this.askLatency(s, Math.min(Math.max(ms, 20), this.cfg.latency.maxMs));
+            const target = Math.min(Math.max(Math.round(us / 1000), kMinLatencyMs), this.cfg.latency.maxMs);
+            await this.askLatency(s, target);
             this.save();
-            return `${s.displayName} に latency ${ms} ms を案内しました`;
+            return `${s.displayName} に latency ${obsLatency(target)} μs を案内しました`;
         });
     }
 
+    /** denpachan の側 (MediaConnect → denpachan) の latency。denpachan の設定と画面が ms なので、ここだけは ms のまま */
     async setReceiverLatency(channel: number, ms: number): Promise<string> {
         try {
             await this.d.rx.call("patchChannel", { ch: channel, patch: { source: { latencyMs: ms } } });
-            return `denpachan の ch${channel} の latency を ${ms} ms にしました`;
+            return `denpachan の ch${channel} の latency (denpachan の設定の値) を ${ms} ms にしました`;
         } catch (e) {
             return `変えられませんでした: ${errorText(e)}`;
         }
@@ -1103,7 +1106,7 @@ export class TechcheckService {
                     this.t(s.lang, "judge.ok", { latencyUs: obsLatency(s.latencyMs) }) +
                     (generous ? `\n${this.t(s.lang, "judge.generous", { recommendUs: obsLatency(s.lastAdvice!.recommendMs) })}` : ""),
             });
-            await this.ops(`映像 OK: ${s.displayName} (SRT、latency ${s.latencyMs} ms)`);
+            await this.ops(`映像 OK: ${s.displayName} (SRT、latency ${obsLatency(s.latencyMs)} μs)`);
         } else {
             await this.post(s, { content: this.t(s.lang, "judge.okRtmp") });
             await this.ops(`映像 OK: ${s.displayName} (RTMP)`);
@@ -1655,7 +1658,10 @@ export class TechcheckService {
                 const info = await this.d.flow.describe(f.arn);
                 if (info.protocol && info.protocol !== "srt-listener") problems.push(`フローの source が SRT listener ではありません (${info.protocol})`);
                 if (info.minLatencyMs !== undefined && info.minLatencyMs > this.cfg.latency.initialMs) {
-                    problems.push(`フローの MinLatency (${info.minLatencyMs} ms) が案内の初期値 (${this.cfg.latency.initialMs} ms) より大きい`);
+                    // MinLatency は AWS の画面では ms なので、その値も添える
+                    problems.push(
+                        `フローの MinLatency (${obsLatency(info.minLatencyMs)} μs。AWS の画面では ${info.minLatencyMs} ms) が案内の初期値 (${obsLatency(this.cfg.latency.initialMs)} μs) より大きい`,
+                    );
                 }
                 if (info.status === "ACTIVE" && info.ingestIp) {
                     const domainProblem = await this.domainProblem(f.domain, info.ingestIp);
@@ -1696,8 +1702,8 @@ export class TechcheckService {
         const a = s.lastAdvice;
         const step = this.checks[s.checkIndex];
         return [
-            `${s.displayName}: ${s.phase}${s.phase === "checks" && step ? ` (${step.id})` : ""} / ${s.protocol.toUpperCase()} / latency ${s.latencyMs} ms / 上げた回数 ${s.raises}`,
-            a ? `推奨 ${a.recommendMs || "計測中"} ms / RTT 最大 ${a.rttMs} ms / ロス ${a.lossPct}% / 回復できなかった ${a.drops} / 判定 ${a.verdict}` : "計測前",
+            `${s.displayName}: ${s.phase}${s.phase === "checks" && step ? ` (${step.id})` : ""} / ${s.protocol.toUpperCase()} / latency ${obsLatency(s.latencyMs)} μs / 上げた回数 ${s.raises}`,
+            a ? `推奨 ${a.recommendMs ? `${obsLatency(a.recommendMs)} μs` : "計測中"} / RTT 最大 ${a.rttMs} ms / ロス ${a.lossPct}% / 回復できなかった ${a.drops} / 判定 ${a.verdict}` : "計測前",
             this.d.chat.threadUrl(s.threadId),
         ].join("\n");
     }
@@ -1813,15 +1819,6 @@ function avg(xs: number[]): number | undefined {
 
 function sum(xs: number[]): number {
     return xs.reduce((a, b) => a + b, 0);
-}
-
-/**
- * OBS の SRT の URL に入れる latency の値。URL の `latency=` はマイクロ秒 (180 ms なら 180000)。
- * 配信者には latency をこの値 (μs) だけで伝える: 配信者が触るのは OBS の URL だけなので、ms の数字を見せると、
- * そのまま URL に入れてしまう。bot の中、運営への通知、シート、運営のコマンドは ms のまま
- */
-export function obsLatency(latencyMs: number): number {
-    return latencyMs * 1000;
 }
 
 /**

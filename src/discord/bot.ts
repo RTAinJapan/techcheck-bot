@@ -240,7 +240,7 @@ export class InteractionHandler {
                     return;
                 }
                 case "latency":
-                    text = await s.setLatency(user("user").id, i.options.getInteger("ms", true));
+                    text = await s.setLatency(user("user").id, i.options.getInteger("us", true));
                     break;
                 case "latency-receiver":
                     text = await s.setReceiverLatency(i.options.getInteger("channel", true), i.options.getInteger("ms", true));
