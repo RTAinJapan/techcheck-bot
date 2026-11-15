@@ -16,6 +16,7 @@ import {
     ChannelType,
     type ChatInputCommandInteraction,
     type Client,
+    type CommandInteractionOption,
     type GuildMember,
     type Interaction,
     MessageFlags,
@@ -33,7 +34,7 @@ import {
 import type { Config, Lang } from "../config.js";
 import type { I18n } from "../i18n.js";
 import type { Button, ChatPort, OutMessage } from "../ports.js";
-import { errorText, type TechcheckService } from "../service.js";
+import { errorText, oneLine, type TechcheckService } from "../service.js";
 import { staffSubcommands } from "./commands.js";
 
 const styles: Record<NonNullable<Button["style"]>, ButtonStyle> = {
@@ -149,6 +150,13 @@ function displayName(i: Interaction): string {
     return i.user.globalName ?? i.user.username;
 }
 
+/** コマンドに付いた引数を、ログ用に ` name:value` の並びにする (ユーザーやチャンネルは ID) */
+function optionText(i: ChatInputCommandInteraction): string {
+    const leaves = (opts: readonly CommandInteractionOption[]): string[] => opts.flatMap((o) => (o.options ? leaves(o.options) : [`${o.name}:${String(o.value)}`]));
+    const list = leaves(i.options.data);
+    return list.length > 0 ? ` ${list.join(" ")}` : "";
+}
+
 function hasRole(i: Interaction, roleId: string): boolean {
     const m = i.member as GuildMember | APIInteractionGuildMember | null;
     if (!m) return false;
@@ -170,7 +178,8 @@ export class InteractionHandler {
             else if (i.isButton()) await this.button(i);
             else if (i.isModalSubmit()) await this.modal(i);
         } catch (e) {
-            this.log(`interaction: ${errorText(e)}`);
+            // 開発のときに原因を追えるよう、スタックも出す
+            this.log(`操作の処理でエラー (${displayName(i)}): ${e instanceof Error && e.stack ? e.stack : errorText(e)}`);
             if (i.isRepliable()) {
                 const content = `エラー / Error: ${errorText(e)}`.slice(0, 2000);
                 if (i.deferred || i.replied) await i.editReply({ content }).catch(() => undefined);
@@ -183,7 +192,10 @@ export class InteractionHandler {
         const group = i.options.getSubcommandGroup(false);
         const sub = i.options.getSubcommand();
         const staff = hasRole(i, this.cfg.discord.staffRoleId);
+        const who = `${displayName(i)}${staff ? " [運営]" : ""}`;
+        this.log(`コマンド (${who}): /techcheck ${group ? `${group} ` : ""}${sub}${optionText(i)}`);
         if ((group === "slot" || staffSubcommands.has(sub)) && !staff) {
+            this.log(`  → 運営のロールが無いので断りました`);
             await i.reply({ content: "運営のコマンドです / Staff only", flags: MessageFlags.Ephemeral });
             return;
         }
@@ -223,6 +235,7 @@ export class InteractionHandler {
                     break;
                 case "shot": {
                     const r = await s.shot(user("user").id);
+                    this.log(`  → ${oneLine(r.text)}`);
                     await i.editReply({ content: r.text, files: r.image ? [new AttachmentBuilder(r.image, { name: "stream.jpg" })] : [] });
                     return;
                 }
@@ -245,20 +258,24 @@ export class InteractionHandler {
                     text = "?";
             }
         }
+        this.log(`  → ${oneLine(text)}`);
         await i.editReply({ content: text.slice(0, 2000) });
     }
 
     private async button(i: ButtonInteraction): Promise<void> {
         const id = i.customId;
         if (id === "tcq:claim") {
+            this.log(`ボタン (${displayName(i)}): 待ちの列の「始める」`);
             await i.deferReply({ flags: MessageFlags.Ephemeral });
             const text = await this.service.claim({ id: i.user.id, displayName: displayName(i) });
+            this.log(`  → ${oneLine(text)}`);
             await i.editReply({ content: text });
             return;
         }
         if (!id.startsWith("tc:")) return;
         const [, sessionId, action] = id.split(":");
         const staff = hasRole(i, this.cfg.discord.staffRoleId);
+        this.log(`ボタン (${displayName(i)}${staff ? " [運営]" : ""}): ${action}`);
         // モーダルは最初の返事でしか出せないので、ここで決める
         if (action === "done" || action === "abort") {
             const owner = this.service.sessionOwner(sessionId ?? "");
@@ -279,8 +296,10 @@ export class InteractionHandler {
         if (["set", "step-start", "yes", "no", "step-retry", "step-next"].includes(action ?? "") && !r.ephemeral) {
             await i.message.edit({ components: [] }).catch(() => undefined);
         }
-        if (r.ephemeral) await i.editReply({ content: r.ephemeral });
-        else await i.deleteReply().catch(() => undefined);
+        if (r.ephemeral) {
+            this.log(`  → ${oneLine(r.ephemeral)}`);
+            await i.editReply({ content: r.ephemeral });
+        } else await i.deleteReply().catch(() => undefined);
     }
 
     private modalFor(kind: "done" | "abort", sessionId: string, lang: Lang): ModalBuilder {
@@ -302,6 +321,7 @@ export class InteractionHandler {
         const lang = this.service.sessionLang(sessionId);
         await i.deferReply({ flags: MessageFlags.Ephemeral });
         const text = i.fields.getTextInputValue("text") ?? "";
+        this.log(`入力 (${displayName(i)}): ${kind === "done" ? "完了" : "中断"}${text.trim() ? ` 「${oneLine(text)}」` : ""}`);
         if (kind === "done") await this.service.complete(sessionId, text);
         else await this.service.abortByUser(sessionId, text);
         await i.editReply({ content: this.i18n.t(lang, "modal.received") });

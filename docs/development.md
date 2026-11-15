@@ -27,6 +27,25 @@ npm run typecheck
 
 CI (`.github/workflows/ci.yml`) でも、型の確認・試験・ビルドを回す。CI が使うのは、自動で発行される `GITHUB_TOKEN` の `contents: read` だけで、リポジトリのシークレットは要らない。
 
+## ログ
+
+bot の動きは、すべてコンソール (標準出力) に 1 行ずつ出る。行の頭は時刻 (UTC)。
+
+| 出るもの | 行の形 | 出している所 |
+| --- | --- | --- |
+| 起動したときの設定と状態 (秘密は出さない) | `設定ファイル: …`、`Discord: …`、`AWS: …`、`denpachan: …`、枠、進行中のテスト、待ちの列 | `src/index.ts`、`TechcheckService.startupSummary` |
+| 受け付けた操作と、その返事 | `コマンド (名前): /techcheck …`、`ボタン (名前): …`、`入力 (名前): …`、次の行に `  → 返事` | `src/discord/bot.ts` の `InteractionHandler` |
+| 準備の進み具合 | `準備 (名前): フロー … は ACTIVE …` | `TechcheckService.prepare` |
+| テストの段階の移り変わり | `名前: measuring → confirming` | `TechcheckService.setPhase` |
+| スレッドに書いたこと (ボタンも) | `スレッド (名前): …` | `TechcheckService.post` |
+| 運営への通知 | `運営への通知: …` | `TechcheckService.ops` |
+| 待ちの列 | `待ちの列: …` | `TechcheckService.tickQueue` |
+| テストの終わり | `テスト終了: 名前 / 完了 / 映像 OK / シート …` | `TechcheckService.finish` |
+| denpachan の受信口 | `denpachan: 受信口に繋がりました` など。繋がらない間は最初の 1 回だけ | `src/adapters/receiver.ts` |
+| エラー | `操作の処理でエラー …` (スタック付き)、`tick …`、`CloudWatch: …`、`シート: …`、`webhook: …` | それぞれの所 |
+
+運営への通知は、送れなくてもテストを止めない (コンソールに `運営への通知を送れませんでした` と出す)。
+
 ## README とコードの対応
 
 README の次の箇所は、コードが実際にしていることを写したもの。コードを変えたら README も直す。コードの側にも、同じことをコメントで書いてある。

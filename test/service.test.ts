@@ -109,6 +109,27 @@ describe("テストの流れ", () => {
         assert.ok(!texts.some((x) => x.includes("passphrase") || x.includes("pbkeylen")));
     });
 
+    it("進み具合と運営への通知はコンソールにも出し、通知を送れなくてもテストは進む", async () => {
+        const w = makeWorld();
+        w.chat.ops = async () => {
+            throw new Error("Missing Access");
+        };
+        await w.service.start(U1, "C-test", undefined, "ja");
+        await w.flush();
+        const has = (part: string) => w.logs.some((l) => l.includes(part));
+        assert.ok(has("運営への通知: 配信テスト開始: Runner A"), w.logs.join("\n"));
+        assert.ok(has("運営への通知を送れませんでした") && has("Missing Access"));
+        assert.ok(has("準備 (Runner A): フロー flow-a は STANDBY"));
+        assert.ok(has("準備 (Runner A): フロー flow-a は ACTIVE"));
+        assert.ok(has("スレッド (Runner A): "));
+        assert.ok(has("Runner A: preparing → waitingStream"));
+        // 通知を送れなくても、案内までは進んでいる
+        assert.ok(w.chat.texts(w.chat.threads[0]!.id).some((x) => x.includes("srt://srt-a.example.jp")));
+
+        await w.service.cancel("U1");
+        assert.ok(has("テスト終了: Runner A / 中断 (運営が中止)"));
+    });
+
     it("もともと動いていたフローは止めない", async () => {
         const w = makeWorld();
         w.flow.status = "ACTIVE";

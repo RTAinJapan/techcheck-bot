@@ -44,6 +44,19 @@ async function main(): Promise<void> {
     });
     const handler = new InteractionHandler(service, config, i18n, log);
 
+    // 起動したときの設定と状態。秘密 (トークン、キー、webhook の URL) は出さない
+    log(`設定ファイル: ${configPath}`);
+    log(`Discord: サーバ ${config.discord.guildId} / 配信テストのチャンネル ${config.discord.techcheckChannelId} / 運営への通知のチャンネル ${config.discord.opsChannelId} / 運営のロール ${config.discord.staffRoleId}`);
+    log(`AWS: リージョン ${config.aws.region} / プロファイル ${process.env.AWS_PROFILE ?? "(AWS_PROFILE は未設定)"} / フロー ${config.flows.map((f) => f.name).join("、")}`);
+    log(`denpachan: ${config.denpachan.host}:${config.denpachan.port} (トークン${config.denpachan.token ? "あり" : "なし"})`);
+    log(`シート: ${config.sheet.spreadsheetId} / ${config.sheet.tabName}`);
+    log(`結果の通知 (webhook): ${config.notify.webhookUrl ? "送る" : "URL が未設定なので送らない"}`);
+    for (const line of service.startupSummary()) log(line);
+
+    client.on(Events.Error, (e) => log(`Discord: エラー: ${errorText(e)}`));
+    client.on(Events.Warn, (m) => log(`Discord: 警告: ${m}`));
+    process.on("unhandledRejection", (e) => log(`処理されなかったエラー: ${e instanceof Error && e.stack ? e.stack : errorText(e)}`));
+
     client.once(Events.ClientReady, async (c) => {
         log(`Discord: ${c.user.tag} でログインしました`);
         // サーバのコマンドの登録。bot を招待するときの OAuth2 スコープ applications.commands で許される (bot スコープに含まれる。README の「トークンと権限」)

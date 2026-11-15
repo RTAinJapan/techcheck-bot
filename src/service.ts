@@ -457,7 +457,7 @@ export class TechcheckService {
         this.sessions.push(s);
         this.langPrefs[user.id] = lang;
         await this.post(s, { content: this.t(lang, "prepare.preparing") });
-        await this.d.chat.ops(`配信テスト開始: ${user.displayName} (フロー ${flowCfg.name} / ch${channel}) ${this.d.chat.threadUrl(threadId)}`);
+        await this.ops(`配信テスト開始: ${user.displayName} (フロー ${flowCfg.name} / ch${channel}) ${this.d.chat.threadUrl(threadId)}`);
         // フローの開始は 1 分ほどかかるので、ロックの外で待つ
         void this.prepare(s.id);
         return this.t(lang, "start.threadCreated", { url: this.d.chat.threadUrl(threadId) });
@@ -481,10 +481,13 @@ export class TechcheckService {
             if (channelStarted) await this.stopChannel(channel);
             return true;
         };
+        const tag = `準備 (${s0.displayName})`;
         try {
             let info = await this.d.flow.describe(flowCfg.arn);
+            this.log(`${tag}: フロー ${flowCfg.name} は ${info.status}`);
             if (info.status !== "ACTIVE") {
                 if (info.status !== "STARTING") {
+                    this.log(`${tag}: フロー ${flowCfg.name} を開始します (ACTIVE になるまで待ちます)`);
                     await this.d.flow.start(flowCfg.arn);
                     startedFlow = true;
                     // 中止されたときに後片付けが止められるよう、すぐに覚えておく
@@ -510,6 +513,7 @@ export class TechcheckService {
             if (!ips.includes(info.ingestIp)) {
                 throw new Error(`ドメイン ${flowCfg.domain} がこのフローの ingest の IP (${info.ingestIp}) を指していません (${ips.join(", ") || "引けない"})`);
             }
+            this.log(`${tag}: フロー ${flowCfg.name} は ACTIVE (ingest ${info.ingestIp}:${info.ingestPort})。denpachan の ch${channel} と録画を始めます`);
             channelStarted = true;
             await this.d.rx.call("startChannel", { ch: channel });
             await this.d.rx.call("setRecording", { ch: channel, enabled: true });
@@ -522,6 +526,7 @@ export class TechcheckService {
                 this.save();
             });
         } catch (e) {
+            this.log(`${tag}: 失敗しました: ${errorText(e)}`);
             await this.locked(async () => {
                 if (await cancelled()) return;
                 const s = get()!;
@@ -546,7 +551,7 @@ export class TechcheckService {
         const slot = this.slots.srt[slotIndex];
         if (slot) slot.enabled = false;
         const command = this.slots.srt.length > 1 ? `/techcheck slot on srt slot:${slotIndex + 1}` : "/techcheck slot on srt";
-        await this.d.chat.ops(`${this.srtSlotLabel(slotIndex)}に問題があるので止めました。直してから \`${command}\` で再開してください:\n${problems.map((p) => `- ${p}`).join("\n")}`);
+        await this.ops(`${this.srtSlotLabel(slotIndex)}に問題があるので止めました。直してから \`${command}\` で再開してください:\n${problems.map((p) => `- ${p}`).join("\n")}`);
     }
 
     private srtUrl(s: Session, port: number, latencyMs: number): string {
@@ -594,8 +599,10 @@ export class TechcheckService {
             const [entry] = q.entries.splice(i, 1);
             entry!.skips++;
             if (entry!.skips >= 2) {
+                this.log(`待ちの列: ${entry!.displayName} は 2 回「始める」を押さなかったので、列から外しました`);
                 await this.d.chat.callUser(entry!.userId, { content: this.t(entry!.lang, "queue.removed") }).catch(() => undefined);
             } else {
+                this.log(`待ちの列: ${entry!.displayName} は時間内に「始める」を押さなかったので、後ろに回しました`);
                 q.entries.push(entry!);
             }
         }
@@ -605,13 +612,23 @@ export class TechcheckService {
             const next = q.entries.find((e) => !q.offers.some((o) => o.userId === e.userId));
             if (!next) break;
             q.offers.push({ userId: next.userId, offeredAt: this.now() });
+            this.log(`待ちの列: ${next.displayName} に順番を知らせます`);
             await this.d.chat
                 .callUser(next.userId, {
                     content: this.t(next.lang, "queue.yourTurn", { user: `<@${next.userId}>`, minutes: this.cfg.timeouts.claimMin }),
                     buttons: [{ id: "tcq:claim", label: this.t(next.lang, "button.claim"), style: "primary" }],
                 })
-                .catch((e) => this.log(`queue notify: ${errorText(e)}`));
+                .catch((e) => this.log(`待ちの列: ${next.displayName} に知らせを送れませんでした: ${errorText(e)}`));
         }
+    }
+
+    /** 起動したときにコンソールへ出す、今の状態 (枠、進行中のテスト、待ちの列) */
+    startupSummary(): string[] {
+        const lines = this.slots.srt.map((slot, i) => `${this.srtSlotLabel(i)}: フロー ${slot.flow ?? "未設定"} / ch${slot.channel ?? "?"} / ${slot.enabled ? "受付中" : "止めている"}`);
+        lines.push(`RTMP の枠: ch${this.slots.rtmp.channel ?? "?"} / ${this.slots.rtmp.enabled ? "受付中" : "止めている"}`);
+        lines.push(`進行中のテスト: ${this.sessions.length > 0 ? this.sessions.map((s) => `${s.displayName} (${s.phase})`).join("、") : "なし"}`);
+        lines.push(`待ちの列: ${this.queue.entries.length > 0 ? this.queue.entries.map((e) => e.displayName).join("、") : "なし"}`);
+        return lines;
     }
 
     private async tickSession(s: Session): Promise<void> {
@@ -742,7 +759,7 @@ export class TechcheckService {
         }
         if (this.d.rx.connected() && !rxLive && this.mcConnectedFor(s, kOpsWarnAfterSec) && !s.rx.opsWarned) {
             s.rx.opsWarned = true;
-            await this.d.chat.ops(`運営側の問題の可能性: ${s.displayName} の配信は MediaConnect に届いているのに、denpachan の ch${s.srt.channel} が live になりません (${ch?.status ?? "不明"} ${ch?.lastError ?? ""})`);
+            await this.ops(`運営側の問題の可能性: ${s.displayName} の配信は MediaConnect に届いているのに、denpachan の ch${s.srt.channel} が live になりません (${ch?.status ?? "不明"} ${ch?.lastError ?? ""})`);
             await this.post(s, { content: this.t(s.lang, "wait.opsChecking") });
         }
         const elapsed = now - s.phaseSince;
@@ -798,7 +815,7 @@ export class TechcheckService {
 
         if (cwMissing && !s.cw.missingWarned) {
             s.cw.missingWarned = true;
-            await this.d.chat.ops(`CloudWatch のメトリクスが取れません (${s.srt.flowName})。${s.displayName} の映像は denpachan の受信状態だけで判定します`);
+            await this.ops(`CloudWatch のメトリクスが取れません (${s.srt.flowName})。${s.displayName} の映像は denpachan の受信状態だけで判定します`);
         }
         const advice: Advice = cwMissing
             ? { verdict: "ok", recommendMs: 0, headroomMs: null, rttMs: 0, lossPct: 0, drops: 0, multiplier: 0, windowSec: 0 }
@@ -868,10 +885,10 @@ export class TechcheckService {
                     this.t(s.lang, "judge.ok", { latencyMs: s.latencyMs }) +
                     (generous ? `\n${this.t(s.lang, "judge.generous", { recommendMs: s.lastAdvice!.recommendMs })}` : ""),
             });
-            await this.d.chat.ops(`映像 OK: ${s.displayName} (SRT、latency ${s.latencyMs} ms)`);
+            await this.ops(`映像 OK: ${s.displayName} (SRT、latency ${s.latencyMs} ms)`);
         } else {
             await this.post(s, { content: this.t(s.lang, "judge.okRtmp") });
-            await this.d.chat.ops(`映像 OK: ${s.displayName} (RTMP)`);
+            await this.ops(`映像 OK: ${s.displayName} (RTMP)`);
         }
         await this.startChecks(s);
     }
@@ -912,7 +929,7 @@ export class TechcheckService {
     private async goRtmp(s: Session, reason: string): Promise<void> {
         if (!this.rtmpAvailable()) {
             s.videoVerdict = "NG";
-            await this.d.chat.ops(`RTMP の枠が使えません。${s.displayName} の映像が安定しません (${reason})。連絡してください ${this.d.chat.threadUrl(s.threadId)}`);
+            await this.ops(`RTMP の枠が使えません。${s.displayName} の映像が安定しません (${reason})。連絡してください ${this.d.chat.threadUrl(s.threadId)}`);
             await this.post(s, { content: this.t(s.lang, "rtmp.unavailable") });
             await this.startChecks(s);
             return;
@@ -931,7 +948,7 @@ export class TechcheckService {
             buttons: [this.btn(s, "set", "button.set", "primary"), this.btn(s, "abort", "button.abort", "danger")],
         });
         s.pending = { kind: "rtmp", askedAt: this.now(), messageId: msgId, pressed: false, reminded: false };
-        await this.d.chat.ops(`RTMP に案内: ${s.displayName} (${reason})`);
+        await this.ops(`RTMP に案内: ${s.displayName} (${reason})`);
         this.setPhase(s, "awaitingRtmp");
     }
 
@@ -990,7 +1007,7 @@ export class TechcheckService {
             return;
         }
         s.videoVerdict = "NG";
-        await this.d.chat.ops(`RTMP でも安定しません: ${s.displayName} (fps ${round1(fpsAvg) ?? "?"}、デコードエラー +${decodeDelta})。連絡してください ${this.d.chat.threadUrl(s.threadId)}`);
+        await this.ops(`RTMP でも安定しません: ${s.displayName} (fps ${round1(fpsAvg) ?? "?"}、デコードエラー +${decodeDelta})。連絡してください ${this.d.chat.threadUrl(s.threadId)}`);
         await this.post(s, { content: this.t(s.lang, "rtmp.unstable") });
         await this.startChecks(s);
     }
@@ -1078,7 +1095,7 @@ export class TechcheckService {
             buttons: [this.btn(s, "done", "button.done", "success"), this.btn(s, "abort", "button.abort", "danger")],
         });
         if (s.results.some((r) => r.skipped)) {
-            await this.d.chat.ops(`チェックで「おかしい」のまま進めた手順があります: ${s.displayName} (${s.results.filter((r) => r.skipped).map((r) => r.id).join(", ")})`);
+            await this.ops(`チェックで「おかしい」のまま進めた手順があります: ${s.displayName} (${s.results.filter((r) => r.skipped).map((r) => r.id).join(", ")})`);
         }
         this.setPhase(s, "awaitingDone");
     }
@@ -1185,6 +1202,10 @@ export class TechcheckService {
         }
         await this.d.chat.closeThread(s.threadId).catch((e) => this.log(`スレッドを閉じる: ${errorText(e)}`));
         this.finished[s.userId] = { sessionId: s.id, sheetRange, threadUrl, at: this.now() };
+        this.log(
+            `テスト終了: ${s.displayName} / ${result === "done" ? "完了" : `中断 (${s.abortReason ?? "理由なし"})`} / 映像 ${s.videoVerdict ?? "未判定"} / ` +
+                `シート ${sheetRange ?? `書けませんでした (${sheetError ?? "?"})`}`,
+        );
     }
 
     private closingMessage(s: Session, result: "done" | "aborted"): string {
@@ -1306,6 +1327,7 @@ export class TechcheckService {
     }
 
     private setPhase(s: Session, phase: Phase): void {
+        if (s.phase !== phase) this.log(`${s.displayName}: ${s.phase} → ${phase}`);
         s.phase = phase;
         s.phaseSince = this.now();
         s.lastActivity = this.now();
@@ -1322,8 +1344,29 @@ export class TechcheckService {
         return { id: `tc:${s.id}:${action}`, label: this.t(s.lang, labelKey), style };
     }
 
+    /** スレッドに書く。何を書いたかは、コンソールにも 1 行で出す (Discord を見なくても進み具合が分かるように) */
     private async post(s: Session, msg: OutMessage): Promise<string> {
-        return this.d.chat.post(s.threadId, msg);
+        const buttons = msg.buttons?.length ? ` [${msg.buttons.map((b) => b.label).join(" | ")}]` : "";
+        this.log(`スレッド (${s.displayName}): ${oneLine(msg.content)}${buttons}${msg.image ? " (画像付き)" : ""}`);
+        try {
+            return await this.d.chat.post(s.threadId, msg);
+        } catch (e) {
+            this.log(`スレッド (${s.displayName}) に書けませんでした: ${errorText(e)}`);
+            throw e;
+        }
+    }
+
+    /**
+     * 運営への通知。同じ内容をコンソールにも出す。送れなくてもテストは止めない
+     * (通知のチャンネルの ID や権限の間違いで、テストが途中で止まらないように)。
+     */
+    private async ops(text: string): Promise<void> {
+        this.log(`運営への通知: ${oneLine(text)}`);
+        try {
+            await this.d.chat.ops(text);
+        } catch (e) {
+            this.log(`運営への通知を送れませんでした (discord.opsChannelId と bot の権限を確かめてください): ${errorText(e)}`);
+        }
     }
 
     private t(lang: Lang, key: string, vars: Record<string, string | number> = {}): string {
@@ -1373,4 +1416,10 @@ function round1(v: number | undefined): number | undefined {
 
 export function errorText(e: unknown): string {
     return e instanceof Error ? e.message : String(e);
+}
+
+/** ログ用に 1 行にする (改行は " / " にし、長すぎるものは切る) */
+export function oneLine(text: string, max = 200): string {
+    const s = text.replace(/\s*\n\s*/g, " / ").trim();
+    return s.length > max ? `${s.slice(0, max - 1)}…` : s;
 }

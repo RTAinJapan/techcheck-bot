@@ -19,6 +19,7 @@ export class WsReceiver implements ReceiverPort {
     private readonly pending = new Map<number, Pending>();
     private stopped = false;
     private retryMs = 2_000;
+    private failureLogged = false;
 
     constructor(
         private readonly url: string,
@@ -33,6 +34,11 @@ export class WsReceiver implements ReceiverPort {
     start(): void {
         this.stopped = false;
         this.open();
+    }
+
+    /** ログに出す接続先。トークン (?token=) は出さない */
+    private address(): string {
+        return this.url.split("?")[0]!;
     }
 
     stop(): void {
@@ -101,14 +107,26 @@ export class WsReceiver implements ReceiverPort {
             return;
         }
         this.ws = ws;
+        let opened = false;
         ws.addEventListener("open", () => {
+            opened = true;
+            this.failureLogged = false;
             this.retryMs = 2_000;
             this.log("denpachan: 受信口に繋がりました");
         });
         ws.addEventListener("message", (ev) => {
             if (typeof ev.data === "string") this.handle(ev.data);
         });
-        ws.addEventListener("close", () => {
+        ws.addEventListener("close", (ev) => {
+            // 繋がらない間は何度もやり直すので、ログは切れたときと、繋がらなくなった最初の 1 回だけ出す
+            if (this.stopped) {
+                // 自分で止めた
+            } else if (opened) {
+                this.log(`denpachan: 受信口が切れました (${ev.code}${ev.reason ? ` ${ev.reason}` : ""})。繋ぎ直します`);
+            } else if (!this.failureLogged) {
+                this.failureLogged = true;
+                this.log(`denpachan: 受信口 (${this.address()}) に繋がりません。denpachan が動いていて、メトリクスの受信口が有効か、トークンが合っているかを確かめてください。繋がるまでやり直します`);
+            }
             for (const [id, p] of this.pending) {
                 clearTimeout(p.timer);
                 p.reject(new Error("denpachan の受信口が切れました"));
