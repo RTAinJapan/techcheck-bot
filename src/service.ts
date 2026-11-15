@@ -10,7 +10,7 @@ import type { I18n } from "./i18n.js";
 import { langFromLocale } from "./i18n.js";
 import type { Button, ChatPort, Clock, DnsPort, FlowPort, OutMessage, ReceiverChannel, ReceiverPort, SheetPort, WebhookPort } from "./ports.js";
 import { audioVerdictColumn, buildRow, buildWebhookPayload, columnLetter, formatRecPos, formatTime } from "./record.js";
-import type { FinishedRecord, Phase, QueueState, Session, SlotState } from "./session.js";
+import type { FinishedRecord, Phase, QueueOffer, QueueState, Session, SlotState, SrtSlotState } from "./session.js";
 import type { KeyValueStore } from "./store.js";
 
 export interface Deps {
@@ -50,6 +50,26 @@ const kAssumePressedMs = 30_000;
 const kReconnectLiveMs = 30_000;
 const kSenderDecodeErrors = 5;
 
+/**
+ * 保存してある枠を読む。SRT の枠の数は設定 (slots.srt) で決まり、それぞれの中身は、
+ * `/techcheck slot` で設定し直して保存した値があればそちらを使う (無ければ設定の初期値)。
+ * 枠が 1 つだったときの保存の形 (srt が配列でない) も読む。
+ */
+export function loadSlots(stored: unknown, cfg: Config): SlotState {
+    const old = stored as { srt?: SrtSlotState | SrtSlotState[]; rtmp?: SlotState["rtmp"] } | undefined;
+    const storedSrt = old?.srt === undefined ? [] : Array.isArray(old.srt) ? old.srt : [old.srt];
+    return {
+        srt: cfg.slots.srt.map((c, i) => storedSrt[i] ?? { flow: c.flow, channel: c.channel, enabled: c.enabled }),
+        rtmp: old?.rtmp ?? { channel: cfg.slots.rtmp.channel, enabled: true },
+    };
+}
+
+/** 保存してある待ちの列を読む。知らせが 1 人だけだったときの保存の形 (offer) も読む */
+export function loadQueue(stored: unknown): QueueState {
+    const old = stored as { entries?: QueueState["entries"]; offers?: QueueOffer[]; offer?: QueueOffer } | undefined;
+    return { entries: old?.entries ?? [], offers: old?.offers ?? (old?.offer ? [old.offer] : []) };
+}
+
 export class TechcheckService {
     private readonly cfg: Config;
     private readonly checks: CheckStep[];
@@ -67,11 +87,10 @@ export class TechcheckService {
         this.cfg = d.config;
         this.checks = d.config.checks;
         this.sessions = d.store.get<Session[]>("sessions") ?? [];
-        this.queue = d.store.get<QueueState>("queue") ?? { entries: [] };
-        this.slots = d.store.get<SlotState>("slots") ?? {
-            srt: { flow: d.config.slots.srt.flow, channel: d.config.slots.srt.channel, enabled: true },
-            rtmp: { channel: d.config.slots.rtmp.channel, enabled: true },
-        };
+        // 枠が 1 つだったときに保存したセッションには、枠の番号が無い
+        for (const s of this.sessions) s.srt.slot ??= 0;
+        this.queue = loadQueue(d.store.get<unknown>("queue"));
+        this.slots = loadSlots(d.store.get<unknown>("slots"), d.config);
         this.langPrefs = d.store.get<Record<string, Lang>>("langPrefs") ?? {};
         this.finished = d.store.get<Record<string, FinishedRecord>>("finished") ?? {};
     }
@@ -110,15 +129,16 @@ export class TechcheckService {
             const pos = this.queue.entries.findIndex((e) => e.userId === user.id);
             if (pos >= 0) return this.t(lang, "start.alreadyQueued", { position: pos + 1 });
 
-            if (this.queue.entries.length === 0 && this.srtAvailable()) {
-                const r = await this.begin(user, lang);
+            const slot = this.freeSrtSlot();
+            if (this.queue.entries.length === 0 && slot !== undefined) {
+                const r = await this.begin(user, lang, slot);
                 this.save();
                 return r;
             }
             this.queue.entries.push({ userId: user.id, displayName: user.displayName, lang, joinedAt: this.now(), skips: 0 });
             this.save();
             const position = this.queue.entries.length;
-            return this.slots.srt.enabled ? this.t(lang, "queue.joined", { position }) : this.t(lang, "queue.paused", { position });
+            return this.slots.srt.some((x) => x.enabled) ? this.t(lang, "queue.joined", { position }) : this.t(lang, "queue.paused", { position });
         });
     }
 
@@ -129,7 +149,7 @@ export class TechcheckService {
             const lang = this.langPrefs[userId] ?? this.cfg.i18n.fallback;
             if (i < 0) return this.t(lang, "queue.notQueued");
             this.queue.entries.splice(i, 1);
-            if (this.queue.offer?.userId === userId) this.queue.offer = undefined;
+            this.queue.offers = this.queue.offers.filter((o) => o.userId !== userId);
             this.save();
             return this.t(lang, "queue.left");
         });
@@ -140,11 +160,12 @@ export class TechcheckService {
         return this.locked(async () => {
             const entry = this.queue.entries.find((e) => e.userId === user.id);
             const lang = entry?.lang ?? this.langPrefs[user.id] ?? this.cfg.i18n.fallback;
-            if (!entry || this.queue.offer?.userId !== user.id) return this.t(lang, "queue.notYourTurn");
-            if (!this.srtAvailable()) return this.t(lang, "queue.notYourTurn");
+            if (!entry || !this.queue.offers.some((o) => o.userId === user.id)) return this.t(lang, "queue.notYourTurn");
+            const slot = this.freeSrtSlot();
+            if (slot === undefined) return this.t(lang, "queue.notYourTurn");
             this.queue.entries = this.queue.entries.filter((e) => e.userId !== user.id);
-            this.queue.offer = undefined;
-            const r = await this.begin({ id: user.id, displayName: user.displayName || entry.displayName }, entry.lang);
+            this.queue.offers = this.queue.offers.filter((o) => o.userId !== user.id);
+            const r = await this.begin({ id: user.id, displayName: user.displayName || entry.displayName }, entry.lang, slot);
             this.save();
             return r;
         });
@@ -198,35 +219,59 @@ export class TechcheckService {
 
     async slotShow(): Promise<string> {
         return this.locked(async () => {
-            const srtUser = this.sessions.find((s) => s.protocol === "srt" && !s.srt.released);
             const rtmpUser = this.sessions.find((s) => s.rtmp && s.phase !== "finished");
-            const q = this.queue.entries.map((e, i) => `${i + 1}. ${e.displayName}${this.queue.offer?.userId === e.userId ? " (知らせ済み)" : ""}`);
+            const q = this.queue.entries.map((e, i) => `${i + 1}. ${e.displayName}${this.queue.offers.some((o) => o.userId === e.userId) ? " (知らせ済み)" : ""}`);
+            const srtLines = this.slots.srt.map((slot, i) => {
+                const user = this.sessions.find((s) => this.usesSrtSlot(s, i));
+                return `${this.srtSlotLabel(i)}: フロー ${slot.flow ?? "未設定"} / ch${slot.channel ?? "?"} / ${slot.enabled ? "受付中" : "止めている"}${user ? ` / 使用中: ${user.displayName}` : ""}`;
+            });
             return [
-                `SRT の枠: フロー ${this.slots.srt.flow ?? "未設定"} / ch${this.slots.srt.channel ?? "?"} / ${this.slots.srt.enabled ? "受付中" : "止めている"}${srtUser ? ` / 使用中: ${srtUser.displayName}` : ""}`,
+                ...srtLines,
                 `RTMP の枠: ch${this.slots.rtmp.channel ?? "?"} / ${this.slots.rtmp.enabled ? "受付中" : "止めている"}${rtmpUser ? ` / 使用中: ${rtmpUser.displayName}` : ""}`,
                 `待ちの列: ${q.length > 0 ? `\n${q.join("\n")}` : "なし"}`,
             ].join("\n");
         });
     }
 
-    async slotSet(kind: "srt" | "rtmp", channel: number, flowName?: string): Promise<string> {
+    /** slotNo は SRT の枠の番号 (1 始まり。省けば 1)。RTMP の枠は 1 つなので使わない */
+    async slotSet(kind: "srt" | "rtmp", channel: number, flowName?: string, slotNo = 1): Promise<string> {
         return this.locked(async () => {
-            const problems = await this.validateSlot(kind, channel, flowName);
+            const index = slotNo - 1;
+            if (kind === "srt" && !this.slots.srt[index]) return this.noSuchSrtSlot(slotNo);
+            const problems = await this.validateSlot(kind, channel, flowName, index);
             if (problems.length > 0) return `設定し直せませんでした (前の設定のまま):\n${problems.map((p) => `- ${p}`).join("\n")}`;
-            const busy = kind === "srt" ? this.sessions.some((s) => s.protocol === "srt" && !s.srt.released) : this.sessions.some((s) => s.rtmp);
-            if (kind === "srt") this.slots.srt = { ...this.slots.srt, flow: flowName, channel };
+            const busy = kind === "srt" ? this.sessions.some((s) => this.usesSrtSlot(s, index)) : this.sessions.some((s) => s.rtmp);
+            if (kind === "srt") this.slots.srt[index] = { ...this.slots.srt[index]!, flow: flowName, channel };
             else this.slots.rtmp = { ...this.slots.rtmp, channel };
             this.save();
             const note = busy ? "\n進行中のテストは前の枠のまま続けます。新しい枠は次のテストから使います。" : "";
-            return `${kind.toUpperCase()} の枠を設定しました: ${kind === "srt" ? `フロー ${flowName} / ` : ""}ch${channel}${note}`;
+            const label = kind === "srt" ? this.srtSlotLabel(index) : "RTMP の枠";
+            return `${label}を設定しました: ${kind === "srt" ? `フロー ${flowName} / ` : ""}ch${channel}${note}`;
         });
     }
 
-    async slotEnable(kind: "srt" | "rtmp", on: boolean): Promise<string> {
+    /**
+     * 枠の受付を止める / 再開する。slotNo は SRT の枠の番号 (1 始まり)。
+     * 省いたとき: 止めるのは SRT の枠すべて。再開は、枠が 1 つならその枠、複数なら番号が要る
+     * (止めてある予備の枠まで、まとめて動かしてしまわないように)。
+     */
+    async slotEnable(kind: "srt" | "rtmp", on: boolean, slotNo?: number): Promise<string> {
         return this.locked(async () => {
-            this.slots[kind].enabled = on;
+            const done = on ? "再開しました" : "止めました (待ちの列は残します)";
+            if (kind === "rtmp") {
+                this.slots.rtmp.enabled = on;
+                this.save();
+                return `RTMP の枠を${done}`;
+            }
+            if (slotNo === undefined && on && this.slots.srt.length > 1) {
+                return `SRT の枠は ${this.slots.srt.length} つあります。再開する枠の番号 (slot) を指定してください (止めてある枠をまとめて動かさないため)`;
+            }
+            if (slotNo !== undefined && !this.slots.srt[slotNo - 1]) return this.noSuchSrtSlot(slotNo);
+            const targets = slotNo !== undefined ? [slotNo - 1] : this.slots.srt.map((_, i) => i);
+            for (const i of targets) this.slots.srt[i]!.enabled = on;
             this.save();
-            return `${kind.toUpperCase()} の枠を${on ? "再開しました" : "止めました (待ちの列は残します)"}`;
+            const label = targets.length === 1 ? this.srtSlotLabel(targets[0]!) : "SRT の枠すべて";
+            return `${label}を${done}`;
         });
     }
 
@@ -301,24 +346,44 @@ export class TechcheckService {
 
     // ================= テストの始まり =================
 
-    private srtAvailable(): boolean {
-        return (
-            this.slots.srt.enabled &&
-            this.slots.srt.flow !== undefined &&
-            this.slots.srt.channel !== undefined &&
-            !this.sessions.some((s) => s.protocol === "srt" && !s.srt.released)
-        );
+    /** このセッションが、SRT の枠 index (0 始まり) を使っているか (RTMP に移って空けたあとは使っていない) */
+    private usesSrtSlot(s: Session, index: number): boolean {
+        return s.protocol === "srt" && !s.srt.released && s.srt.slot === index;
+    }
+
+    /** 受け付けられる SRT の枠 (受付中で、設定が済んでいて、誰も使っていない) の番号 (0 始まり)。前から順 */
+    private freeSrtSlots(): number[] {
+        const out: number[] = [];
+        this.slots.srt.forEach((slot, i) => {
+            if (slot.enabled && slot.flow !== undefined && slot.channel !== undefined && !this.sessions.some((s) => this.usesSrtSlot(s, i))) out.push(i);
+        });
+        return out;
+    }
+
+    private freeSrtSlot(): number | undefined {
+        return this.freeSrtSlots()[0];
+    }
+
+    /** 運営に見せる枠の名前。枠が 1 つなら番号を付けない */
+    private srtSlotLabel(index: number): string {
+        return this.slots.srt.length > 1 ? `SRT の ${index + 1} 番の枠` : "SRT の枠";
+    }
+
+    private noSuchSrtSlot(slotNo: number): string {
+        return `SRT の ${slotNo} 番の枠はありません (枠は 1〜${this.slots.srt.length} 番。数は設定ファイルの slots.srt で決まります)`;
     }
 
     private rtmpAvailable(): boolean {
         return this.slots.rtmp.enabled && this.slots.rtmp.channel !== undefined && !this.sessions.some((s) => s.rtmp);
     }
 
-    private async begin(user: UserRef, lang: Lang): Promise<string> {
-        const flowCfg = this.cfg.flows.find((f) => f.name === this.slots.srt.flow);
-        const channel = this.slots.srt.channel;
+    /** slotIndex は、使う SRT の枠 (0 始まり。freeSrtSlot() で選んだもの) */
+    private async begin(user: UserRef, lang: Lang, slotIndex: number): Promise<string> {
+        const slot = this.slots.srt[slotIndex];
+        const flowCfg = this.cfg.flows.find((f) => f.name === slot?.flow);
+        const channel = slot?.channel;
         const problems: string[] = [];
-        if (!flowCfg || channel === undefined) problems.push("SRT の枠が設定されていません");
+        if (!flowCfg || channel === undefined) problems.push(`${this.srtSlotLabel(slotIndex)}が設定されていません`);
         else {
             const ch = this.d.rx.channel(channel);
             if (!this.d.rx.connected()) problems.push("denpachan の受信口に繋がっていません");
@@ -329,7 +394,7 @@ export class TechcheckService {
             }
         }
         if (problems.length > 0 || !flowCfg || channel === undefined) {
-            await this.blockSlot(problems);
+            await this.blockSlot(slotIndex, problems);
             this.queue.entries.unshift({ userId: user.id, displayName: user.displayName, lang, joinedAt: this.now(), skips: 0 });
             return this.t(lang, "start.prepareProblem");
         }
@@ -349,7 +414,7 @@ export class TechcheckService {
             lastActivity: now,
             reminded: false,
             protocol: "srt",
-            srt: { flowName: flowCfg.name, flowArn: flowCfg.arn, domain: flowCfg.domain, channel, startedFlow: false, released: false },
+            srt: { slot: slotIndex, flowName: flowCfg.name, flowArn: flowCfg.arn, domain: flowCfg.domain, channel, startedFlow: false, released: false },
             latencyMs: this.cfg.latency.initialMs,
             raises: 0,
             recordFiles: [],
@@ -435,7 +500,7 @@ export class TechcheckService {
                 if (await cancelled()) return;
                 const s = get()!;
                 s.srt.startedFlow = startedFlow;
-                await this.blockSlot([errorText(e)]);
+                await this.blockSlot(s.srt.slot, [errorText(e)]);
                 await this.post(s, { content: this.t(s.lang, "start.prepareProblem") });
                 await this.finish(s, "aborted", `準備の失敗: ${errorText(e)}`);
                 // 配信者のせいではないので、列の先頭に戻す
@@ -451,9 +516,11 @@ export class TechcheckService {
     }
 
     /** 枠に問題があったとき: 運営に知らせ、枠を止める (次の人も同じ問題に当たらないように) */
-    private async blockSlot(problems: string[]): Promise<void> {
-        this.slots.srt.enabled = false;
-        await this.d.chat.ops(`SRT の枠に問題があるので止めました。直してから \`/techcheck slot on srt\` で再開してください:\n${problems.map((p) => `- ${p}`).join("\n")}`);
+    private async blockSlot(slotIndex: number, problems: string[]): Promise<void> {
+        const slot = this.slots.srt[slotIndex];
+        if (slot) slot.enabled = false;
+        const command = this.slots.srt.length > 1 ? `/techcheck slot on srt slot:${slotIndex + 1}` : "/techcheck slot on srt";
+        await this.d.chat.ops(`${this.srtSlotLabel(slotIndex)}に問題があるので止めました。直してから \`${command}\` で再開してください:\n${problems.map((p) => `- ${p}`).join("\n")}`);
     }
 
     private srtUrl(s: Session, port: number, latencyMs: number): string {
@@ -491,26 +558,29 @@ export class TechcheckService {
     private async tickQueue(): Promise<void> {
         const q = this.queue;
         const claimMs = this.cfg.timeouts.claimMin * 60_000;
-        if (q.offer && this.now() - q.offer.offeredAt > claimMs) {
-            const i = q.entries.findIndex((e) => e.userId === q.offer!.userId);
-            q.offer = undefined;
-            if (i >= 0) {
-                const [entry] = q.entries.splice(i, 1);
-                entry!.skips++;
-                if (entry!.skips >= 2) {
-                    await this.d.chat.callUser(entry!.userId, { content: this.t(entry!.lang, "queue.removed") }).catch(() => undefined);
-                } else {
-                    q.entries.push(entry!);
-                }
+        // 「始める」を押さないまま時間が切れた人は、後ろに回す (2 回続けば列から外す)
+        for (const offer of q.offers.filter((o) => this.now() - o.offeredAt > claimMs)) {
+            q.offers = q.offers.filter((o) => o !== offer);
+            const i = q.entries.findIndex((e) => e.userId === offer.userId);
+            if (i < 0) continue;
+            const [entry] = q.entries.splice(i, 1);
+            entry!.skips++;
+            if (entry!.skips >= 2) {
+                await this.d.chat.callUser(entry!.userId, { content: this.t(entry!.lang, "queue.removed") }).catch(() => undefined);
+            } else {
+                q.entries.push(entry!);
             }
         }
-        if (!q.offer && q.entries.length > 0 && this.srtAvailable()) {
-            const head = q.entries[0]!;
-            q.offer = { userId: head.userId, offeredAt: this.now() };
+        // 空いている SRT の枠の数まで、列の前から順に知らせる
+        const free = this.freeSrtSlots().length;
+        while (q.offers.length < free) {
+            const next = q.entries.find((e) => !q.offers.some((o) => o.userId === e.userId));
+            if (!next) break;
+            q.offers.push({ userId: next.userId, offeredAt: this.now() });
             await this.d.chat
-                .callUser(head.userId, {
-                    content: this.t(head.lang, "queue.yourTurn", { user: `<@${head.userId}>`, minutes: this.cfg.timeouts.claimMin }),
-                    buttons: [{ id: "tcq:claim", label: this.t(head.lang, "button.claim"), style: "primary" }],
+                .callUser(next.userId, {
+                    content: this.t(next.lang, "queue.yourTurn", { user: `<@${next.userId}>`, minutes: this.cfg.timeouts.claimMin }),
+                    buttons: [{ id: "tcq:claim", label: this.t(next.lang, "button.claim"), style: "primary" }],
                 })
                 .catch((e) => this.log(`queue notify: ${errorText(e)}`));
         }
@@ -1120,12 +1190,26 @@ export class TechcheckService {
 
     // ================= 枠の検証 (§5.6) =================
 
-    private async validateSlot(kind: "srt" | "rtmp", channel: number, flowName?: string): Promise<string[]> {
+    /** srtIndex は、設定し直す SRT の枠 (0 始まり。kind が rtmp のときは使わない) */
+    private async validateSlot(kind: "srt" | "rtmp", channel: number, flowName: string | undefined, srtIndex: number): Promise<string[]> {
         const problems: string[] = [];
         if (!this.d.rx.connected()) return ["denpachan の受信口に繋がっていません"];
         const ch = this.d.rx.channel(channel);
         if (!ch) return [`denpachan に ch${channel} がありません`];
         if (!ch.testSlot) problems.push(`ch${channel} に「配信テスト用」の印がありません`);
+        // ほかの枠と、ほかの枠で進行中のテストが使っているチャンネル・フローは使えない (同じものを 2 人に使わせない)
+        const isOther = (i: number) => kind === "rtmp" || i !== srtIndex;
+        this.slots.srt.forEach((slot, i) => {
+            if (!isOther(i)) return;
+            if (slot.channel === channel) problems.push(`ch${channel} は ${this.srtSlotLabel(i)}で使っています`);
+            if (kind === "srt" && slot.flow !== undefined && slot.flow === flowName) problems.push(`フロー ${flowName} は ${this.srtSlotLabel(i)}で使っています`);
+        });
+        if (kind === "srt" && this.slots.rtmp.channel === channel) problems.push(`ch${channel} は RTMP の枠で使っています`);
+        for (const s of this.sessions) {
+            if (s.protocol !== "srt" || s.srt.released || !isOther(s.srt.slot)) continue;
+            if (s.srt.channel === channel && this.slots.srt[s.srt.slot]?.channel !== channel) problems.push(`ch${channel} は ${s.displayName} のテストで使っています`);
+            if (kind === "srt" && s.srt.flowName === flowName && this.slots.srt[s.srt.slot]?.flow !== flowName) problems.push(`フロー ${flowName} は ${s.displayName} のテストで使っています`);
+        }
         const usedBySession = this.sessions.some((s) => (s.srt.channel === channel && !s.srt.released) || s.rtmp?.channel === channel);
         if (ch.status !== "stopped" && !usedBySession) problems.push(`ch${channel} が止まっていません (${ch.status})`);
         if (kind === "srt" && ch.source.protocol !== "srt") problems.push(`ch${channel} の受信が SRT ではありません (${ch.source.protocol})`);

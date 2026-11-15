@@ -9,7 +9,8 @@ import { defaultChecks, evaluateAudioStep } from "../src/checks.js";
 import { ConfigError, expandEnv, parseConfig } from "../src/config.js";
 import { I18n, checkParity, langFromLocale } from "../src/i18n.js";
 import { buildRow, columnLetter, formatRecPos, sheetColumns } from "../src/record.js";
-import { baseYaml, goodSample, here, messagesDir, testConfig } from "./helpers.js";
+import { loadQueue, loadSlots } from "../src/service.js";
+import { baseYaml, goodSample, here, messagesDir, testConfig, twoSlotsYaml } from "./helpers.js";
 
 const table = testConfig().judge.multipliers;
 
@@ -107,8 +108,37 @@ describe("config", () => {
             (e: unknown) => e instanceof ConfigError && /discord\.token/.test(e.message) && /DISCORD_TOKEN/.test(e.message),
         );
     });
-    it("slots.srt.flow は flows にある名前", () => {
-        assert.throws(() => parseConfig(baseYaml.replace("flow: flow-a", "flow: nope"), {}), /slots\.srt\.flow/);
+    it("slots.srt の flow は flows にある名前", () => {
+        assert.throws(() => parseConfig(baseYaml.replace("flow: flow-a", "flow: nope"), {}), /slots\.srt\.0\.flow.*"nope" は flows にありません/);
+    });
+    it("SRT の枠は、1 つならそのまま、複数なら並べて書ける", () => {
+        assert.deepEqual(testConfig().slots.srt, [{ flow: "flow-a", channel: 7, enabled: true }]);
+        assert.deepEqual(testConfig("", twoSlotsYaml).slots.srt, [
+            { flow: "flow-a", channel: 7, enabled: true },
+            { flow: "flow-b", channel: 6, enabled: true },
+        ]);
+        const spare = twoSlotsYaml.replace("{ flow: flow-b, channel: 6 }", "{ flow: flow-b, channel: 6, enabled: false }");
+        assert.equal(parseConfig(spare, {}).slots.srt[1]!.enabled, false);
+    });
+    it("同じフローやチャンネルを 2 つの枠で使えない", () => {
+        assert.throws(() => parseConfig(twoSlotsYaml.replace("{ flow: flow-b, channel: 6 }", "{ flow: flow-a, channel: 6 }"), {}), /フロー "flow-a" を 2 つの枠で/);
+        assert.throws(() => parseConfig(twoSlotsYaml.replace("{ flow: flow-b, channel: 6 }", "{ flow: flow-b, channel: 7 }"), {}), /チャンネル 7 を 2 つの枠で/);
+        assert.throws(() => parseConfig(twoSlotsYaml.replace("{ flow: flow-b, channel: 6 }", "{ flow: flow-b, channel: 8 }"), {}), /チャンネル 8 を 2 つの枠で/);
+    });
+    it("保存してある枠と待ちの列は、枠が 1 つだったときの形も読める", () => {
+        const two = testConfig("", twoSlotsYaml);
+        // 保存が無ければ設定の初期値
+        assert.deepEqual(loadSlots(undefined, two).srt.map((s) => s.channel), [7, 6]);
+        // 古い形 (srt が 1 つ)。設定し直した値は 1 つ目の枠に残り、2 つ目は設定の初期値
+        const old = { srt: { flow: "flow-a", channel: 5, enabled: false }, rtmp: { channel: 8, enabled: true } };
+        assert.deepEqual(loadSlots(old, two).srt, [
+            { flow: "flow-a", channel: 5, enabled: false },
+            { flow: "flow-b", channel: 6, enabled: true },
+        ]);
+        // 設定の枠を減らしたら、余った分は使わない
+        assert.equal(loadSlots({ srt: [old.srt, old.srt], rtmp: old.rtmp }, testConfig()).srt.length, 1);
+        assert.deepEqual(loadQueue({ entries: [], offer: { userId: "U1", offeredAt: 1 } }).offers, [{ userId: "U1", offeredAt: 1 }]);
+        assert.deepEqual(loadQueue(undefined), { entries: [], offers: [] });
     });
     it("quiet の手順の前に silence が要る", () => {
         const yaml = `${baseYaml}checks:\n  - { id: q, kind: quiet, seconds: 5, text: { ja: a, en: a }, failHint: { ja: b, en: b } }\n`;

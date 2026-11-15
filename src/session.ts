@@ -48,7 +48,8 @@ export interface Session {
     lastActivity: number;
     reminded: boolean;
     protocol: "srt" | "rtmp";
-    srt: { flowName: string; flowArn: string; domain: string; channel: number; startedFlow: boolean; released: boolean };
+    /** slot は、使っている SRT の枠の番号 (0 始まり。SlotState.srt の位置) */
+    srt: { slot: number; flowName: string; flowArn: string; domain: string; channel: number; startedFlow: boolean; released: boolean };
     rtmp?: { channel: number };
     latencyMs: number;
     raises: number;
@@ -113,13 +114,26 @@ export interface QueueEntry {
     skips: number;
 }
 
-export interface QueueState {
-    entries: QueueEntry[];
-    offer?: { userId: string; offeredAt: number };
+export interface QueueOffer {
+    userId: string;
+    offeredAt: number;
 }
 
+export interface QueueState {
+    entries: QueueEntry[];
+    /** 「順番が来た」と知らせて、「始める」を待っている人。空いている SRT の枠の数まで */
+    offers: QueueOffer[];
+}
+
+export interface SrtSlotState {
+    flow?: string;
+    channel?: number;
+    enabled: boolean;
+}
+
+/** 枠。SRT は同時にテストできる人数だけ並ぶ (数は設定の slots.srt で決まる)。RTMP は 1 つ */
 export interface SlotState {
-    srt: { flow?: string; channel?: number; enabled: boolean };
+    srt: SrtSlotState[];
     rtmp: { channel?: number; enabled: boolean };
 }
 

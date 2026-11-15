@@ -34,6 +34,11 @@ rtmp:
   # statsUrl: http://rtmp.example.jp:8080/stat
 
 # 枠の初期値。/techcheck slot で設定し直した値の方が優先する
+# SRT の枠は既定で 1 つ (テストは 1 人ずつ)。同時に進めるには、枠を並べる (README の「同時に複数人をテストする」):
+#   srt:
+#     - { flow: flow-a, channel: 7 }
+#     - { flow: flow-b, channel: 6 }
+#     - { flow: flow-c, channel: 5, enabled: false }   # 予備。/techcheck slot on srt slot:3 で使い始める
 slots:
   srt: { flow: flow-a, channel: 7 }
   rtmp: { channel: 8 }

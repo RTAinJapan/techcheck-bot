@@ -197,13 +197,13 @@ export class InteractionHandler {
                     text = await s.slotShow();
                     break;
                 case "srt":
-                    text = await s.slotSet("srt", i.options.getInteger("channel", true), i.options.getString("flow", true));
+                    text = await s.slotSet("srt", i.options.getInteger("channel", true), i.options.getString("flow", true), i.options.getInteger("slot") ?? 1);
                     break;
                 case "rtmp":
                     text = await s.slotSet("rtmp", i.options.getInteger("channel", true));
                     break;
                 default:
-                    text = await s.slotEnable(i.options.getString("kind", true) as "srt" | "rtmp", sub === "on");
+                    text = await s.slotEnable(i.options.getString("kind", true) as "srt" | "rtmp", sub === "on", i.options.getInteger("slot") ?? undefined);
             }
         } else {
             switch (sub) {

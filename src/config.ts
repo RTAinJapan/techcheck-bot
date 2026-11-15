@@ -33,6 +33,14 @@ const flowSchema = z.object({
 });
 export type FlowConfig = z.infer<typeof flowSchema>;
 
+/** SRT の枠 1 つ。enabled が false なら、設定はしておくが受け付けない (`/techcheck slot on` で使い始める) */
+const srtSlotSchema = z.object({
+    flow: z.string().optional(),
+    channel: z.number().int().min(1).max(8).optional(),
+    enabled: z.boolean().prefault(true),
+});
+export const kMaxSrtSlots = 8;
+
 export const configSchema = z
     .object({
         discord: z.object({
@@ -53,7 +61,11 @@ export const configSchema = z
         }),
         slots: z
             .object({
-                srt: z.object({ flow: z.string().optional(), channel: z.number().int().min(1).max(8).optional() }).prefault({}),
+                // SRT の枠は、同時にテストできる人数だけ並べる。1 つなら並べずにそのまま書いてもよい
+                srt: z
+                    .union([srtSlotSchema, z.array(srtSlotSchema).min(1).max(kMaxSrtSlots)])
+                    .transform((v) => (Array.isArray(v) ? v : [v]))
+                    .prefault({}),
                 rtmp: z.object({ channel: z.number().int().min(1).max(8).optional() }).prefault({}),
             })
             .prefault({}),
@@ -129,9 +141,27 @@ export const configSchema = z
             if (names.has(f.name)) ctx.addIssue({ code: "custom", path: ["flows"], message: `flows: 名前 "${f.name}" が重複しています` });
             names.add(f.name);
         }
-        if (c.slots.srt.flow && !names.has(c.slots.srt.flow)) {
-            ctx.addIssue({ code: "custom", path: ["slots", "srt", "flow"], message: `slots.srt.flow: "${c.slots.srt.flow}" は flows にありません` });
-        }
+        // 枠どうしで、フローと denpachan のチャンネルが重ならないこと (同じものを 2 人に使わせない)
+        const slotFlows = new Set<string>();
+        const slotChannels = new Set<number>();
+        if (c.slots.rtmp.channel !== undefined) slotChannels.add(c.slots.rtmp.channel);
+        c.slots.srt.forEach((slot, i) => {
+            if (slot.flow !== undefined) {
+                if (!names.has(slot.flow)) {
+                    ctx.addIssue({ code: "custom", path: ["slots", "srt", i, "flow"], message: `SRT の枠 ${i + 1} のフロー "${slot.flow}" は flows にありません` });
+                }
+                if (slotFlows.has(slot.flow)) {
+                    ctx.addIssue({ code: "custom", path: ["slots", "srt", i, "flow"], message: `フロー "${slot.flow}" を 2 つの枠で使っています` });
+                }
+                slotFlows.add(slot.flow);
+            }
+            if (slot.channel !== undefined) {
+                if (slotChannels.has(slot.channel)) {
+                    ctx.addIssue({ code: "custom", path: ["slots", "srt", i, "channel"], message: `チャンネル ${slot.channel} を 2 つの枠で使っています` });
+                }
+                slotChannels.add(slot.channel);
+            }
+        });
         if (c.notify.webhookUrl && !/^https:\/\//.test(c.notify.webhookUrl)) {
             ctx.addIssue({ code: "custom", path: ["notify", "webhookUrl"], message: "notify.webhookUrl は https:// で始まる URL にしてください" });
         }

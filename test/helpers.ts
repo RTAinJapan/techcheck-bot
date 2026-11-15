@@ -42,8 +42,13 @@ guide:
   obsProfile: RTA 2026
 `;
 
-export function testConfig(extra = ""): Config {
-    return parseConfig(baseYaml + extra, {});
+/** SRT の枠が 2 つ (flow-a / ch7 と flow-b / ch6) の設定 */
+export const twoSlotsYaml = baseYaml
+    .replace("    passphrase: pass-a\n", "    passphrase: pass-a\n  - name: flow-b\n    arn: arn:flow-b\n    domain: srt-b.example.jp\n    passphrase: pass-b\n")
+    .replace("  srt: { flow: flow-a, channel: 7 }\n", "  srt:\n    - { flow: flow-a, channel: 7 }\n    - { flow: flow-b, channel: 6 }\n");
+
+export function testConfig(extra = "", base = baseYaml): Config {
+    return parseConfig(base + extra, {});
 }
 
 export class FakeClock implements Clock {
@@ -98,6 +103,7 @@ export class FakeRx implements ReceiverPort {
 
     constructor() {
         for (const [ch, protocol, mode] of [
+            [6, "srt", "caller"],
             [7, "srt", "caller"],
             [8, "rtmp", "pull"],
         ] as const) {
@@ -223,7 +229,7 @@ export class FakeWebhook implements WebhookPort {
 }
 
 export class FakeDns implements DnsPort {
-    answers: Record<string, string[]> = { "srt-a.example.jp": ["203.0.113.10"], "rtmp.example.jp": ["198.51.100.1"] };
+    answers: Record<string, string[]> = { "srt-a.example.jp": ["203.0.113.10"], "srt-b.example.jp": ["203.0.113.10"], "rtmp.example.jp": ["198.51.100.1"] };
     async resolve(domain: string): Promise<string[]> {
         const a = this.answers[domain];
         if (!a) throw new Error("NXDOMAIN");
@@ -231,8 +237,8 @@ export class FakeDns implements DnsPort {
     }
 }
 
-export function makeWorld(extraYaml = "") {
-    const config = testConfig(extraYaml);
+export function makeWorld(extraYaml = "", baseYamlText = baseYaml) {
+    const config = testConfig(extraYaml, baseYamlText);
     const clock = new FakeClock();
     const flow = new FakeFlow();
     const rx = new FakeRx();

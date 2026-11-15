@@ -3,11 +3,16 @@
 // 運営のサブコマンドは誰にでも見えるが、実行時に運営のロールを確かめる。
 // コマンドを足したり変えたりしたら、README の「使い方」の表と、設計書 §4.2 の表も直す。
 
-import { SlashCommandBuilder } from "discord.js";
-import type { FlowConfig } from "../config.js";
+import { SlashCommandBuilder, type SlashCommandIntegerOption } from "discord.js";
+import { type FlowConfig, kMaxSrtSlots } from "../config.js";
 
 function d<T extends { setDescription(s: string): T; setDescriptionLocalizations(l: Record<string, string>): T }>(b: T, en: string, ja: string): T {
     return b.setDescription(en).setDescriptionLocalizations({ ja });
+}
+
+/** SRT の枠の番号 (1 始まり)。枠が 1 つなら省いてよい */
+function slotOpt(o: SlashCommandIntegerOption): SlashCommandIntegerOption {
+    return d(o.setName("slot"), "SRT slot number (when there are several)", "SRT の枠の番号 (枠が複数のとき)").setMinValue(1).setMaxValue(kMaxSrtSlots);
 }
 
 export function buildCommand(flows: FlowConfig[]) {
@@ -33,7 +38,8 @@ export function buildCommand(flows: FlowConfig[]) {
                             .setRequired(true)
                             .addChoices(...flows.slice(0, 25).map((f) => ({ name: `${f.name} (${f.domain})`, value: f.name }))),
                     )
-                    .addIntegerOption((o) => d(o.setName("channel"), "denpachan channel", "denpachan のチャンネル").setRequired(true).setMinValue(1).setMaxValue(8)),
+                    .addIntegerOption((o) => d(o.setName("channel"), "denpachan channel", "denpachan のチャンネル").setRequired(true).setMinValue(1).setMaxValue(8))
+                    .addIntegerOption(slotOpt),
             )
             .addSubcommand((s) =>
                 d(s.setName("rtmp"), "[Staff] Set the RTMP slot", "[運営] RTMP の枠を設定し直す").addIntegerOption((o) =>
@@ -41,14 +47,14 @@ export function buildCommand(flows: FlowConfig[]) {
                 ),
             )
             .addSubcommand((s) =>
-                d(s.setName("off"), "[Staff] Stop accepting tests on a slot", "[運営] 枠の受付を止める").addStringOption((o) =>
-                    d(o.setName("kind"), "Slot", "枠").setRequired(true).addChoices({ name: "SRT", value: "srt" }, { name: "RTMP", value: "rtmp" }),
-                ),
+                d(s.setName("off"), "[Staff] Stop accepting tests on a slot", "[運営] 枠の受付を止める")
+                    .addStringOption((o) => d(o.setName("kind"), "Slot", "枠").setRequired(true).addChoices({ name: "SRT", value: "srt" }, { name: "RTMP", value: "rtmp" }))
+                    .addIntegerOption(slotOpt),
             )
             .addSubcommand((s) =>
-                d(s.setName("on"), "[Staff] Resume a slot", "[運営] 枠の受付を再開する").addStringOption((o) =>
-                    d(o.setName("kind"), "Slot", "枠").setRequired(true).addChoices({ name: "SRT", value: "srt" }, { name: "RTMP", value: "rtmp" }),
-                ),
+                d(s.setName("on"), "[Staff] Resume a slot", "[運営] 枠の受付を再開する")
+                    .addStringOption((o) => d(o.setName("kind"), "Slot", "枠").setRequired(true).addChoices({ name: "SRT", value: "srt" }, { name: "RTMP", value: "rtmp" }))
+                    .addIntegerOption(slotOpt),
             ),
     );
 

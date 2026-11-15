@@ -44,6 +44,7 @@ Discord の権限の名前は、README と createToken.md では Developer Porta
 | 「トークンと権限」の denpachan と、「denpachan」の準備 | `src/adapters/receiver.ts` (繋ぎ方とトークン)、`src/service.ts` (呼ぶメソッド: `startChannel`、`stopChannel`、`setRecording`、`patchChannel`)、`src/config.ts` (loopback 以外ではトークンが必須) |
 | 「準備」の設定ファイル (`${環境変数名}`、相対パス)、「動かす」の設定ファイルの場所 | `src/config.ts` の `expandEnv`、`src/index.ts` の `main` |
 | 「使い方」のコマンドの表 | `src/discord/commands.ts` (定義)、`src/discord/bot.ts` の `InteractionHandler` (運営のロールの確認) |
+| 「同時に複数人をテストする」の A (SRT の枠を並べる) | `src/config.ts` (`slots.srt`)、`src/service.ts` (`loadSlots`、`freeSrtSlots`、`tickQueue`) |
 
 設定の項目を足したり変えたりしたら、`src/config.ts`、`config.example.yaml`、[design.md の「設定値の一覧」](design.md#設定値の一覧) をそろえる。
 
@@ -56,4 +57,7 @@ Discord の権限の名前は、README と createToken.md では Developer Porta
   - IAM Identity Center のプロファイルで bot を動かしたときの動作。とくに、サインインの期限が切れたあと、`aws sso login` をし直せば bot を起動し直さなくても AWS の呼び出しが戻るかどうか。
   - createToken.md の画面の手順 (Developer Portal、IAM Identity Center のコンソール、`aws configure sso` の聞かれること、Google Cloud のコンソール)。公式の文書から書いたもので、実際の画面で通してはいない。
   - `sheet.tabName` の名前のシート (タブ) が無いときの動作。Sheets API がエラーを返すはずなので、先に作っておく手順にしてある。
+- 同時に複数人をテストする動作 ([design.md の §5.7](design.md#57-同時に複数人をテストする))。
+  - A (SRT の枠を増やす) は、偽物の外の口での試験だけ。実際に 2 件以上を同時に受けたときの回線と PC の負荷は見ていない。
+  - B (bot を別々に動かす) は、コードを変えずにできるはずだが、実際に 2 つ動かしてはいない。サーバの設定でコマンドを使えるチャンネルを bot ごとに絞る手順も、Discord の機能の説明から書いたもの。
 - denpachan のメトリクスの受信口と実際に繋いだ動作。`channels` メッセージの形は denpachan の `src/engine/metrics_view.cpp` に合わせて試験している。

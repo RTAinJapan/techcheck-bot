@@ -3,7 +3,7 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 import type { SrtSample } from "../src/advisor.js";
-import { goodSample, makeWorld, type World } from "./helpers.js";
+import { goodSample, makeWorld, twoSlotsYaml, type World } from "./helpers.js";
 
 const U1 = { id: "U1", displayName: "Runner A" };
 const U2 = { id: "U2", displayName: "Runner B" };
@@ -157,6 +157,104 @@ describe("待ちの列", () => {
         await w.run(5 * 60 + 1); // 2 回目の時間切れ → 外す
         assert.match(w.chat.called.at(-1)!.msg.content, /待ちの列から外しました/);
         assert.match(await w.service.slotShow(), /待ちの列: なし/);
+    });
+});
+
+describe("SRT の枠が複数", () => {
+    const U3 = { id: "U3", displayName: "Runner C" };
+    const U4 = { id: "U4", displayName: "Runner D" };
+    const two = () => makeWorld("", twoSlotsYaml);
+    const begin = async (w: World, user: { id: string; displayName: string }) => {
+        const reply = await w.service.start(user, "C-test", undefined, "ja");
+        await w.flush();
+        return reply;
+    };
+
+    it("枠の数だけ同時に始まり、あふれた人は列に入る", async () => {
+        const w = two();
+        assert.match(await begin(w, U1), /スレッドを作りました/);
+        assert.match(await begin(w, U2), /スレッドを作りました/);
+        assert.match(await begin(w, U3), /1 番目/);
+        assert.equal(w.chat.threads.length, 2);
+        // 1 人目は枠 1 (flow-a / ch7)、2 人目は枠 2 (flow-b / ch6)
+        assert.ok(w.rx.calls.some((c) => c.method === "startChannel" && c.params.ch === 7));
+        assert.ok(w.rx.calls.some((c) => c.method === "startChannel" && c.params.ch === 6));
+        assert.ok(w.chat.texts(w.chat.threads[0]!.id).some((x) => x.includes("srt://srt-a.example.jp")));
+        assert.ok(w.chat.texts(w.chat.threads[1]!.id).some((x) => x.includes("srt://srt-b.example.jp") && x.includes("pass-b")));
+        const show = await w.service.slotShow();
+        assert.match(show, /SRT の 1 番の枠: フロー flow-a \/ ch7 \/ 受付中 \/ 使用中: Runner A/);
+        assert.match(show, /SRT の 2 番の枠: フロー flow-b \/ ch6 \/ 受付中 \/ 使用中: Runner B/);
+
+        // 2 人とも、それぞれのチャンネルの映像で判定が進む
+        w.flow.sampleAt = (t) => goodSample(t);
+        await w.run(140, () => {
+            w.rx.live(7);
+            w.rx.live(6);
+        });
+        for (const t of w.chat.threads) assert.ok(w.chat.texts(t.id).some((x) => x.includes("映像は問題なく届いています")));
+
+        // 枠 2 が空いたら、列の人に知らせて、枠 2 で始まる
+        await w.service.cancel("U2");
+        assert.equal(w.rx.channels.get(6)!.status, "stopped");
+        assert.notEqual(w.rx.channels.get(7)!.status, "stopped", "1 人目のチャンネルは止めない");
+        await w.run(1, () => w.rx.live(7));
+        assert.equal(w.chat.called.at(-1)!.userId, "U3");
+        assert.match(await w.service.claim(U3), /スレッドを作りました/);
+        await w.flush();
+        assert.match(await w.service.slotShow(), /SRT の 2 番の枠: [^\n]*使用中: Runner C/);
+    });
+
+    it("枠が 2 つ同時に空いたら、列の前から 2 人に知らせる", async () => {
+        const w = two();
+        await begin(w, U1);
+        await begin(w, U2);
+        await begin(w, U3);
+        await begin(w, U4);
+        await w.service.cancel("U1");
+        await w.service.cancel("U2");
+        await w.run(1);
+        assert.deepEqual(w.chat.called.map((c) => c.userId), ["U3", "U4"]);
+        assert.match(await w.service.slotShow(), /1\. Runner C \(知らせ済み\)\n2\. Runner D \(知らせ済み\)/);
+        // 後ろの人が先に押しても始められる
+        assert.match(await w.service.claim(U4), /スレッドを作りました/);
+        assert.match(await w.service.claim(U3), /スレッドを作りました/);
+    });
+
+    it("止めた枠は使わない。再開は枠の番号で指定する", async () => {
+        const w = two();
+        assert.match(await w.service.slotEnable("srt", false, 2), /SRT の 2 番の枠を止めました/);
+        await begin(w, U1);
+        assert.match(await begin(w, U2), /1 番目/, "2 番の枠は止めてあるので待つ");
+        assert.match(await w.service.slotEnable("srt", true), /枠の番号 \(slot\) を指定してください/);
+        assert.match(await w.service.slotEnable("srt", true, 3), /SRT の 3 番の枠はありません/);
+        assert.match(await w.service.slotEnable("srt", true, 2), /SRT の 2 番の枠を再開しました/);
+        await w.run(1);
+        assert.equal(w.chat.called.at(-1)!.userId, "U2");
+        // 番号を省いて止めると、SRT の枠すべて
+        assert.match(await w.service.slotEnable("srt", false), /SRT の枠すべてを止めました/);
+        assert.match(await begin(w, U3), /受付を止めています/);
+    });
+
+    it("問題のあった枠だけを止め、ほかの枠のテストは続ける", async () => {
+        const w = two();
+        w.dns.answers["srt-b.example.jp"] = ["192.0.2.99"];
+        await begin(w, U1);
+        await begin(w, U2);
+        assert.ok(w.chat.opsLog.some((l) => l.includes("SRT の 2 番の枠に問題があるので止めました") && l.includes("/techcheck slot on srt slot:2")));
+        const show = await w.service.slotShow();
+        assert.match(show, /SRT の 1 番の枠: [^\n]*受付中 \/ 使用中: Runner A/);
+        assert.match(show, /SRT の 2 番の枠: [^\n]*止めている/);
+        assert.match(show, /1\. Runner B/, "配信者のせいではないので、列の先頭に戻す");
+    });
+
+    it("ほかの枠で使っているフローやチャンネルには設定し直せない", async () => {
+        const w = two();
+        assert.match(await w.service.slotSet("srt", 6, "flow-a", 2), /フロー flow-a は SRT の 1 番の枠で使っています/);
+        assert.match(await w.service.slotSet("srt", 7, "flow-b", 2), /ch7 は SRT の 1 番の枠で使っています/);
+        assert.match(await w.service.slotSet("rtmp", 7), /ch7 は SRT の 1 番の枠で使っています/);
+        assert.match(await w.service.slotSet("srt", 8, "flow-b", 2), /ch8 は RTMP の枠で使っています/);
+        assert.match(await w.service.slotSet("srt", 6, "flow-b", 3), /SRT の 3 番の枠はありません/);
+        assert.match(await w.service.slotSet("srt", 6, "flow-b", 2), /SRT の 2 番の枠を設定しました/);
     });
 });
 
