@@ -22,6 +22,12 @@ export interface StepRecord {
     /** 録画の中の区間 (秒) */
     recFrom?: number;
     recTo?: number;
+    /**
+     * 区間が入っている録画ファイル。配信が長く途切れると denpachan は録画ファイルを切り替えるので、どのファイルの位置かを覚えておく。
+     * recToFile は、手順の途中でファイルが切り替わったときだけ (終わりの位置は、こちらのファイルの中)
+     */
+    recFile?: string;
+    recToFile?: string;
     /** 「おかしい」のまま配信者が先に進めた */
     skipped?: boolean;
 }
@@ -87,6 +93,8 @@ export interface Session {
     checkState: "prompt" | "running" | "result" | "waiting";
     checkStartedAt?: number;
     checkRecFrom?: number;
+    /** checkRecFrom を取ったときの録画ファイル */
+    checkRecFile?: string;
     checkPeaks: number[];
     results: StepRecord[];
     noiseDb?: number;

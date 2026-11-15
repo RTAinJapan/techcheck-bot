@@ -2,7 +2,7 @@
 
 import { obsLatency } from "./advisor.js";
 import type { CheckStep } from "./config.js";
-import type { Session } from "./session.js";
+import type { Session, StepRecord } from "./session.js";
 
 export const sheetColumns = [
     "日時",
@@ -79,11 +79,29 @@ export function formatRecPos(sec: number | undefined): string {
 
 const verdictJa = { ok: "OK", ng: "おかしい", unknown: "判定なし" } as const;
 
+/** パスの最後の部分 (ファイル名)。録画ファイルは Windows のパスで来る */
+export function baseName(file: string): string {
+    return file.split(/[\\/]/).pop() ?? file;
+}
+
+/**
+ * 手順の録画の区間。録画ファイルが 1 つなら位置だけ (`03:15〜03:33`)。
+ * 配信が長く途切れて録画ファイルが複数になったテストでは、どのファイルの位置かを添える (`03:15〜03:33 [15 20-15-57.mkv]`)。
+ * 手順の途中でファイルが切り替わったら、始まりと終わりのそれぞれに添える。
+ */
+export function describeRange(r: StepRecord, files: number): string {
+    if (r.recFrom === undefined) return "";
+    const from = formatRecPos(r.recFrom);
+    const to = formatRecPos(r.recTo);
+    if (r.recFile && r.recToFile) return ` [${baseName(r.recFile)}] ${from}〜[${baseName(r.recToFile)}] ${to}`;
+    return ` ${from}〜${to}${files > 1 && r.recFile ? ` [${baseName(r.recFile)}]` : ""}`;
+}
+
 export function describeChecks(s: Session, checks: CheckStep[]): string {
     return s.results
         .map((r) => {
             const step = checks.find((c) => c.id === r.id);
-            const range = r.recFrom !== undefined ? ` ${formatRecPos(r.recFrom)}〜${formatRecPos(r.recTo)}` : "";
+            const range = describeRange(r, s.recordFiles.length);
             const value = r.value !== undefined ? ` (${step?.kind === "sound" ? `${Math.round(r.value * 100)}%` : `${r.value} dB`})` : "";
             return `${r.id}: ${verdictJa[r.verdict]}${r.skipped ? " (そのまま進めた)" : ""}${value}${range}`;
         })

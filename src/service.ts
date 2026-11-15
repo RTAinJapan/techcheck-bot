@@ -26,7 +26,7 @@ import type {
     WebhookPort,
 } from "./ports.js";
 import { audioVerdictColumn, buildRow, buildWebhookPayload, columnLetter, formatRecPos, formatTime } from "./record.js";
-import type { FinishedRecord, Phase, QueueOffer, QueueState, Session, SlotState, SrtSlotState } from "./session.js";
+import type { FinishedRecord, Phase, QueueOffer, QueueState, Session, SlotState, SrtSlotState, StepRecord } from "./session.js";
 import type { KeyValueStore } from "./store.js";
 
 export interface Deps {
@@ -860,6 +860,8 @@ export class TechcheckService {
     private async tickSession(s: Session): Promise<void> {
         if (s.phase === "preparing" || s.phase === "finished") return;
         const rxCh = this.activeChannel(s);
+        // 録画ファイルは、配信が長く途切れると切り替わる。テストの間に書いたファイルを、順にすべて覚える (シートの「録画ファイル」)
+        if (rxCh?.record?.state === "recording" && rxCh.record.file) this.addRecordFile(s, rxCh.record.file);
         this.observeReceiver(s, rxCh);
         if (s.protocol === "srt" && !s.srt.released) await this.pollCloudWatch(s);
         await this.silenceAlert(s, rxCh);
@@ -1280,7 +1282,7 @@ export class TechcheckService {
                 image: image ? { name: "stream.jpg", data: image } : undefined,
                 buttons: [this.btn(s, "yes", "button.yes", "success"), this.btn(s, "no", "button.no", "danger")],
             });
-            s.checkRecFrom = this.recPos(s);
+            this.markCheckStart(s);
             return;
         }
         if (step.kind === "voice") return this.promptVoice(s, step, false);
@@ -1436,7 +1438,10 @@ export class TechcheckService {
     }
 
     private async stepResult(s: Session, step: CheckStep, r: { verdict: "ok" | "ng" | "unknown"; value?: number }): Promise<void> {
-        const rec = { id: step.id, verdict: r.verdict, value: r.value, recFrom: s.checkRecFrom, recTo: this.recPos(s) };
+        const endFile = this.recFile(s);
+        const rec: StepRecord = { id: step.id, verdict: r.verdict, value: r.value, recFrom: s.checkRecFrom, recTo: this.recPos(s), recFile: s.checkRecFile };
+        // 手順の途中で録画ファイルが切り替わった (配信が長く途切れた): 終わりの位置は、新しいファイルの中
+        if (endFile && s.checkRecFile && endFile !== s.checkRecFile) rec.recToFile = endFile;
         s.results = s.results.filter((x) => x.id !== step.id);
         s.results.push(rec);
         s.checkState = "result";
@@ -1514,7 +1519,7 @@ export class TechcheckService {
                 }
                 s.checkState = "running";
                 s.checkStartedAt = this.now();
-                s.checkRecFrom = this.recPos(s);
+                this.markCheckStart(s);
                 s.checkPeaks = [];
                 await this.post(s, { content: this.t(s.lang, "checks.running", { seconds: step.seconds }) });
                 return {};
@@ -1738,6 +1743,18 @@ export class TechcheckService {
         const pos = rec?.state === "recording" ? recordingPosition(rec) : undefined;
         if (pos !== undefined) return pos;
         return s.recordStartAt ? (this.now() - s.recordStartAt) / 1000 : undefined;
+    }
+
+    /** いま書いている録画ファイル (録画していなければ undefined) */
+    private recFile(s: Session): string | undefined {
+        const rec = this.activeChannel(s)?.record;
+        return rec?.state === "recording" && rec.file ? rec.file : undefined;
+    }
+
+    /** チェックの手順の始まり: 録画の中の位置と、そのときの録画ファイルを覚える */
+    private markCheckStart(s: Session): void {
+        s.checkRecFrom = this.recPos(s);
+        s.checkRecFile = this.recFile(s);
     }
 
     private addRecordFile(s: Session, file: string): void {

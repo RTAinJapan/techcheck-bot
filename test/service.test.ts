@@ -4,7 +4,7 @@ import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 import type { SrtSample } from "../src/advisor.js";
 import { defaultChecks, reconnectStep } from "../src/checks.js";
-import { formatRecPos } from "../src/record.js";
+import { describeRange, formatRecPos } from "../src/record.js";
 import { baseYaml, goodSample, makeWorld, twoSlotsYaml, type World } from "./helpers.js";
 
 const U1 = { id: "U1", displayName: "Runner A" };
@@ -411,6 +411,40 @@ describe("届いた配信の形を、期待する出力と比べる", () => {
         w.flow.meta = { width: 1920, height: 1080, fps: 30, codec: "h264", hasAudio: true };
         const b = await startAndStream(w);
         assert.ok(w.chat.texts(b.thread).some((x) => x.includes("配信の形が案内と違います (1920x1080, 30 fps)。OBS の出力を 1536x864 / 60 fps にしてください")));
+    });
+});
+
+describe("録画ファイルが途中で切り替わる", () => {
+    it("区間にファイル名を添え、シートにすべてのファイルを残す (1 つだけなら添えない)", async () => {
+        const w = makeWorld();
+        const { thread } = await startAndStream(w);
+        await press(w, thread, "step-start");
+        await w.run(18, () => w.rx.live(7, { peak: -20 }));
+        // 配信が長く途切れて、denpachan が新しい録画ファイルに切り替えた (位置は 0 から数え直し)
+        w.rx.channels.get(7)!.record = { state: "recording", file: "D:\\rec\\rec-ch7-2.mkv", seconds: 0, position: 0 };
+        for (let i = 0; i < 3; i++) {
+            await press(w, thread, "step-start");
+            await w.run(13, () => w.rx.live(7, { peak: -80 }));
+        }
+        await press(w, thread, "yes");
+        await w.service.complete(sessionIdOf(w, thread), "");
+        const row = w.sheet.rows[0]!;
+        assert.match(String(row[25]), /^game-audio: OK \(\d+%\) \d\d:\d\d〜\d\d:\d\d \[rec-ch7\.mkv\] \/ silence: OK \([^)]*\) 00:0\d〜00:\d\d \[rec-ch7-2\.mkv\] \//);
+        assert.equal(row[26], "rec-ch7.mkv / D:\\rec\\rec-ch7-2.mkv");
+
+        // 録画ファイルが 1 つのテストでは、区間にファイル名を添えない
+        const one = makeWorld();
+        const t = await startAndStream(one);
+        await passChecks(one, t.thread);
+        await one.service.complete(sessionIdOf(one, t.thread), "");
+        assert.ok(!String(one.sheet.rows[0]![25]).includes("["));
+        assert.equal(one.sheet.rows[0]![26], "rec-ch7.mkv");
+    });
+
+    it("手順の途中で切り替わったら、始まりと終わりのそれぞれにファイル名を添える", () => {
+        assert.equal(describeRange({ id: "x", verdict: "ok", recFrom: 230, recTo: 4, recFile: "C:\\v\\a.mkv", recToFile: "C:\\v\\b.mkv" }, 2), " [a.mkv] 03:50〜[b.mkv] 00:04");
+        assert.equal(describeRange({ id: "x", verdict: "ok", recFrom: 5, recTo: 9, recFile: "C:/v/a.mkv" }, 1), " 00:05〜00:09");
+        assert.equal(describeRange({ id: "x", verdict: "ok" }, 2), "");
     });
 });
 
