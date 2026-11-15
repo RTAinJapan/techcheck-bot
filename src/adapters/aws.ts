@@ -1,5 +1,9 @@
 // MediaConnect と CloudWatch (設計書 §3.1)。
 // CloudWatch のメトリクスは名前空間 AWS/MediaConnect、ディメンション FlowARN (フローの source は 1 つ) で、1 秒の粒度で取る。
+//
+// IAM に要るアクションは、ここで送っているコマンドと同じ名前:
+// mediaconnect:DescribeFlow、StartFlow、StopFlow、DescribeFlowSourceMetadata、DescribeFlowSourceThumbnail、cloudwatch:GetMetricData。
+// コマンドを足したり減らしたりしたら、README の「トークンと権限」の表も直す。
 
 import { CloudWatchClient, GetMetricDataCommand, type MetricDataQuery } from "@aws-sdk/client-cloudwatch";
 import {

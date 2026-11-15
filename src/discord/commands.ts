@@ -1,6 +1,7 @@
 // スラッシュコマンド /techcheck (設計書 §4.2)。
 // 説明は英語を基本にし、日本語の Discord では日本語で出す (description_localizations)。
 // 運営のサブコマンドは誰にでも見えるが、実行時に運営のロールを確かめる。
+// コマンドを足したり変えたりしたら、README の「使い方」の表と、設計書 §4.2 の表も直す。
 
 import { SlashCommandBuilder } from "discord.js";
 import type { FlowConfig } from "../config.js";

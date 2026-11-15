@@ -1,52 +1,106 @@
 # techcheck bot (配信テストの Discord bot)
 
-イベント前の配信テストを Discord で進める bot。
+イベント前の配信テストを Discord で進める bot。配信者が好きな時間に `/techcheck start` で始め、bot がスレッドで案内する。運営はその場にいなくてよい。
 
-- **設計書**: [docs/design.md](docs/design.md)。コードのコメントの「設計書 §x」は、この文書の節を指す。
-- **開発** (ファイルの構成、試験、実物で確かめていないこと): [docs/development.md](docs/development.md)。
-- 受信には [denpachan](https://github.com/RTAinJapan/denpachan) を使う。bot と denpachan は、denpachan のメトリクスの受信口 (WebSocket) だけでやりとりする。
-- はじめは denpachan のリポジトリの `bot/techcheck/` で作った。そのときのコミットの履歴を引き継いでいる。
+配信の受信には [denpachan](https://github.com/RTAinJapan/denpachan) を使う。
 
 ## できること
 
 - 配信者が配信テストのチャンネルで `/techcheck start` を実行すると、枠 (SRT 1 つ) が空いていればプライベートスレッドを作って案内する。空いていなければ待ちの列に入れ、順番が来たらメンションと DM で知らせる。
-- 配信の開始を denpachan と CloudWatch で検出し、2 分ほど配信させて映像を判定する。乱れていれば latency の値を決めて OBS を直してもらい、直らなければ ECS の RTMP サーバに案内する。
+- 配信の開始を denpachan と CloudWatch で検出し、2 分ほど配信させて映像を判定する。乱れていれば latency の値を決めて OBS を直してもらい、直らなければ RTMP サーバに案内する。
 - 音声とその他のチェック (ゲーム音、静か、マイク、PC の音、画面、繋ぎ直し) を順にさせ、録画の区間と参考の判定を記録する。
-- 終わったらシートに 1 行書き、Discord webhook で結果を通知し (URL が未設定なら送らない)、スレッドをアーカイブする。
-- 配信者向けの文言は日本語と英語 (`messages/ja.yaml`、`messages/en.yaml`)。
+- 終わったらシートに 1 行書き、Discord webhook で結果を通知し、スレッドをアーカイブする。
+- 配信者への案内は日本語と英語。
 
-## 動かす
+## 要るもの
 
-Node.js 22.13 以上 (SQLite は Node 付属の `node:sqlite` を使う)。
+| 要るもの | 内容 |
+| --- | --- |
+| Node.js | 22.13 以上 |
+| Discord | bot (トークン)、配信テストのチャンネル、運営のロール、運営への通知のチャンネル。結果の通知を使うなら webhook も |
+| AWS | 配信者が SRT で送る先の MediaConnect のフローと、bot 用の IAM のアクセスキー |
+| RTMP サーバ | SRT で安定しない配信者を案内する先 |
+| denpachan | フローの出力と RTMP サーバの配信を受ける。メトリクスの受信口を有効にする |
+| Google スプレッドシート | 結果を書くシートと、サービスアカウントのキー (JSON ファイル) |
+
+## 準備
+
+### bot
 
 ```sh
 npm ci
-cp config.example.yaml config.yaml   # 書き換える (項目は設計書 §4.1 の表)
 npm run build
-npm start                            # または node dist/src/index.js path/to/config.yaml
+cp config.example.yaml config.yaml
 ```
 
-- 起動すると、設定したサーバに `/techcheck` を登録する (サーバのコマンドなので、すぐ反映される)。
-- 各サービスのトークンと、それに要る権限は、下の「トークンと権限」の表のとおり。
-- シートは、1 行目が空なら見出しを書く。
-- denpachan の側では、全体設定でメトリクスの受信口を有効にし (`allowControl` も on)、枠に使うチャンネルに「配信テスト用」の印を付ける。
+`config.yaml` を書き換える。項目の説明は [docs/design.md の「設定値の一覧」](docs/design.md#設定値の一覧)。
 
-## トークンと権限
+- 秘密 (トークン、パスフレーズ、キー、webhook の URL) は、`${環境変数名}` と書くと環境変数から読める。
+- ファイルの場所 (`sheet.credentialsFile`、`db.path`、`i18n.dir`) を相対パスで書くと、`config.yaml` のあるフォルダから探す。
 
-bot が実際に呼んでいる操作に要る、最小の権限。操作を足したら、この表も直す。
+### トークンと権限
 
-| サービス | トークンの種類 | 設定名 | 要る権限 | 何のために要るか | 備考 |
-| --- | --- | --- | --- | --- | --- |
-| Discord (bot) | Bot トークン | `discord.token` (`${DISCORD_TOKEN}`) | OAuth2 スコープ: `bot`、`applications.commands` | Gateway へのログイン、サーバのコマンド `/techcheck` の登録 (`src/index.ts`) | bot をサーバに招待するときに付ける |
-| Discord (bot) | 同上 | 同上 | Gateway Intent: `Guilds` だけ。Privileged Intent は要らない | サーバとチャンネルの情報、interaction の受け取り (`src/index.ts`) | 運営のロールは interaction の member から見るので、Server Members Intent は要らない |
-| Discord (bot) | 同上 | チャンネルは `discord.techcheckChannelId` | 配信テストのチャンネルで View Channel、Send Messages、Create Private Threads、Send Messages in Threads、Manage Threads、Attach Files、Read Message History | プライベートスレッドの作成と配信者の追加、スレッドへの投稿と静止画の添付、押したあとのボタンを外すためのメッセージの取得、ロックとアーカイブ、順番の知らせのメンション (`src/discord/bot.ts` の `DiscordChat`) | 権限の整数は 360777354240。Read Message History が無いと、ボタンが残る (エラーにはならない) |
-| Discord (bot) | 同上 | チャンネルは `discord.opsChannelId` | 運営への通知のチャンネルで View Channel、Send Messages | 運営への通知 (`DiscordChat.ops`) | |
-| Discord (webhook) | Webhook の URL | `notify.webhookUrl` (`${TECHCHECK_WEBHOOK_URL}`) | 権限は無い (URL そのものが秘密) | 結果の通知 (`src/adapters/webhook.ts`) | 未設定なら送らない。URL を作る人に Manage Webhooks が要る |
-| AWS MediaConnect | IAM のアクセスキー | 環境変数 `AWS_ACCESS_KEY_ID` / `AWS_SECRET_ACCESS_KEY` か AWS のプロファイル。リージョンは `aws.region` | `mediaconnect:DescribeFlow`、`mediaconnect:StartFlow`、`mediaconnect:StopFlow`、`mediaconnect:DescribeFlowSourceMetadata`、`mediaconnect:DescribeFlowSourceThumbnail` | フローの状態と受け口、開始と停止、映像の形式、静止画 (`src/adapters/aws.ts`) | Resource は `flows` に書いたフローの ARN に絞る |
-| AWS CloudWatch | 同上 | 同上 | `cloudwatch:GetMetricData` | 名前空間 `AWS/MediaConnect` のメトリクスを 1 秒の粒度で取る (`src/adapters/aws.ts`) | Resource は `*` (リソースで絞れないアクション) |
-| Google Sheets API v4 | サービスアカウントのキー (JSON ファイル) | `sheet.credentialsFile`、`sheet.spreadsheetId`、`sheet.tabName` | OAuth スコープ `https://www.googleapis.com/auth/spreadsheets`。シートをサービスアカウントのメールアドレスに「編集者」で共有する | 1 行目の読み取り、行の追加、後日の音声の判定の書き換え (`src/adapters/sheet.ts`) | GCP の IAM ロールは要らない。プロジェクトで Sheets API を有効にしておく |
-| denpachan (メトリクスの受信口) | 受信口のトークン | `denpachan.token` (`${DENPACHAN_TOKEN}`) | トークンに権限の区別は無い。denpachan の側で `metrics.enabled` と `metrics.allowControl` を on にし、枠のチャンネルに「配信テスト用」の印 (`testSlot`) を付ける | `channels` の受信、`startChannel`、`stopChannel`、`setRecording`、`patchChannel` (`src/adapters/receiver.ts`、`src/service.ts`) | loopback に繋ぐならトークンは無くてよい。それ以外では必須 |
+| サービス | 設定 | 要る権限 | 備考 |
+| --- | --- | --- | --- |
+| Discord (bot の招待) | `discord.token` | OAuth2 スコープ `bot`、`applications.commands` | bot をサーバに招待するときに付ける。Privileged Gateway Intents は、どれも有効にしなくてよい |
+| Discord (配信テストのチャンネル) | `discord.techcheckChannelId` | View Channel、Send Messages、Create Private Threads、Send Messages in Threads、Manage Threads、Attach Files、Read Message History | 権限の整数は 360777354240 |
+| Discord (運営への通知のチャンネル) | `discord.opsChannelId` | View Channel、Send Messages | |
+| Discord (webhook) | `notify.webhookUrl` | 無い (URL そのものが秘密) | 未設定なら結果の通知を送らない |
+| AWS MediaConnect | 環境変数 `AWS_ACCESS_KEY_ID` / `AWS_SECRET_ACCESS_KEY` か AWS のプロファイル。リージョンは `aws.region` | `mediaconnect:DescribeFlow`、`mediaconnect:StartFlow`、`mediaconnect:StopFlow`、`mediaconnect:DescribeFlowSourceMetadata`、`mediaconnect:DescribeFlowSourceThumbnail` | Resource は `flows` に書いたフローの ARN に絞る |
+| AWS CloudWatch | 同上 | `cloudwatch:GetMetricData` | Resource は `*` (リソースで絞れないアクション) |
+| Google スプレッドシート | `sheet.credentialsFile`、`sheet.spreadsheetId` | シートを、サービスアカウントのメールアドレスに「編集者」で共有する | GCP のプロジェクトで Google Sheets API を有効にしておく。IAM ロールは要らない |
+| denpachan | `denpachan.host`、`denpachan.port`、`denpachan.token` | 下の「denpachan」のとおり | トークンは、loopback (同じ PC) に繋ぐなら無くてよい。それ以外では必須 |
 
-- `flows[].passphrase` と `rtmp.key` は、配信者に案内する URL に入れるだけで、API の認証には使わない。
-- CI (GitHub Actions) は、自動で発行される `GITHUB_TOKEN` の `contents: read` だけを使う。リポジトリのシークレットは要らない。
-- この表のうち、実物でまだ確かめていない点は [docs/development.md](docs/development.md#実物で確かめていないこと) にある。
+`flows[].passphrase` と `rtmp.key` は、配信者に案内する URL に入れる値で、配信者のスレッドに表示される。
+
+### MediaConnect のフロー
+
+- source は SRT listener にする (配信者が caller)。
+- source の `MinLatency` は、`latency.initialMs` (既定 120 ms) 以下にする。これより大きいと、配信者が OBS で設定した latency が効かない。
+- denpachan 向けの SRT の出力を足しておく。
+- スレッドに配信の静止画を貼るには、フローのサムネイル (`SourceMonitoringConfig` の `ThumbnailState`) を有効にする。
+- フローと配信用のドメインを組にして `flows` に書く。bot が開始・停止・監視するのは、ここに書いたフローだけ。
+
+### denpachan
+
+- 全体設定で、メトリクスの受信口を有効にし、操作の許可 (`allowControl`) も on にする。
+- 枠に使うチャンネルに「配信テスト用」の印を付ける。bot が操作できるのは、印のあるチャンネルだけ。
+- SRT の枠のチャンネルはフローの出力を、RTMP の枠のチャンネルは RTMP サーバの配信を受けるようにしておく。
+
+## 動かす
+
+```sh
+npm start
+```
+
+- 設定ファイルは、今いるフォルダの `config.yaml`。別のファイルを使うには `node dist/src/index.js path/to/config.yaml` か、環境変数 `TECHCHECK_CONFIG`。
+- 起動すると、設定したサーバに `/techcheck` を登録する (すぐ反映される)。
+- 止めるには Ctrl+C。進行中のテスト、待ちの列、枠の設定は `db.path` のファイルに残り、起動し直すと続きから進む。
+- シートの 1 行目が空なら、bot が見出しを書く。
+
+## 使い方
+
+配信者が使うのは `/techcheck start` だけで、あとはスレッドの中のボタンで進める。運営のコマンドは、運営のロール (`discord.staffRoleId`) を持つ人だけが使える。
+
+| コマンド | 誰が | すること |
+| --- | --- | --- |
+| `/techcheck start [language]` | 配信者 | テストを始める (配信テストのチャンネルでだけ)。枠が使われていれば待ちの列に入る。`language` を省くと、Discord の言語設定で案内の言語を決める |
+| `/techcheck leave` | 配信者 | 待ちの列から抜ける |
+| `/techcheck slot show` | 運営 | 枠の設定と状態、待ちの列を見る |
+| `/techcheck slot srt <flow> <channel>` | 運営 | SRT の枠に使うフローと denpachan のチャンネルを設定し直す |
+| `/techcheck slot rtmp <channel>` | 運営 | RTMP の枠に使う denpachan のチャンネルを設定し直す |
+| `/techcheck slot off <kind>` / `/techcheck slot on <kind>` | 運営 | 枠の受付を止める / 再開する。止めている間も待ちの列は残る |
+| `/techcheck status [user]` | 運営 | 進行中のテストの段階と数字を見る |
+| `/techcheck shot <user>` | 運営 | 配信の静止画を貼る (SRT のときだけ) |
+| `/techcheck latency <user> <ms>` | 運営 | 配信者に案内する latency を手で決める |
+| `/techcheck latency-receiver <channel> <ms>` | 運営 | denpachan の側の latency を変える |
+| `/techcheck rtmp <user>` | 運営 | RTMP の案内に切り替える |
+| `/techcheck cancel <user>` | 運営 | テストを中止して枠を空ける |
+| `/techcheck review <user> <audio> [memo]` | 運営 | 後日、録画を聞いた音声の判定 (OK / NG) をシートに書く |
+
+`slots` の値は初期値で、`/techcheck slot` で設定し直した値の方が優先する。
+
+## ドキュメント
+
+- 設計 (テストの流れ、判定の規則、設定値の一覧): [docs/design.md](docs/design.md)
+- 開発 (ファイルの構成、試験、README とコードの対応): [docs/development.md](docs/development.md)

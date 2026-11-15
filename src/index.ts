@@ -1,4 +1,6 @@
-// 起動: node dist/src/index.js [config.yaml]  (または環境変数 TECHCHECK_CONFIG)
+// 起動: node dist/src/index.js [config.yaml]  (または環境変数 TECHCHECK_CONFIG。どちらも無ければ、今いるフォルダの config.yaml)
+// 設定の中の相対パス (i18n.dir、db.path、sheet.credentialsFile) は、設定ファイルのあるフォルダから探す。
+// ここを変えたら、README の「準備」「動かす」も直す。
 
 import { Client, Events, GatewayIntentBits } from "discord.js";
 import { resolve } from "node:path";
@@ -23,6 +25,8 @@ async function main(): Promise<void> {
     const i18n = I18n.load(resolve(baseDir, config.i18n.dir));
     const store = new SqliteStore(resolve(baseDir, config.db.path));
 
+    // Gateway Intent は Guilds だけ (Privileged Intent は使わない)。運営のロールは interaction の member から見る。
+    // Intent を足したら、README の「トークンと権限」も直す。
     const client = new Client({ intents: [GatewayIntentBits.Guilds] });
     const rx = new WsReceiver(WsReceiver.urlFor(config.denpachan.host, config.denpachan.port, config.denpachan.token), log);
     const service = new TechcheckService({
@@ -42,6 +46,7 @@ async function main(): Promise<void> {
 
     client.once(Events.ClientReady, async (c) => {
         log(`Discord: ${c.user.tag} でログインしました`);
+        // サーバのコマンドの登録。bot を招待するときの OAuth2 スコープに applications.commands が要る (README の「トークンと権限」)
         const guild = await c.guilds.fetch(config.discord.guildId);
         await guild.commands.set([buildCommand(config.flows).toJSON()]);
         log("/techcheck を登録しました");

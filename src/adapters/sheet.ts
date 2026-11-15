@@ -1,5 +1,6 @@
 // Google スプレッドシート (設計書 §8)。サービスアカウントで Sheets API v4 を直接呼ぶ。
-// シートはサービスアカウントのメールアドレスに編集の権限を共有しておく。
+// シートはサービスアカウントのメールアドレスに「編集者」で共有しておく (README の「トークンと権限」)。
+// 読み書きは values の get / append / update だけなので、スコープは spreadsheets で足りる。
 
 import { JWT } from "google-auth-library";
 import { readFileSync } from "node:fs";

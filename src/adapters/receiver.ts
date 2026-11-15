@@ -1,5 +1,7 @@
 // denpachan のメトリクスの受信口 (設計書 §3.2) の WebSocket クライアント。
 // Node の WebSocket (ヘッダを付けられない) を使うので、トークンは ?token= で渡す。切れたら 2 秒後から繋ぎ直す。
+// call() で操作 (startChannel、stopChannel、setRecording、patchChannel) を通すには、denpachan の側で
+// allowControl を on にし、対象のチャンネルに「配信テスト用」の印 (testSlot) を付けておく (README の「denpachan」)。
 
 import type { ReceiverChannel, ReceiverPort } from "../ports.js";
 

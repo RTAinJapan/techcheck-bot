@@ -1,8 +1,10 @@
 # 開発
 
-bot を直す人に向けた文書。動かし方と、各サービスのトークンに要る権限は [README](../README.md)、設計は [design.md](design.md)。
+bot を直す人に向けた文書。準備と動かし方、使い方は [README](../README.md)、設計は [design.md](design.md)。
 
 ## 構成
+
+コードのコメントの「設計書 §x」は、[design.md](design.md) の節を指す。
 
 | ファイル | 内容 |
 | --- | --- |
@@ -23,7 +25,24 @@ npm test          # 外 (Discord、AWS、denpachan、シート) を偽物にし�
 npm run typecheck
 ```
 
-CI (`.github/workflows/ci.yml`) でも、型の確認・試験・ビルドを回す。
+CI (`.github/workflows/ci.yml`) でも、型の確認・試験・ビルドを回す。CI が使うのは、自動で発行される `GITHUB_TOKEN` の `contents: read` だけで、リポジトリのシークレットは要らない。
+
+## README とコードの対応
+
+README の次の箇所は、コードが実際にしていることを写したもの。コードを変えたら README も直す。コードの側にも、同じことをコメントで書いてある。
+
+| README の箇所 | コード |
+| --- | --- |
+| 「トークンと権限」の Discord の招待 (OAuth2 スコープ、Gateway Intent) | `src/index.ts` (ログイン、`/techcheck` の登録、`intents`) |
+| 「トークンと権限」の Discord のチャンネルごとの権限 | `src/discord/bot.ts` の `DiscordChat` (メソッドごとに、要る権限をコメントに書いてある) |
+| 「トークンと権限」の Discord の webhook | `src/adapters/webhook.ts` |
+| 「トークンと権限」の AWS (IAM のアクション) | `src/adapters/aws.ts` (送っているコマンドが、そのままアクションの名前) |
+| 「トークンと権限」の Google スプレッドシート | `src/adapters/sheet.ts` (OAuth スコープは `https://www.googleapis.com/auth/spreadsheets`) |
+| 「トークンと権限」の denpachan と、「denpachan」の準備 | `src/adapters/receiver.ts` (繋ぎ方とトークン)、`src/service.ts` (呼ぶメソッド: `startChannel`、`stopChannel`、`setRecording`、`patchChannel`)、`src/config.ts` (loopback 以外ではトークンが必須) |
+| 「準備」の設定ファイル (`${環境変数名}`、相対パス)、「動かす」の設定ファイルの場所 | `src/config.ts` の `expandEnv`、`src/index.ts` の `main` |
+| 「使い方」のコマンドの表 | `src/discord/commands.ts` (定義)、`src/discord/bot.ts` の `InteractionHandler` (運営のロールの確認) |
+
+設定の項目を足したり変えたりしたら、`src/config.ts`、`config.example.yaml`、[design.md の「設定値の一覧」](design.md#設定値の一覧) をそろえる。
 
 ## 実物で確かめていないこと
 
