@@ -75,7 +75,13 @@ export const configSchema = z
             .object({ webhookUrl: optionalText })
             .nullish()
             .transform((v) => v ?? { webhookUrl: "" }),
-        aws: z.object({ region: nonEmpty }),
+        aws: z.object({
+            region: nonEmpty,
+            // bot 用の IAM ユーザーのアクセスキー (秘密)。2 つとも書く。作り方は docs/createToken.md。
+            // 2 つとも書かなければ、AWS SDK の既定の探し方 (環境変数 AWS_ACCESS_KEY_ID、AWS_PROFILE のプロファイルなど) で探す
+            accessKeyId: optionalText,
+            secretAccessKey: optionalText,
+        }),
         flows: z.array(flowSchema).min(1),
         rtmp: z.object({
             domain: nonEmpty,
@@ -186,6 +192,11 @@ export const configSchema = z
         for (const f of c.flows) {
             if (names.has(f.name)) ctx.addIssue({ code: "custom", path: ["flows"], message: `flows: 名前 "${f.name}" が重複しています` });
             names.add(f.name);
+        }
+        // アクセスキーは、ID とシークレットの組。片方だけでは使えない (環境変数が片方だけ未設定、などに気づけるように)
+        if (!c.aws.accessKeyId !== !c.aws.secretAccessKey) {
+            const missing = c.aws.accessKeyId ? "secretAccessKey" : "accessKeyId";
+            ctx.addIssue({ code: "custom", path: ["aws", missing], message: "aws.accessKeyId と aws.secretAccessKey は、2 つとも書くか、2 つとも書かないかにしてください" });
         }
         // bot が受信の設定を入れるなら、どの出力を denpachan が受けるかが要る
         if (c.denpachan.configure) {

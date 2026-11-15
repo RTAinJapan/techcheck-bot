@@ -199,6 +199,18 @@ describe("config", () => {
         assert.equal(ok.flows[0]!.output, "sub");
         assert.equal(testConfig().denpachan.configure, false, "既定は false");
     });
+    it("AWS のアクセスキーは、2 つとも書くか、2 つとも書かないか", () => {
+        const withKey = (extra: string) => baseYaml.replace("aws:\n", `aws:\n${extra}`);
+        assert.notEqual(withKey("  x: 1\n"), baseYaml, "baseYaml の aws の書き方が変わったら、この試験も直す");
+        assert.deepEqual(parseConfig(baseYaml, {}).aws, { region: "ap-northeast-1", accessKeyId: "", secretAccessKey: "" });
+        const both = parseConfig(withKey("  accessKeyId: ${AWS_ACCESS_KEY_ID}\n  secretAccessKey: ${AWS_SECRET_ACCESS_KEY}\n"), { AWS_ACCESS_KEY_ID: "AKIAEXAMPLE", AWS_SECRET_ACCESS_KEY: "secret" });
+        assert.deepEqual([both.aws.accessKeyId, both.aws.secretAccessKey], ["AKIAEXAMPLE", "secret"]);
+        // 環境変数が片方だけ未設定、などに気づけるように
+        assert.throws(
+            () => parseConfig(withKey("  accessKeyId: ${AWS_ACCESS_KEY_ID}\n  secretAccessKey: ${AWS_SECRET_ACCESS_KEY}\n"), { AWS_ACCESS_KEY_ID: "AKIAEXAMPLE" }),
+            /aws\.secretAccessKey: aws\.accessKeyId と aws\.secretAccessKey は、2 つとも書くか/,
+        );
+    });
     it("Google の設定は google の下にまとめる。前の書き方 (いちばん上の sheet / drive) には、移し方を伝える", () => {
         const c = parseConfig(baseYaml, {});
         assert.deepEqual(c.google, { credentialsFile: "none.json", sheet: { spreadsheetId: "sheet-1", tabName: "techcheck" }, drive: { folderId: "" } });

@@ -1,8 +1,9 @@
 // MediaConnect と CloudWatch (設計書 §3.1)。
 // CloudWatch のメトリクスは名前空間 AWS/MediaConnect、ディメンション FlowARN (フローの source は 1 つ) で、1 秒の粒度で取る。
 //
-// 認証は AWS SDK の既定の探し方に任せる。IAM Identity Center のプロファイルを、環境変数 AWS_PROFILE で選ぶ前提 (docs/createToken.md)。
-// 許可セットのポリシーに要るアクションは、ここで送っているコマンドと同じ名前:
+// 認証は、bot 用の IAM ユーザーのアクセスキー (設定の aws.accessKeyId と aws.secretAccessKey。docs/createToken.md)。
+// 設定に無ければ、AWS SDK の既定の探し方 (環境変数、AWS_PROFILE のプロファイルなど) に任せる。
+// IAM ユーザーのポリシーに要るアクションは、ここで送っているコマンドと同じ名前:
 // mediaconnect:DescribeFlow、StartFlow、StopFlow、DescribeFlowSourceMetadata、DescribeFlowSourceThumbnail、cloudwatch:GetMetricData。
 // コマンドを足したり減らしたりしたら、README の「トークンと権限」の表と、docs/createToken.md のポリシーも直す。
 
@@ -39,9 +40,10 @@ export class AwsFlowPort implements FlowPort {
     private readonly mc: MediaConnectClient;
     private readonly cw: CloudWatchClient;
 
-    constructor(region: string) {
-        this.mc = new MediaConnectClient({ region });
-        this.cw = new CloudWatchClient({ region });
+    /** credentials を渡さなければ、AWS SDK の既定の探し方で探す */
+    constructor(region: string, credentials?: { accessKeyId: string; secretAccessKey: string }) {
+        this.mc = new MediaConnectClient({ region, credentials });
+        this.cw = new CloudWatchClient({ region, credentials });
     }
 
     async describe(arn: string): Promise<FlowInfo> {

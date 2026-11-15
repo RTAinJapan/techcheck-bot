@@ -20,7 +20,7 @@
 | Node.js | 22.13 以上 |
 | ffmpeg | 配信の静止画を、denpachan の録画から取り出すのに使う。マイクの声の録音を使うなら、録った声の音量を測るのにも使う。PATH に無ければ `ffmpeg.path` に場所を書く。無くても動くが、スレッドに静止画が付かず、録音の音量も出ない |
 | Discord | bot (トークン)、配信テストのチャンネル、運営のロール。運営への通知を使うならそのチャンネル、結果の通知を使うなら webhook、マイクの声の録音を使うならボイスチャンネルも |
-| AWS | 配信者が SRT で送る先の MediaConnect のフローと、bot 用の許可セット (IAM Identity Center)。bot を動かす PC に AWS CLI v2 |
+| AWS | 配信者が SRT で送る先の MediaConnect のフローと、bot 専用の IAM ユーザーのアクセスキー |
 | RTMP サーバ | SRT で安定しない配信者を案内する先 |
 | denpachan | フローの出力と RTMP サーバの配信を受ける。メトリクスの受信口を有効にする。bot と同じ PC で動かす (別の PC でも動くが、録画から静止画を取れない) |
 | Google スプレッドシート | 結果を書くシートと、サービスアカウントのキー (JSON ファイル) |
@@ -43,7 +43,7 @@ cp config.example.yaml config.yaml
 
 ### トークンと権限
 
-トークンを用意する手順は [docs/createToken.md](docs/createToken.md)。AWS のアカウントは、IAM Identity Center で管理している前提。
+トークンを用意する手順は [docs/createToken.md](docs/createToken.md)。
 
 | サービス | 設定 | 要る権限 | 備考 |
 | --- | --- | --- | --- |
@@ -52,8 +52,8 @@ cp config.example.yaml config.yaml
 | Discord (運営への通知のチャンネル) | `discord.opsChannelId` | チャンネルを表示、メッセージを送る | 未設定なら運営への通知 (途中の経過と問題) を送らない |
 | Discord (ボイスチャンネル) | `voice.enabled` | チャンネルを表示、接続 | マイクの声の録音を使うときだけ。**この 2 つの権限が bot にあるボイスチャンネルが、配信者に案内する候補になる**ので、配信テストに使うボイスチャンネルにだけ付ける (チャンネルの権限の設定で bot に付ける。bot のロールには「接続」を付けない)。Gateway Intent の `GuildVoiceStates` も使う (Privileged ではないので、Developer Portal での設定は要らない) |
 | Discord (webhook) | `notify.webhookUrl` | 無い (URL そのものが秘密) | 未設定なら結果の通知を送らない |
-| AWS MediaConnect | IAM Identity Center の許可セットを割り当てたプロファイル (環境変数 `AWS_PROFILE`)。リージョンは `aws.region` | 許可セットのポリシーに `mediaconnect:DescribeFlow`、`mediaconnect:StartFlow`、`mediaconnect:StopFlow`、`mediaconnect:DescribeFlowSourceMetadata`、`mediaconnect:DescribeFlowSourceThumbnail` | Resource は `flows` に書いたフローの ARN に絞る |
-| AWS CloudWatch | 同上 | 同じ許可セットのポリシーに `cloudwatch:GetMetricData` | Resource は `*` (リソースで絞れないアクション) |
+| AWS MediaConnect | `aws.accessKeyId`、`aws.secretAccessKey` (bot 専用の IAM ユーザーのアクセスキー)。リージョンは `aws.region` | IAM ユーザーのポリシーに `mediaconnect:DescribeFlow`、`mediaconnect:StartFlow`、`mediaconnect:StopFlow`、`mediaconnect:DescribeFlowSourceMetadata`、`mediaconnect:DescribeFlowSourceThumbnail` | Resource は `flows` に書いたフローの ARN に絞る。IAM ユーザーには、このポリシーだけを付ける |
+| AWS CloudWatch | 同上 | 同じポリシーに `cloudwatch:GetMetricData` | Resource は `*` (リソースで絞れないアクション) |
 | Google スプレッドシート | `google.credentialsFile`、`google.sheet.spreadsheetId`、`google.sheet.tabName` | シートを、サービスアカウントのメールアドレスに「編集者」で共有する | Google Cloud のプロジェクトで Google Sheets API を有効にしておく。IAM ロールは要らない。`google.sheet.tabName` の名前のシート (タブ) を作っておく |
 | Google ドライブ | `google.drive.folderId` (キーは、シートと同じ `google.credentialsFile`) | サービスアカウントを、上げる先の共有ドライブのメンバー (投稿者以上) にする | 録画と録音を上げるときだけ。Google Cloud のプロジェクトで Google Drive API を有効にしておく。未設定なら上げない |
 | denpachan | `denpachan.host`、`denpachan.port`、`denpachan.token` | 下の「denpachan」のとおり | トークンは、loopback (同じ PC) に繋ぐなら無くてよい。それ以外では必須 |
@@ -162,11 +162,10 @@ google:
 ## 動かす
 
 ```sh
-aws sso login --profile techcheck   # AWS にサインインする (プロファイルの作り方は docs/createToken.md)
 npm start
 ```
 
-- AWS のプロファイルは、環境変数 `AWS_PROFILE` で選ぶ。サインインの期限が切れると AWS の呼び出しが失敗するので、`aws sso login` でサインインし直す。
+- 起動のとき、AWS のアクセスキーで `flows` の各フローを読めるかを確かめて、コンソールに出す (`AWS: フロー flow-a を読めました (STANDBY)`)。「読めません」と出たら、そのフローのテストは準備で失敗するので、キーとポリシーを確かめる。
 - 設定ファイルは、今いるフォルダの `config.yaml`。別のファイルを使うには `node dist/src/index.js path/to/config.yaml` か、環境変数 `TECHCHECK_CONFIG`。
 - 起動すると、設定したサーバに `/techcheck` を登録する (すぐ反映される)。
 - 動きはコンソールに出る: 起動したときの設定と枠、受け付けたコマンドとボタンとその返事、テストの進み具合、スレッドに書いたこと、運営への通知、エラー。運営への通知のチャンネルや webhook を見なくても、何が起きたかを追える。トークンなどの秘密は出さない。

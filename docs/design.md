@@ -249,7 +249,7 @@ bot は denpachan の区間の数字を判定には使わず、記録 (運営の
 | | `discord.opsChannelId` | 運営への通知のチャンネルの ID (始まった、確定した値、運営側の問題)。**未設定なら送らない** (コンソールにだけ出る) | |
 | 結果の通知 | `notify.webhookUrl` | 結果の通知の Discord webhook の URL (秘密)。**未設定なら送らない** (§5.5) | |
 | AWS | `aws.region` | MediaConnect と CloudWatch のリージョン | ◯ |
-| | (認証) | IAM Identity Center の許可セットを割り当てた AWS のプロファイル (環境変数 `AWS_PROFILE` で選ぶ。作り方は [createToken.md](createToken.md))。権限はフローの読み取り・開始・停止と CloudWatch の読み取りだけ | ◯ |
+| | `aws.accessKeyId` / `aws.secretAccessKey` | bot 専用の IAM ユーザーのアクセスキー (秘密。作り方は [createToken.md](createToken.md))。権限はフローの読み取り・開始・停止と CloudWatch の読み取りだけにする。2 つとも書く。2 つとも書かなければ、AWS SDK の既定の探し方 (環境変数、`AWS_PROFILE` のプロファイル) で探す。IAM Identity Center のサインインは、数時間で切れて人がサインインし直すことになるので、配信者が好きな時間に始める使い方には合わない | ◯ |
 | SRT のフロー | `flows[].name` | 組の名前 (`/techcheck slot srt` で指す) | ◯ |
 | | `flows[].arn` | フローの ARN。**bot が開始・停止・監視してよいのは、ここに書いたフローだけ** | ◯ |
 | | `flows[].domain` | 配信用のドメイン。配信者にはこれを案内する (IP アドレスは出さない) | ◯ |
@@ -309,6 +309,8 @@ notify:
   webhookUrl: ${TECHCHECK_WEBHOOK_URL}   # 未設定なら送らない
 aws:
   region: ap-northeast-1
+  accessKeyId: ${AWS_ACCESS_KEY_ID}
+  secretAccessKey: ${AWS_SECRET_ACCESS_KEY}
 flows:
   - name: flow-a
     arn: arn:aws:mediaconnect:ap-northeast-1:123456789012:flow:...:runner-a

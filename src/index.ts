@@ -38,11 +38,14 @@ async function main(): Promise<void> {
     const credentialsFile = resolve(baseDir, google.credentialsFile);
     const voice = config.voice.enabled ? new DiscordVoice(client, config.discord.guildId, config.ffmpeg.path, log) : undefined;
     const rx = new WsReceiver(WsReceiver.urlFor(config.denpachan.host, config.denpachan.port, config.denpachan.token), log);
+    // AWS の認証: 設定にアクセスキーがあればそれ、無ければ AWS SDK の既定の探し方 (環境変数、AWS_PROFILE のプロファイルなど)
+    const awsKey = config.aws.accessKeyId ? { accessKeyId: config.aws.accessKeyId, secretAccessKey: config.aws.secretAccessKey } : undefined;
+    const flow = new AwsFlowPort(config.aws.region, awsKey);
     const service = new TechcheckService({
         config,
         i18n,
         store,
-        flow: new AwsFlowPort(config.aws.region),
+        flow,
         rx,
         still: new FfmpegStill(config.ffmpeg.path),
         voice,
@@ -61,7 +64,10 @@ async function main(): Promise<void> {
     // 起動したときの設定と状態。秘密 (トークン、キー、webhook の URL) は出さない
     log(`設定ファイル: ${configPath}`);
     log(`Discord: サーバ ${config.discord.guildId} / 配信テストのチャンネル ${config.discord.techcheckChannelId} / 運営のロール ${config.discord.staffRoleId}`);
-    log(`AWS: リージョン ${config.aws.region} / プロファイル ${process.env.AWS_PROFILE ?? "(AWS_PROFILE は未設定)"} / フロー ${config.flows.map((f) => f.name).join("、")}`);
+    const awsAuth = awsKey
+        ? "設定ファイルのアクセスキー"
+        : `AWS SDK の既定の探し方 (${process.env.AWS_ACCESS_KEY_ID ? "環境変数のアクセスキー" : process.env.AWS_PROFILE ? `プロファイル ${process.env.AWS_PROFILE}` : "既定のプロファイル"})`;
+    log(`AWS: リージョン ${config.aws.region} / 認証 ${awsAuth} / フロー ${config.flows.map((f) => f.name).join("、")}`);
     log(
         `denpachan: ${config.denpachan.host}:${config.denpachan.port} (トークン${config.denpachan.token ? "あり" : "なし"}) / 枠のチャンネルの受信の設定: ` +
             (config.denpachan.configure ? "bot が入れる (denpachan.configure)" : "denpachan の画面で合わせる"),
@@ -98,6 +104,14 @@ async function main(): Promise<void> {
                 list.length > 0
                     ? `録音に使えるボイスチャンネル (bot が入れる所): ${list.map((c) => `${c.name}${c.members.length > 0 ? ` (使用中 ${c.members.length} 人)` : ""}`).join("、")}`
                     : "録音に使えるボイスチャンネルがありません。bot に「チャンネルを表示」と「接続」の権限があるボイスチャンネルを用意してください (無いままだと、録音の手順は飛ばされます)",
+            );
+        }
+        // AWS の認証と権限を、配信者が来る前に確かめる (キーの間違い、期限切れ、ポリシーの不足は、テストを始めるまで分からない)。
+        // 返事を待たずに先へ進む (AWS に届かないときに、起動を止めない)
+        for (const f of config.flows) {
+            void flow.describe(f.arn).then(
+                (info) => log(`AWS: フロー ${f.name} を読めました (${info.status})`),
+                (e) => log(`AWS: フロー ${f.name} を読めません。このままだと、このフローのテストは準備で失敗します: ${errorText(e)}`),
             );
         }
         rx.start();

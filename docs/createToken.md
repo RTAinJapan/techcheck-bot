@@ -77,17 +77,20 @@ Discord のアプリの「ユーザー設定」→「詳細設定」で「開発
 
 URL を知っていれば誰でも書き込めるので、トークンと同じように扱う。bot の権限は要らない。
 
-## AWS (IAM Identity Center)
+## AWS (IAM ユーザーのアクセスキー)
 
-AWS のアカウントは、IAM Identity Center で管理している前提。IAM ユーザーの長期のアクセスキーは作らず、bot は、Identity Center のユーザーに割り当てた許可セットの、一時的な認証情報で動く。
+bot は、bot 専用の IAM ユーザーのアクセスキーで動く。
 
-1〜2 は Identity Center の管理者が、3〜4 は bot を動かす人が行う。
+- IAM Identity Center のサインイン (`aws sso login`) は使わない。サインインのセッションは数時間で切れ、そのたびに人がサインインし直すことになる。配信者が好きな時間にテストを始める使い方では、切れている間に来た配信者のテストが、準備で失敗する。
+- アクセスキーには期限が無い。漏れたときの影響が続くので、**権限を下のポリシーだけに絞った、bot 専用の IAM ユーザー**を作り、そのキーを使う。人が使っている IAM ユーザーや、広い権限のあるユーザーのキーは使わない。
 
-### 1. 許可セットを作る
+1〜3 は、フローのある AWS アカウントで IAM を操作できる人が行う。
 
-1. IAM Identity Center のコンソールで、「許可セット」→「許可セットを作成」→「カスタム許可セット」を選ぶ。
-2. 「インラインポリシー」に、次の JSON を入れる。`Resource` の ARN は、`config.yaml` の `flows` に書くフローの ARN に置き換える (フローの数だけ並べる)。
-3. 名前 (たとえば `TechcheckBot`) と「セッション期間」を決めて作る。セッション期間は既定で 1 時間、最大 12 時間。
+### 1. ポリシーを作る
+
+1. IAM のコンソールで、「ポリシー」→「ポリシーの作成」を開き、「JSON」を選ぶ。
+2. 次の JSON を入れる。`Resource` の ARN は、`config.yaml` の `flows` に書くフローの ARN に置き換える (フローの数だけ並べる)。
+3. 名前 (たとえば `TechcheckBot`) を付けて作る。
 
 ```json
 {
@@ -121,73 +124,41 @@ AWS のアカウントは、IAM Identity Center で管理している前提。IA
 - MediaConnect の 5 つのアクションは、どれもフローの ARN で絞れる。フローを足したら、ここにも ARN を足す。
 - `cloudwatch:GetMetricData` はリソースで絞れないアクションなので、`Resource` は `*` にする。
 
-### 2. 許可セットを割り当てる
+### 2. IAM ユーザーを作る
 
-IAM Identity Center のコンソールの「AWS アカウント」で、フローのあるアカウントを選び、「ユーザーまたはグループを割り当て」で、bot を動かす人 (またはそのグループ) に、1 で作った許可セットを割り当てる。
+1. IAM のコンソールで、「ユーザー」→「ユーザーの作成」を開き、名前 (たとえば `techcheck-bot`) を付ける。
+2. 「AWS マネジメントコンソールへのユーザーアクセスを提供する」には、チェックを入れない (bot はコンソールを使わない)。
+3. 許可の設定で「ポリシーを直接アタッチする」を選び、1 で作ったポリシーだけを付けて、作る。
 
-### 3. bot を動かす PC にプロファイルを作る
+### 3. アクセスキーを作る
 
-AWS CLI v2 を入れて、次を実行する。
+1. 作ったユーザーを開き、「セキュリティ認証情報」のタブの「アクセスキーを作成」を押す。
+2. ユースケースは「AWS の外部で実行されるアプリケーション」を選ぶ。
+3. 表示された「アクセスキー」と「シークレットアクセスキー」を控える。シークレットアクセスキーは、この画面でしか見られない。見失ったら、キーを作り直す。
 
-```sh
-aws configure sso
+### 4. bot に渡す
+
+`config.yaml` の `aws` に、2 つとも書く。直接書くか、環境変数に入れて `${環境変数名}` で読ませる。
+
+```yaml
+aws:
+  region: ap-northeast-1
+  accessKeyId: ${AWS_ACCESS_KEY_ID}
+  secretAccessKey: ${AWS_SECRET_ACCESS_KEY}
 ```
 
-聞かれることと、答え:
+- bot は起動のとき、`flows` の各フローを 1 回読んで、結果をコンソールに出す (`AWS: フロー flow-a を読めました (STANDBY)`)。キーやポリシーが違っていれば、配信者が来る前に、ここで分かる。
+- フローのリージョンは `aws.region` で決まる。
+- 片方だけ書くと、起動のときに断る。
+- 2 つとも書かなければ、bot は AWS SDK の既定の探し方で認証情報を探す (環境変数 `AWS_ACCESS_KEY_ID` と `AWS_SECRET_ACCESS_KEY`、`AWS_PROFILE` で選んだプロファイルなど)。IAM Identity Center のプロファイルでも動くが、サインインの期限が切れるたびに `aws sso login` が要る。
 
-| 聞かれること | 答え |
-| --- | --- |
-| `SSO session name` | 好きな名前 (たとえば `rtainjapan`) |
-| `SSO start URL` | AWS アクセスポータルの URL (管理者に聞く) |
-| `SSO region` | Identity Center を置いているリージョン (管理者に聞く) |
-| `SSO registration scopes` | そのまま Enter (`sso:account:access`) |
-| (ブラウザが開く) | Identity Center のユーザーでサインインして、許可する |
-| アカウントとロール | フローのあるアカウントと、1 で作った許可セット |
-| `Default client Region` | フローのあるリージョン (たとえば `ap-northeast-1`) |
-| `Profile name` | `techcheck` |
+### 5. キーの扱い
 
-`~/.aws/config` (Windows では `%USERPROFILE%\.aws\config`) に、次の形の設定ができる。
-
-```ini
-[profile techcheck]
-sso_session = rtainjapan
-sso_account_id = 123456789012
-sso_role_name = TechcheckBot
-region = ap-northeast-1
-
-[sso-session rtainjapan]
-sso_start_url = https://example.awsapps.com/start
-sso_region = ap-northeast-1
-sso_registration_scopes = sso:account:access
-```
-
-### 4. サインインして bot を起動する
-
-```sh
-aws sso login --profile techcheck
-```
-
-サインインしたら、環境変数 `AWS_PROFILE` に `techcheck` を入れてから bot を起動する。
-
-```powershell
-$env:AWS_PROFILE = "techcheck"
-npm start
-```
-
-- フローのリージョンは `config.yaml` の `aws.region` で決まる (プロファイルの `region` は使わない)。
-- 環境変数 `AWS_ACCESS_KEY_ID` が入っていると、プロファイルよりそちらが使われる。プロファイルで動かすときは、入れない。
-
-### 5. サインインの期限が切れたら
-
-- bot (AWS SDK) は、サインインのセッションが続いている間、認証情報を自動で取り直す。許可セットのセッション期間 (最大 12 時間) が来ても、止まらない。
-- サインインのセッション (AWS アクセスポータルのセッション) には期限がある。既定は 8 時間で、管理者が 15 分から 90 日の間で変えられる。期限が切れると、bot の AWS の呼び出し (フローの開始・停止、メトリクス、静止画) が失敗するようになる。`aws sso login --profile techcheck` でサインインし直す。
-- イベントの期間中ずっと動かすなら、期間より長いセッションにしてもらうよう、管理者に頼んでおく。
-
-### プロファイルを作らずに試す
-
-AWS CLI を入れられないときや、短い時間だけ試すときは、AWS アクセスポータルで、アカウントの許可セットの横の「アクセスキー」を開き、表示された環境変数 (`AWS_ACCESS_KEY_ID`、`AWS_SECRET_ACCESS_KEY`、`AWS_SESSION_TOKEN`) を入れてから bot を起動する。
-
-この認証情報は、許可セットのセッション期間 (最大 12 時間) で切れ、自動では更新されない。長く動かすときは、上のプロファイルを使う。
+- キーは、リポジトリに入れない (`config.yaml` は `.gitignore` で外してある)。チャットや画面の共有にも出さない。
+- 漏れたかもしれないときは、IAM のコンソールで、そのキーをすぐに「無効化」する。bot が止まってよいのを確かめてから、消す。
+- 入れ替えるときは、新しいキーを作って bot の設定を切り替え、起動のときの `AWS: フロー … を読めました` を確かめてから、古いキーを消す (IAM ユーザーは、アクセスキーを 2 つまで持てる)。
+- イベントが終わって bot を動かさない間は、キーを無効化しておく。
+- フローを足したら、1 のポリシーの `Resource` にも ARN を足す。足りないと、起動のときに `AWS: フロー … を読めません` と出る。
 
 ## Google (スプレッドシート、ドライブ)
 

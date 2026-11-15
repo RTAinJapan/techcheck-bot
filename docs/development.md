@@ -59,7 +59,7 @@ bot の動きは、すべてコンソール (標準出力) に 1 行ずつ出る
 | `latency.initialMs`、`latency.maxMs`、`latency.maxRaises` | 次に始まるテストから効く | 進行中のテストは、案内済みの latency と上げた回数を覚えている |
 | `checks` | そのまま効く | 進行中のテストは、何番目の手順かを番号で覚えている。途中で手順を足したり減らしたりすると、ずれる |
 | `db.path` | 別のファイルにすると、進行中のテスト・待ちの列・枠の設定は引き継がれない | |
-| 環境変数 (`${名前}` で読むもの、`AWS_PROFILE`、`TECHCHECK_CONFIG`) | bot を起動したシェルの値を使う。`.env` のファイルは読まない | |
+| 環境変数 (`${名前}` で読むもの、`TECHCHECK_CONFIG`。アクセスキーを設定に書かないときは `AWS_PROFILE` なども) | bot を起動したシェルの値を使う。`.env` のファイルは読まない | |
 
 起動のとき、保存してあった状態を設定ファイルに合わせて変えたら、そのことをコンソールに出す (`startupSummary`)。
 
@@ -68,7 +68,7 @@ bot の動きは、すべてコンソール (標準出力) に 1 行ずつ出る
 ## README とコードの対応
 
 README の次の箇所は、コードが実際にしていることを写したもの。コードを変えたら README も直す。コードの側にも、同じことをコメントで書いてある。
-Discord と AWS の権限を変えたら、[createToken.md](createToken.md) の招待の URL (権限の整数) と許可セットのポリシーも直す。ボイスチャンネルの「接続」は招待には入れず、チャンネルごとに付ける (createToken.md の「3. チャンネルの権限を確かめる」)。
+Discord と AWS の権限を変えたら、[createToken.md](createToken.md) の招待の URL (権限の整数) と IAM ユーザーのポリシーも直す。ボイスチャンネルの「接続」は招待には入れず、チャンネルごとに付ける (createToken.md の「3. チャンネルの権限を確かめる」)。
 
 Discord の権限の名前は、README と createToken.md では Developer Portal の日本語の表示、コードのコメントではそれに API の名前を添えて書いてある。
 
@@ -77,7 +77,7 @@ Discord の権限の名前は、README と createToken.md では Developer Porta
 | 「トークンと権限」の Discord の招待 (OAuth2 スコープ、Gateway Intent) | `src/index.ts` (ログイン、`/techcheck` の登録、`intents`) |
 | 「トークンと権限」の Discord のチャンネルごとの権限 | `src/discord/bot.ts` の `DiscordChat` (メソッドごとに、要る権限をコメントに書いてある) |
 | 「トークンと権限」の Discord の webhook | `src/adapters/webhook.ts` |
-| 「トークンと権限」の AWS (許可セットのポリシーのアクション) | `src/adapters/aws.ts` (送っているコマンドが、そのままアクションの名前。認証は AWS SDK の既定の探し方で、プロファイルは `AWS_PROFILE` で選ぶ) |
+| 「トークンと権限」の AWS (IAM ユーザーのポリシーのアクション) | `src/adapters/aws.ts` (送っているコマンドが、そのままアクションの名前。認証は、設定の `aws.accessKeyId` と `aws.secretAccessKey`。無ければ AWS SDK の既定の探し方)、`src/index.ts` (起動のときに各フローを読んで確かめる) |
 | 「トークンと権限」の Google スプレッドシート | `src/adapters/sheet.ts` (OAuth スコープは `https://www.googleapis.com/auth/spreadsheets`) |
 | 「録画と録音を Google ドライブに上げる」と、「トークンと権限」の Google ドライブ | `src/adapters/drive.ts` (OAuth スコープは `https://www.googleapis.com/auth/drive`。フォルダを作る、再開できるアップロード)、`src/service.ts` (`finish` が仕事を積み、`pumpUploads` / `runUpload` が裏で上げる)、`src/record.ts` (`driveColumn`) |
 | 「トークンと権限」の denpachan と、「denpachan」の準備 | `src/adapters/receiver.ts` (繋ぎ方とトークン)、`src/service.ts` (呼ぶメソッド: `startChannel`、`stopChannel`、`setRecording`、`patchChannel`)、`src/config.ts` (loopback 以外ではトークンが必須) |
@@ -95,8 +95,8 @@ Discord の権限の名前は、README と createToken.md では Developer Porta
 - `DescribeFlowSourceMetadata` の `StreamType` と `FrameRate` の実際の値の形。
 - README の「[トークンと権限](../README.md#トークンと権限)」と [createToken.md](createToken.md) のうち、次の 3 つ。
   - `/techcheck shot` の返事 (実行した人だけに見える返事) にファイルを付けるのに、「ファイルを添付」が要るかどうか。
-  - IAM Identity Center のプロファイルで bot を動かしたときの動作。とくに、サインインの期限が切れたあと、`aws sso login` をし直せば bot を起動し直さなくても AWS の呼び出しが戻るかどうか。
-  - createToken.md の画面の手順 (Developer Portal、IAM Identity Center のコンソール、`aws configure sso` の聞かれること、Google Cloud のコンソール)。公式の文書から書いたもので、実際の画面で通してはいない。
+  - IAM ユーザーのアクセスキーで bot を動かしたときの動作 (設定から渡したキーで、フローの開始・停止とメトリクスが通ること)。IAM Identity Center のプロファイルでは実機で通してあるが、サインインが 8 時間ほどで切れて、次のテストが準備で失敗した (2026-11-15)。これが、アクセスキーに変えた理由。
+  - createToken.md の画面の手順 (Developer Portal、IAM のコンソールでのポリシー・ユーザー・アクセスキーの作成、Google Cloud のコンソール)。公式の文書から書いたもので、実際の画面で通してはいない。
   - `google.sheet.tabName` の名前のシート (タブ) が無いときの動作。Sheets API がエラーを返すはずなので、先に作っておく手順にしてある。
 - 同時に複数人をテストする動作 ([design.md の §5.7](design.md#57-同時に複数人をテストする))。
   - A (SRT の枠を増やす) は、偽物の外の口での試験だけ。実際に 2 件以上を同時に受けたときの回線と PC の負荷は見ていない。
