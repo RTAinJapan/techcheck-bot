@@ -753,7 +753,8 @@ export class TechcheckService {
             entry!.skips++;
             if (entry!.skips >= 2) {
                 this.log(`待ちの列: ${entry!.displayName} は 2 回「始める」を押さなかったので、列から外しました`);
-                await this.d.chat.callUser(entry!.userId, { content: this.t(entry!.lang, "queue.removed") }).catch(() => undefined);
+                const removed = this.t(entry!.lang, "queue.removed");
+                await this.d.chat.callUser(entry!.userId, { content: `<@${entry!.userId}> ${removed}` }, removed).catch(() => undefined);
             } else {
                 this.log(`待ちの列: ${entry!.displayName} は時間内に「始める」を押さなかったので、後ろに回しました`);
                 q.entries.push(entry!);
@@ -766,11 +767,16 @@ export class TechcheckService {
             if (!next) break;
             q.offers.push({ userId: next.userId, offeredAt: this.now() });
             this.log(`待ちの列: ${next.displayName} に順番を知らせます`);
+            // 「始める」のボタンは、配信テストのチャンネルのメッセージにだけ付ける。DM は、そこへ案内するだけ
             await this.d.chat
-                .callUser(next.userId, {
-                    content: this.t(next.lang, "queue.yourTurn", { user: `<@${next.userId}>`, minutes: this.cfg.timeouts.claimMin }),
-                    buttons: [{ id: "tcq:claim", label: this.t(next.lang, "button.claim"), style: "primary" }],
-                })
+                .callUser(
+                    next.userId,
+                    {
+                        content: this.t(next.lang, "queue.yourTurn", { user: `<@${next.userId}>`, minutes: this.cfg.timeouts.claimMin }),
+                        buttons: [{ id: "tcq:claim", label: this.t(next.lang, "button.claim"), style: "primary" }],
+                    },
+                    this.t(next.lang, "queue.yourTurnDm", { minutes: this.cfg.timeouts.claimMin }),
+                )
                 .catch((e) => this.log(`待ちの列: ${next.displayName} に知らせを送れませんでした: ${errorText(e)}`));
         }
     }

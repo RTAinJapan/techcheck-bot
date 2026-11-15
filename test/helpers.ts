@@ -214,7 +214,8 @@ export interface Posted {
 export class FakeChat implements ChatPort {
     threads: { id: string; name: string; userId: string; closed: boolean }[] = [];
     posts: Posted[] = [];
-    called: { userId: string; msg: OutMessage }[] = [];
+    /** 待ちの列の知らせ。msg は配信テストのチャンネルに書くもの、dm は DM の文 */
+    called: { userId: string; msg: OutMessage; dm: string }[] = [];
     opsLog: string[] = [];
     cleared: string[] = [];
     private n = 0;
@@ -237,8 +238,8 @@ export class FakeChat implements ChatPort {
     threadUrl(threadId: string): string {
         return `https://discord.com/channels/g/${threadId}`;
     }
-    async callUser(userId: string, msg: OutMessage): Promise<void> {
-        this.called.push({ userId, msg });
+    async callUser(userId: string, msg: OutMessage, dm: string): Promise<void> {
+        this.called.push({ userId, msg, dm });
     }
     async ops(text: string): Promise<void> {
         this.opsLog.push(text);

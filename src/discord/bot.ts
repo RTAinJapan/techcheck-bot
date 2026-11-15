@@ -125,12 +125,13 @@ export class DiscordChat implements ChatPort {
     }
 
     // 権限: 配信テストのチャンネルの「メッセージを送る」。DM には、サーバの権限は要らない
-    async callUser(userId: string, msg: OutMessage): Promise<void> {
+    // 答える場所はチャンネルのメッセージだけにする: DM は、そこへのリンクを付けた知らせで、ボタンは付けない
+    async callUser(userId: string, msg: OutMessage, dm: string): Promise<void> {
         const ch = await this.channel(this.cfg.discord.techcheckChannelId);
-        await ch.send({ ...payload(msg), allowedMentions: { users: [userId] } });
+        const sent = await ch.send({ ...payload(msg), allowedMentions: { users: [userId] } });
         try {
             const user = await this.client.users.fetch(userId);
-            await user.send(payload(msg));
+            await user.send({ content: `${dm}\n${sent.url}` });
         } catch {
             // DM を受け取らない設定の人もいる。チャンネルのメンションは届いている
         }

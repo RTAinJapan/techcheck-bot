@@ -209,7 +209,10 @@ describe("待ちの列", () => {
         await w.run(1);
         assert.equal(w.chat.called.length, 1);
         assert.equal(w.chat.called[0]!.userId, "U2");
-        assert.match(w.chat.called[0]!.msg.content, /<@U2>/);
+        // 答える場所は 1 つ: 「始める」のボタンは配信テストのチャンネルのメッセージにだけあり、DM はそこへ案内するだけ
+        assert.match(w.chat.called[0]!.msg.content, /<@U2> 配信テストの順番が来ました。5 分以内に「始める」を押してください/);
+        assert.deepEqual(w.chat.called[0]!.msg.buttons?.map((b) => b.label), ["始める"]);
+        assert.match(w.chat.called[0]!.dm, /5 分以内に、下のリンク先 \(配信テストのチャンネル\) のメッセージにある「始める」を押してください。この DM には返信しなくて構いません/);
         assert.match(await w.service.claim(U2), /スレッドを作りました/);
         assert.equal(w.chat.threads.length, 2);
     });
@@ -225,7 +228,8 @@ describe("待ちの列", () => {
         await w.run(5 * 60 + 1); // 時間切れ → 後ろに回して、また知らせる
         assert.equal(w.chat.called.length, 2);
         await w.run(5 * 60 + 1); // 2 回目の時間切れ → 外す
-        assert.match(w.chat.called.at(-1)!.msg.content, /待ちの列から外しました/);
+        assert.match(w.chat.called.at(-1)!.msg.content, /^<@U2> .*待ちの列から外しました/);
+        assert.match(w.chat.called.at(-1)!.dm, /待ちの列から外しました/);
         assert.match(await w.service.slotShow(), /待ちの列: なし/);
     });
 });

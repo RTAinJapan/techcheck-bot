@@ -15,6 +15,7 @@ queue:
   notYourTurn: "It is not your turn yet. We will let you know."
   removed: "\"Start\" was not pressed twice in a row, so you were removed from the waiting list. Please run `/techcheck start` again."
   yourTurn: "{user} It is your turn for the stream test. Press \"Start\" within {minutes} minutes."
+  yourTurnDm: "It is your turn for the stream test. Within {minutes} minutes, press \"Start\" on the message linked below (in the stream test channel). You do not need to reply to this DM."
 
 button:
   expired: "This button is no longer active."

@@ -146,8 +146,11 @@ export interface ChatPort {
     clearButtons(threadId: string, messageId: string): Promise<void>;
     closeThread(threadId: string): Promise<void>;
     threadUrl(threadId: string): string;
-    /** 配信テストのチャンネルでメンションし、DM も送る (待ちの列の順番の知らせ) */
-    callUser(userId: string, msg: OutMessage): Promise<void>;
+    /**
+     * 待ちの列の知らせ。配信テストのチャンネルに msg を書き (メンションとボタンはここ)、DM には dm の文と、そのメッセージへのリンクだけを送る。
+     * 答える場所を 1 つにするため、DM にはボタンを付けない (両方にボタンがあると、どちらで答えるのか分からなくなる)。
+     */
+    callUser(userId: string, msg: OutMessage, dm: string): Promise<void>;
     /** 運営への通知のチャンネル (日本語) */
     ops(text: string): Promise<void>;
 }
