@@ -129,6 +129,11 @@ export interface SrtSlotState {
     flow?: string;
     channel?: number;
     enabled: boolean;
+    /**
+     * 止めている (enabled が false の) とき、誰が止めたか。true: bot が問題を見つけて止めた。false: 運営が `/techcheck slot off` で止めた。
+     * bot が止めた枠は、bot を起動し直すと受付を再開する (設定や環境を直して起動し直したら、もう一度試す)。運営が止めた枠は止めたまま
+     */
+    stoppedByProblem?: boolean;
 }
 
 /** 枠。SRT は同時にテストできる人数だけ並ぶ (数は設定の slots.srt で決まる)。RTMP は 1 つ */

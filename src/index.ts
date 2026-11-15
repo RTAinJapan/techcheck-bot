@@ -50,7 +50,8 @@ async function main(): Promise<void> {
     log(`AWS: リージョン ${config.aws.region} / プロファイル ${process.env.AWS_PROFILE ?? "(AWS_PROFILE は未設定)"} / フロー ${config.flows.map((f) => f.name).join("、")}`);
     log(`denpachan: ${config.denpachan.host}:${config.denpachan.port} (トークン${config.denpachan.token ? "あり" : "なし"})`);
     log(`シート: ${config.sheet.spreadsheetId} / ${config.sheet.tabName}`);
-    log(`結果の通知 (webhook): ${config.notify.webhookUrl ? "送る" : "URL が未設定なので送らない"}`);
+    // 通知は 2 つある。途中の経過と問題は bot が運営への通知のチャンネルに書き、終わったときの結果だけ webhook で送る
+    log(`結果の通知 (webhook。テストが終わったときだけ): ${config.notify.webhookUrl ? "送る" : "URL が未設定なので送らない"}。途中の経過と問題は、運営への通知のチャンネルに bot が書く`);
     for (const line of service.startupSummary()) log(line);
 
     client.on(Events.Error, (e) => log(`Discord: エラー: ${errorText(e)}`));

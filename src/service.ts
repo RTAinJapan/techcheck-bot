@@ -69,19 +69,46 @@ export function slotConfigSnapshot(cfg: Config): SlotConfigSnapshot {
  * - 変わっていれば、設定ファイルの値 (設定ファイルを書き換えて起動し直したら、それが効く)。
  * storedBase は、保存したときの設定ファイルの値 (slotConfigSnapshot)。無ければ (これを保存していなかった版の保存) 設定ファイルの値を使う。
  * 枠が 1 つだったときの保存の形 (srt が配列でない) も読む。
+ *
+ * bot が問題を見つけて止めた枠 (stoppedByProblem) は、受付を再開する。設定や環境を直して起動し直したのに、
+ * 止まったままでは「直しても効かない」ことになるため (運営が `/techcheck slot off` で止めた枠は止めたまま)。
+ *
+ * note には、保存してあった値と違う結果になったことを 1 行ずつ渡す (起動時のログ用)。
  */
-export function loadSlots(stored: unknown, storedBase: unknown, cfg: Config): SlotState {
+export function loadSlots(stored: unknown, storedBase: unknown, cfg: Config, note: (msg: string) => void = () => undefined): SlotState {
     const old = stored as { srt?: SrtSlotState | SrtSlotState[]; rtmp?: SlotState["rtmp"] } | undefined;
     const storedSrt = old?.srt === undefined ? [] : Array.isArray(old.srt) ? old.srt : [old.srt];
     const base = storedBase as Partial<SlotConfigSnapshot> | undefined;
     const now = slotConfigSnapshot(cfg);
     const unchanged = (a: unknown, b: unknown) => a !== undefined && JSON.stringify(a) === JSON.stringify(b);
+    const label = (i: number) => (cfg.slots.srt.length > 1 ? `SRT の ${i + 1} 番の枠` : "SRT の枠");
+    const text = (s: { flow?: string; channel?: number; enabled: boolean }) => `フロー ${s.flow ?? "未設定"} / ch${s.channel ?? "?"} / ${s.enabled ? "受付中" : "止めている"}`;
     return {
-        srt: cfg.slots.srt.map((c, i) => {
+        srt: cfg.slots.srt.map((c, i): SrtSlotState => {
             const kept = storedSrt[i];
-            return kept && unchanged(base?.srt?.[i], now.srt[i]) ? kept : { flow: c.flow, channel: c.channel, enabled: c.enabled };
+            const fromConfig = { flow: c.flow, channel: c.channel, enabled: c.enabled };
+            if (!kept) return fromConfig;
+            if (!unchanged(base?.srt?.[i], now.srt[i])) {
+                if (text(kept) !== text(fromConfig)) note(`${label(i)}: 設定ファイルが変わったので、設定ファイルの値にしました (保存してあった値: ${text(kept)})`);
+                return fromConfig;
+            }
+            // 運営が止めた枠は stoppedByProblem が false。印が無いのは、印を付けていなかった版の保存で、
+            // どちらが止めたか分からないので、問題で止めたものとして再開する
+            if (!kept.enabled && kept.stoppedByProblem !== false) {
+                note(`${label(i)}: 前回は問題があって止めていました。起動し直したので、受付を再開します`);
+                return { flow: kept.flow, channel: kept.channel, enabled: true };
+            }
+            return kept;
         }),
-        rtmp: old?.rtmp && unchanged(base?.rtmp, now.rtmp) ? old.rtmp : { channel: cfg.slots.rtmp.channel, enabled: true },
+        rtmp: (() => {
+            const fromConfig = { channel: cfg.slots.rtmp.channel, enabled: true };
+            if (!old?.rtmp) return fromConfig;
+            if (unchanged(base?.rtmp, now.rtmp)) return old.rtmp;
+            if (old.rtmp.channel !== fromConfig.channel || !old.rtmp.enabled) {
+                note(`RTMP の枠: 設定ファイルが変わったので、設定ファイルの値にしました (保存してあった値: ch${old.rtmp.channel ?? "?"} / ${old.rtmp.enabled ? "受付中" : "止めている"})`);
+            }
+            return fromConfig;
+        })(),
     };
 }
 
@@ -104,15 +131,28 @@ export class TechcheckService {
     private readonly lastCwFetch = new Map<string, number>();
     private chain: Promise<unknown> = Promise.resolve();
     private ticking = false;
+    /** 起動したとき、保存してあった状態を今の設定ファイルに合わせて変えたこと (startupSummary で出す) */
+    private readonly startupNotes: string[] = [];
+    private orphansChecked = false;
 
     constructor(private readonly d: Deps) {
         this.cfg = d.config;
         this.checks = d.config.checks;
         this.sessions = d.store.get<Session[]>("sessions") ?? [];
-        // 枠が 1 つだったときに保存したセッションには、枠の番号が無い
-        for (const s of this.sessions) s.srt.slot ??= 0;
+        for (const s of this.sessions) {
+            // 枠が 1 つだったときに保存したセッションには、枠の番号が無い
+            s.srt.slot ??= 0;
+            // 進行中のテストも、フローの ARN とドメインは今の設定ファイルの値にする (フローは名前で対応させる)。
+            // 設定ファイルから無くなったフローのテストは、最初の tick で中断する (abortOrphans)
+            const flow = d.config.flows.find((f) => f.name === s.srt.flowName);
+            if (flow && !s.srt.released && (s.srt.flowArn !== flow.arn || s.srt.domain !== flow.domain)) {
+                this.startupNotes.push(`${s.displayName} のテスト: フロー ${flow.name} の設定が変わったので、今の設定ファイルの ARN とドメインを使います`);
+                s.srt.flowArn = flow.arn;
+                s.srt.domain = flow.domain;
+            }
+        }
         this.queue = loadQueue(d.store.get<unknown>("queue"));
-        this.slots = loadSlots(d.store.get<unknown>("slots"), d.store.get<unknown>("slotsConfig"), d.config);
+        this.slots = loadSlots(d.store.get<unknown>("slots"), d.store.get<unknown>("slotsConfig"), d.config, (m) => this.startupNotes.push(m));
         // 読んだ枠と、そのもとにした設定ファイルの値を、組で保存し直す (次に起動したとき、設定ファイルが変わったかを見分ける)
         this.slotsConfig = slotConfigSnapshot(d.config);
         d.store.set("slots", this.slots);
@@ -129,6 +169,7 @@ export class TechcheckService {
         this.ticking = true;
         try {
             await this.locked(async () => {
+                await this.abortOrphans();
                 await this.tickQueue();
                 for (const s of [...this.sessions]) {
                     try {
@@ -294,7 +335,10 @@ export class TechcheckService {
             }
             if (slotNo !== undefined && !this.slots.srt[slotNo - 1]) return this.noSuchSrtSlot(slotNo);
             const targets = slotNo !== undefined ? [slotNo - 1] : this.slots.srt.map((_, i) => i);
-            for (const i of targets) this.slots.srt[i]!.enabled = on;
+            for (const i of targets) {
+                // 運営が決めた状態。止めたのなら、起動し直しても止めたまま (stoppedByProblem: false)
+                this.slots.srt[i] = { flow: this.slots.srt[i]!.flow, channel: this.slots.srt[i]!.channel, enabled: on, ...(on ? {} : { stoppedByProblem: false }) };
+            }
             this.save();
             const label = targets.length === 1 ? this.srtSlotLabel(targets[0]!) : "SRT の枠すべて";
             return `${label}を${done}`;
@@ -468,7 +512,8 @@ export class TechcheckService {
         const get = () => this.sessions.find((x) => x.id === sessionId);
         const s0 = get();
         if (!s0) return;
-        const flowCfg = this.cfg.flows.find((f) => f.name === s0.srt.flowName)!;
+        const flowCfg = this.cfg.flows.find((f) => f.name === s0.srt.flowName);
+        if (!flowCfg) return; // 設定ファイルから無くなったフロー。abortOrphans が中断する
         const channel = s0.srt.channel;
         let startedFlow = false;
         let channelStarted = false;
@@ -541,6 +586,20 @@ export class TechcheckService {
         }
     }
 
+    /**
+     * bot を起動し直したとき、設定ファイルから無くなったフローを使っていたテストを中断する (起動後の最初の tick で 1 回)。
+     * そのままにすると、案内する URL を作れず、tick のたびにエラーになる。
+     */
+    private async abortOrphans(): Promise<void> {
+        if (this.orphansChecked) return;
+        this.orphansChecked = true;
+        for (const s of [...this.sessions]) {
+            if (s.protocol !== "srt" || s.srt.released || this.cfg.flows.some((f) => f.name === s.srt.flowName)) continue;
+            this.log(`${s.displayName} のテスト: フロー ${s.srt.flowName} が設定ファイルから無くなったので、中断します`);
+            await this.finish(s, "aborted", `設定ファイルからフロー ${s.srt.flowName} が無くなった`);
+        }
+    }
+
     /** bot を起動し直したとき、準備の途中だったテストの準備をやり直す */
     resumePreparing(): void {
         for (const s of this.sessions) if (s.phase === "preparing") void this.prepare(s.id);
@@ -549,7 +608,10 @@ export class TechcheckService {
     /** 枠に問題があったとき: 運営に知らせ、枠を止める (次の人も同じ問題に当たらないように) */
     private async blockSlot(slotIndex: number, problems: string[]): Promise<void> {
         const slot = this.slots.srt[slotIndex];
-        if (slot) slot.enabled = false;
+        if (slot) {
+            slot.enabled = false;
+            slot.stoppedByProblem = true;
+        }
         const command = this.slots.srt.length > 1 ? `/techcheck slot on srt slot:${slotIndex + 1}` : "/techcheck slot on srt";
         await this.ops(`${this.srtSlotLabel(slotIndex)}に問題があるので止めました。直してから \`${command}\` で再開してください:\n${problems.map((p) => `- ${p}`).join("\n")}`);
     }
@@ -628,6 +690,8 @@ export class TechcheckService {
         lines.push(`RTMP の枠: ch${this.slots.rtmp.channel ?? "?"} / ${this.slots.rtmp.enabled ? "受付中" : "止めている"}`);
         lines.push(`進行中のテスト: ${this.sessions.length > 0 ? this.sessions.map((s) => `${s.displayName} (${s.phase})`).join("、") : "なし"}`);
         lines.push(`待ちの列: ${this.queue.entries.length > 0 ? this.queue.entries.map((e) => e.displayName).join("、") : "なし"}`);
+        // 保存してあった状態を、今の設定ファイルに合わせて変えたこと
+        lines.push(...this.startupNotes);
         return lines;
     }
 

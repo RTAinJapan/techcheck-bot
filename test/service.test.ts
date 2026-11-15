@@ -404,6 +404,46 @@ describe("準備と枠", () => {
         assert.match(await w3.service.slotShow(), /SRT の枠: フロー flow-a \/ ch7 \/ 止めている/);
     });
 
+    it("起動し直したとき: 問題で止めた枠は再開し、列の先頭の人に知らせる", async () => {
+        const w1 = makeWorld();
+        w1.dns.answers["srt-a.example.jp"] = ["192.0.2.99"]; // ドメインの設定が間違っている
+        await w1.service.start(U1, "C-test", undefined, "ja");
+        await w1.flush();
+        assert.match(await w1.service.slotShow(), /止めている[\s\S]*1\. Runner A/);
+
+        // 直して起動し直す (設定ファイルは同じ)。/techcheck slot on をしなくても、受付が戻る
+        const w2 = makeWorld("", baseYaml, w1.store);
+        assert.ok(w2.service.startupSummary().some((l) => l.includes("前回は問題があって止めていました。起動し直したので、受付を再開します")));
+        assert.match(await w2.service.slotShow(), /SRT の枠: フロー flow-a \/ ch7 \/ 受付中/);
+        await w2.run(1);
+        assert.equal(w2.chat.called.at(-1)?.userId, "U1");
+
+        // 運営が止めた枠は、起動し直しても止めたまま
+        await w2.service.slotEnable("srt", false);
+        const w3 = makeWorld("", baseYaml, w2.store);
+        assert.match(await w3.service.slotShow(), /SRT の枠: フロー flow-a \/ ch7 \/ 止めている/);
+    });
+
+    it("起動し直したとき: 進行中のテストは今の設定ファイルのフローを使い、フローが無くなっていれば中断する", async () => {
+        const w1 = makeWorld();
+        await w1.service.start(U1, "C-test", undefined, "ja");
+        await w1.flush();
+
+        // フローの ARN とドメインを書き換えて起動し直す
+        const moved = baseYaml.replace("arn: arn:flow-a", "arn: arn:flow-a2").replace("domain: srt-a.example.jp", "domain: srt-b.example.jp");
+        const w2 = makeWorld("", moved, w1.store);
+        assert.ok(w2.service.startupSummary().some((l) => l.includes("Runner A のテスト: フロー flow-a の設定が変わったので")));
+        assert.match(await w2.service.status("U1"), /Runner A/);
+
+        // フローの名前ごと変えて起動し直すと、そのテストは続けられないので中断する
+        const renamed = baseYaml.replaceAll("flow-a", "flow-x");
+        const w3 = makeWorld("", renamed, w2.store);
+        await w3.run(1);
+        assert.match(await w3.service.status("U1"), /進行中のテストはありません/);
+        assert.match(String(w3.sheet.rows[0]![7]), /設定ファイルからフロー flow-a が無くなった/);
+        assert.ok(!w3.logs.some((l) => l.startsWith("tick ")), "tick のたびにエラーにならない");
+    });
+
     it("届かないまま 10 分で催促し、30 分で中断する", async () => {
         const w = makeWorld();
         await w.service.start(U1, "C-test", undefined, "ja");

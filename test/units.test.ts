@@ -146,14 +146,14 @@ describe("config", () => {
         const base = slotConfigSnapshot(two);
         // 保存が無ければ設定ファイルの値
         assert.deepEqual(loadSlots(undefined, undefined, two).srt.map((s) => s.channel), [7, 6]);
-        // /techcheck slot で設定し直した値 (ch5、止めている) は、設定ファイルが同じなら残る
-        const saved = { srt: [{ flow: "flow-a", channel: 5, enabled: false }, { flow: "flow-b", channel: 6, enabled: true }], rtmp: { channel: 8, enabled: false } };
+        // /techcheck slot で設定し直した値 (ch5、運営が止めた) は、設定ファイルが同じなら残る
+        const saved = { srt: [{ flow: "flow-a", channel: 5, enabled: false, stoppedByProblem: false }, { flow: "flow-b", channel: 6, enabled: true }], rtmp: { channel: 8, enabled: false } };
         assert.deepEqual(loadSlots(saved, base, two), saved);
         // 設定ファイルの 1 番の枠のチャンネルを書き換えたら、その枠は設定ファイルの値になる。変えていない枠は保存の値のまま
         const edited = parseConfig(twoSlotsYaml.replace("{ flow: flow-a, channel: 7 }", "{ flow: flow-a, channel: 1 }").replace("rtmp: { channel: 8 }", "rtmp: { channel: 2 }"), {});
-        const savedBoth = { ...saved, srt: [saved.srt[0]!, { flow: "flow-b", channel: 6, enabled: false }] };
+        const savedBoth = { ...saved, srt: [saved.srt[0]!, { flow: "flow-b", channel: 6, enabled: false, stoppedByProblem: false }] };
         assert.deepEqual(loadSlots(savedBoth, base, edited), {
-            srt: [{ flow: "flow-a", channel: 1, enabled: true }, { flow: "flow-b", channel: 6, enabled: false }],
+            srt: [{ flow: "flow-a", channel: 1, enabled: true }, { flow: "flow-b", channel: 6, enabled: false, stoppedByProblem: false }],
             rtmp: { channel: 2, enabled: true },
         });
         // もとにした設定を保存していなかった版の保存は、設定ファイルの値にする
@@ -163,6 +163,30 @@ describe("config", () => {
         assert.deepEqual(loadSlots({ srt: saved.srt[0], rtmp: saved.rtmp }, slotConfigSnapshot(one), one).srt, [saved.srt[0]]);
         // 設定の枠を減らしたら、余った分は使わない
         assert.equal(loadSlots(saved, base, one).srt.length, 1);
+    });
+    it("bot が問題で止めた枠は、起動し直すと再開する。運営が止めた枠は止めたまま", () => {
+        const two = testConfig("", twoSlotsYaml);
+        const base = slotConfigSnapshot(two);
+        const notes: string[] = [];
+        const saved = {
+            srt: [
+                { flow: "flow-a", channel: 7, enabled: false, stoppedByProblem: true },
+                { flow: "flow-b", channel: 6, enabled: false, stoppedByProblem: false },
+            ],
+            rtmp: { channel: 8, enabled: true },
+        };
+        const loaded = loadSlots(saved, base, two, (m) => notes.push(m));
+        assert.deepEqual(loaded.srt, [{ flow: "flow-a", channel: 7, enabled: true }, saved.srt[1]]);
+        assert.equal(notes.length, 1);
+        assert.match(notes[0]!, /SRT の 1 番の枠: 前回は問題があって止めていました。起動し直したので、受付を再開します/);
+        // 誰が止めたかの印を付けていなかった版の保存は、問題で止めたものとして再開する
+        const legacy = { srt: [{ flow: "flow-a", channel: 7, enabled: false }, { flow: "flow-b", channel: 6, enabled: true }], rtmp: saved.rtmp };
+        assert.equal(loadSlots(legacy, base, two).srt[0]!.enabled, true);
+        // 設定ファイルを書き換えた枠は、そのことを知らせる
+        const edited = parseConfig(twoSlotsYaml.replace("{ flow: flow-a, channel: 7 }", "{ flow: flow-a, channel: 1 }"), {});
+        const notes2: string[] = [];
+        loadSlots(saved, base, edited, (m) => notes2.push(m));
+        assert.match(notes2[0]!, /SRT の 1 番の枠: 設定ファイルが変わったので、設定ファイルの値にしました \(保存してあった値: フロー flow-a \/ ch7 \/ 止めている\)/);
     });
     it("保存してある待ちの列は、知らせが 1 人だけだったときの形も読める", () => {
         assert.deepEqual(loadQueue({ entries: [], offer: { userId: "U1", offeredAt: 1 } }).offers, [{ userId: "U1", offeredAt: 1 }]);
