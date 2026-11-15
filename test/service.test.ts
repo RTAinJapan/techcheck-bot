@@ -4,7 +4,7 @@ import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 import type { SrtSample } from "../src/advisor.js";
 import { defaultChecks, reconnectStep } from "../src/checks.js";
-import { describeRange, formatRecPos } from "../src/record.js";
+import { describeRange, formatRecPos, sheetColumns } from "../src/record.js";
 import { baseYaml, goodSample, makeWorld, twoSlotsYaml, type World } from "./helpers.js";
 
 const U1 = { id: "U1", displayName: "Runner A" };
@@ -448,6 +448,90 @@ describe("録画ファイルが途中で切り替わる", () => {
     });
 });
 
+describe("録画と録音を Google ドライブに上げる", () => {
+    const driveOn = 'drive: { folderId: "ROOT" }\n';
+    /** テストを 1 つ最後まで通す (録音が有効なら、録音も) */
+    async function finishedTest(extra = driveOn, store?: Parameters<typeof makeWorld>[2]) {
+        const w = makeWorld(extra, undefined, store);
+        const { thread } = await startAndStream(w);
+        await passChecks(w, thread);
+        if (w.config.voice.enabled) {
+            w.voice.where.U1 = "VC-1";
+            await press(w, thread, "step-start");
+            await w.flush();
+        }
+        await w.service.complete(sessionIdOf(w, thread), "");
+        return w;
+    }
+    const lastCell = (w: World) => w.sheet.updates.at(-1);
+
+    it("テストが終わったら、テストごとのフォルダに録画と録音を上げ、シートにリンクを書く", async () => {
+        const w = await finishedTest(`${driveOn}voice: { enabled: true }\n`);
+        assert.equal(w.sheet.rows[0]!.at(-1), "アップロード待ち");
+        // denpachan が録画ファイルを閉じるのを待ってから上げる
+        await w.run(5);
+        assert.equal(w.drive.uploaded.length, 0);
+        await w.run(7);
+        assert.equal(w.drive.folders.length, 1);
+        assert.match(w.drive.folders[0]!.name, /^配信テスト 2026-11-01 \d\d:\d\d Runner A$/);
+        assert.deepEqual(w.drive.uploaded.map((u) => u.folderId), ["F1", "F1"]);
+        assert.equal(w.drive.uploaded[0]!.file, "rec-ch7.mkv");
+        assert.match(w.drive.uploaded[1]!.file, /^voice-dir\/.* U1\.ogg$/);
+        assert.deepEqual(lastCell(w), { range: "techcheck!AH2", values: ["https://drive.google.com/drive/folders/F1"] });
+        assert.ok(w.chat.opsLog.some((l) => l.includes("録画と録音を Google ドライブに上げました: Runner A https://drive.google.com/drive/folders/F1")));
+        // 上げ終えたら、もう上げない
+        await w.run(120);
+        assert.equal(w.drive.uploaded.length, 2);
+    });
+
+    it("drive.folderId が無ければ、上げない", async () => {
+        const w = await finishedTest("");
+        assert.equal(w.sheet.rows[0]!.at(-1), "");
+        await w.run(30);
+        assert.equal(w.drive.folders.length, 0);
+        assert.equal(w.sheet.updates.length, 0);
+    });
+
+    it("一時的に失敗したら、あとでやり直す。3 回失敗したら、あきらめて運営に知らせる", async () => {
+        const w = await finishedTest();
+        w.drive.error = "Drive API: アップロードに失敗しました: 503";
+        await w.run(12);
+        assert.ok(w.logs.some((l) => l.includes("あとでやり直します (1/3)")));
+        assert.equal(w.sheet.updates.length, 0);
+        // 1 分後のやり直しで通る
+        w.drive.error = undefined;
+        await w.run(61);
+        assert.deepEqual(w.drive.uploaded.map((u) => u.file), ["rec-ch7.mkv"]);
+        assert.deepEqual(lastCell(w)?.values, ["https://drive.google.com/drive/folders/F1"]);
+
+        const bad = await finishedTest();
+        bad.drive.error = "Drive API: フォルダを作れません: 404";
+        await bad.run(12 + 61 + 121);
+        assert.deepEqual(lastCell(bad), { range: "techcheck!AH2", values: ["アップロード失敗: Drive API: フォルダを作れません: 404"] });
+        assert.ok(bad.chat.opsLog.some((l) => l.includes("録画と録音を Google ドライブに上げられませんでした: Runner A") && l.includes("ファイルは PC に残っています")));
+        await bad.run(300);
+        assert.equal(bad.sheet.updates.length, 1, "あきらめたあとは、やり直さない");
+    });
+
+    it("PC に無いファイルは飛ばして、ほかのファイルは上げる", async () => {
+        const w = await finishedTest(`${driveOn}voice: { enabled: true }\n`);
+        w.drive.missing = ["rec-ch7.mkv"];
+        await w.run(12);
+        assert.equal(w.drive.uploaded.length, 1);
+        assert.match(String(lastCell(w)?.values[0]), /^https:\/\/drive\.google\.com\/drive\/folders\/F1 \(上げられなかったもの: rec-ch7\.mkv \(ファイルがありません\)\)$/);
+    });
+
+    it("上げる前に bot を起動し直しても、続きから上げる", async () => {
+        const w = await finishedTest();
+        const again = makeWorld(driveOn, undefined, w.store);
+        again.clock.t = w.clock.t;
+        assert.ok(again.service.startupSummary().some((l) => l.includes("Google ドライブに上げるのを待っているテスト: Runner A")));
+        await again.run(12);
+        assert.deepEqual(again.drive.uploaded.map((u) => u.file), ["rec-ch7.mkv"]);
+        assert.deepEqual(lastCell(again), { range: "techcheck!AH2", values: ["https://drive.google.com/drive/folders/F1"] });
+    });
+});
+
 describe("マイクの声の録音 (ボイスチャンネル)", () => {
     const voiceOn = "voice: { enabled: true }\n";
     /** 既定の 5 手順を通して、6 つ目 (マイクの録音) が出るところまで進める */
@@ -487,7 +571,7 @@ describe("マイクの声の録音 (ボイスチャンネル)", () => {
         assert.match(w.chat.lastPost(thread)!.content, /確認はすべて終わりました/);
         await w.service.complete(sessionIdOf(w, thread), "");
         const row = w.sheet.rows[0]!;
-        assert.match(String(row.at(-1)), /^voice-dir\/.*U1\.ogg \(声 10 秒、最大 -6 dB、平均 -24 dB\)$/);
+        assert.match(String(row[sheetColumns.indexOf("マイクの録音 (VC)")]), /^voice-dir\/.*U1\.ogg \(声 10 秒、最大 -6 dB、平均 -24 dB\)$/);
         assert.match(String(row[25]), /voice: OK \(-24 dB\)/);
     });
 
@@ -512,7 +596,7 @@ describe("マイクの声の録音 (ボイスチャンネル)", () => {
         assert.ok(w.chat.texts(thread).some((x) => x.includes("マイクの確認は飛ばします")));
         assert.match(w.chat.lastPost(thread)!.content, /確認はすべて終わりました/);
         await w.service.complete(sessionIdOf(w, thread), "");
-        assert.equal(w.sheet.rows[0]!.at(-1), "マイクは使わない");
+        assert.equal(w.sheet.rows[0]![sheetColumns.indexOf("マイクの録音 (VC)")], "マイクは使わない");
         assert.equal(w.voice.calls.length, 0);
     });
 

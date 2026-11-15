@@ -9,6 +9,7 @@ import type {
     ChatPort,
     Clock,
     DnsPort,
+    DrivePort,
     FlowInfo,
     FlowMetadata,
     FlowPort,
@@ -286,6 +287,29 @@ export class FakeWebhook implements WebhookPort {
     }
 }
 
+export class FakeDrive implements DrivePort {
+    folders: { id: string; name: string }[] = [];
+    uploaded: { file: string; folderId: string }[] = [];
+    /** 設定すると、アップロードはこの理由で失敗する */
+    error: string | undefined;
+    /** ローカルに無いことにするファイル */
+    missing: string[] = [];
+    async createFolder(name: string): Promise<string> {
+        if (this.error) throw new Error(this.error);
+        const id = `F${this.folders.length + 1}`;
+        this.folders.push({ id, name });
+        return id;
+    }
+    async upload(file: string, folderId: string): Promise<void> {
+        if (this.missing.includes(file)) throw Object.assign(new Error(`ENOENT: no such file, stat '${file}'`), { code: "ENOENT" });
+        if (this.error) throw new Error(this.error);
+        this.uploaded.push({ file, folderId });
+    }
+    folderUrl(folderId: string): string {
+        return `https://drive.google.com/drive/folders/${folderId}`;
+    }
+}
+
 export class FakeStill implements StillPort {
     calls: { file: string; atSec: number }[] = [];
     /** 設定すると、録画から取り出せないことにする */
@@ -339,6 +363,7 @@ export function makeWorld(extraYaml = "", baseYamlText = baseYaml, existingStore
     const rx = new FakeRx();
     const still = new FakeStill();
     const voice = new FakeVoice();
+    const drive = new FakeDrive();
     const chat = new FakeChat();
     const sheet = new FakeSheet();
     const webhook = new FakeWebhook();
@@ -354,6 +379,7 @@ export function makeWorld(extraYaml = "", baseYamlText = baseYaml, existingStore
         still,
         voice: config.voice.enabled ? voice : undefined,
         voiceDir: "voice-dir",
+        drive: config.drive.folderId ? drive : undefined,
         dns,
         chat,
         sheet,
@@ -377,7 +403,7 @@ export function makeWorld(extraYaml = "", baseYamlText = baseYaml, existingStore
             await flush();
         }
     };
-    return { config, clock, flow, rx, still, voice, chat, sheet, webhook, dns, store, service, logs, flush, run };
+    return { config, clock, flow, rx, still, voice, drive, chat, sheet, webhook, dns, store, service, logs, flush, run };
 }
 
 export type World = ReturnType<typeof makeWorld>;

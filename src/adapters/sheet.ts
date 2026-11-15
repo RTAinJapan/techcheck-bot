@@ -5,7 +5,7 @@
 import { JWT } from "google-auth-library";
 import { readFileSync } from "node:fs";
 import type { SheetPort } from "../ports.js";
-import { sheetColumns } from "../record.js";
+import { columnLetter, sheetColumns } from "../record.js";
 
 const kScope = "https://www.googleapis.com/auth/spreadsheets";
 
@@ -40,11 +40,16 @@ export class GoogleSheet implements SheetPort {
         await this.request(`/values/${encodeURIComponent(range)}?valueInputOption=RAW`, "PUT", { values: [values] });
     }
 
-    /** 1 行目が空なら見出しを書く */
+    /**
+     * 1 行目が空なら見出しを書く。見出しがすでにあり、列があとから増えた (bot の更新で後ろに足した) ときは、足りない後ろの見出しだけを書き足す。
+     * すでにある見出しは書き換えない。
+     */
     private async ensureHeader(): Promise<void> {
         if (this.headerChecked) return;
         const r = (await this.request(`/values/${encodeURIComponent(`${this.tab}!1:1`)}`, "GET")) as { values?: string[][] };
-        if (!r.values || r.values.length === 0) await this.update(`${this.tab}!A1`, [...sheetColumns]);
+        const have = r.values?.[0]?.length ?? 0;
+        if (have === 0) await this.update(`${this.tab}!A1`, [...sheetColumns]);
+        else if (have < sheetColumns.length) await this.update(`${this.tab}!${columnLetter(have)}1`, sheetColumns.slice(have));
         this.headerChecked = true;
     }
 

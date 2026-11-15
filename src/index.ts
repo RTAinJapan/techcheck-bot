@@ -6,6 +6,7 @@ import { Client, Events, GatewayIntentBits } from "discord.js";
 import { resolve } from "node:path";
 import { AwsFlowPort } from "./adapters/aws.js";
 import { NodeDns } from "./adapters/dns.js";
+import { GoogleDrive } from "./adapters/drive.js";
 import { WsReceiver } from "./adapters/receiver.js";
 import { GoogleSheet } from "./adapters/sheet.js";
 import { FfmpegStill } from "./adapters/still.js";
@@ -44,6 +45,8 @@ async function main(): Promise<void> {
         still: new FfmpegStill(config.ffmpeg.path),
         voice,
         voiceDir,
+        // サービスアカウントのキーは、シートと同じもの
+        drive: config.drive.folderId ? new GoogleDrive(config.drive.folderId, resolve(baseDir, config.sheet.credentialsFile)) : undefined,
         dns: new NodeDns(),
         chat: new DiscordChat(client, config),
         sheet: new GoogleSheet(config.sheet.spreadsheetId, config.sheet.tabName, resolve(baseDir, config.sheet.credentialsFile)),
@@ -67,6 +70,7 @@ async function main(): Promise<void> {
             config.voice.enabled ? `する (置き場所 ${voiceDir}。案内するボイスチャンネルは、bot が入れる所のうち空いている所)` : "しない (voice.enabled)"
         }`,
     );
+    log(`録画と録音の Google ドライブへのアップロード: ${config.drive.folderId ? `する (フォルダ ${config.drive.folderId})` : "しない (drive.folderId が未設定)"}`);
     // 通知は 2 つあり、設定も別。どちらも、未設定なら送らない
     log(`運営への通知 (途中の経過と問題。bot がチャンネルに書く): ${config.discord.opsChannelId ? `チャンネル ${config.discord.opsChannelId} に送る` : "discord.opsChannelId が未設定なので送らない (コンソールにだけ出る)"}`);
     log(`結果の通知 (テストが終わったとき。webhook): ${config.notify.webhookUrl ? "送る" : "notify.webhookUrl が未設定なので送らない"}`);

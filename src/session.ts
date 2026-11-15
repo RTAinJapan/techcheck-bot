@@ -157,6 +157,26 @@ export interface SlotState {
     rtmp: { channel?: number; enabled: boolean };
 }
 
+/** 終わったテストの録画と録音を、Google ドライブに上げる仕事 (設計書 §8.1)。bot を起動し直しても続きから上げる */
+export interface UploadJob {
+    id: string;
+    displayName: string;
+    /** ドライブに作るフォルダの名前 (スレッドと同じ名前) */
+    folderName: string;
+    /** 上げるファイル (ローカルのパス) */
+    files: string[];
+    /** 上げ終えたファイル */
+    done: string[];
+    /** 見つからなかったなどで、上げなかったファイルと理由 */
+    skipped: string[];
+    folderId?: string;
+    /** 結果 (フォルダのリンク) を書くシートのセル */
+    sheetCell?: string;
+    /** この時刻を過ぎたら上げる (録画ファイルが閉じるのを待つ。失敗のあとのやり直しまでの間隔にも使う) */
+    readyAt: number;
+    attempts: number;
+}
+
 export interface FinishedRecord {
     sessionId: string;
     sheetRange?: string;

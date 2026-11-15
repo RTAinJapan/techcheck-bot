@@ -79,6 +79,7 @@ Discord の権限の名前は、README と createToken.md では Developer Porta
 | 「トークンと権限」の Discord の webhook | `src/adapters/webhook.ts` |
 | 「トークンと権限」の AWS (許可セットのポリシーのアクション) | `src/adapters/aws.ts` (送っているコマンドが、そのままアクションの名前。認証は AWS SDK の既定の探し方で、プロファイルは `AWS_PROFILE` で選ぶ) |
 | 「トークンと権限」の Google スプレッドシート | `src/adapters/sheet.ts` (OAuth スコープは `https://www.googleapis.com/auth/spreadsheets`) |
+| 「録画と録音を Google ドライブに上げる」と、「トークンと権限」の Google ドライブ | `src/adapters/drive.ts` (OAuth スコープは `https://www.googleapis.com/auth/drive`。フォルダを作る、再開できるアップロード)、`src/service.ts` (`finish` が仕事を積み、`pumpUploads` / `runUpload` が裏で上げる)、`src/record.ts` (`driveColumn`) |
 | 「トークンと権限」の denpachan と、「denpachan」の準備 | `src/adapters/receiver.ts` (繋ぎ方とトークン)、`src/service.ts` (呼ぶメソッド: `startChannel`、`stopChannel`、`setRecording`、`patchChannel`)、`src/config.ts` (loopback 以外ではトークンが必須) |
 | 「準備」の設定ファイル (`${環境変数名}`、相対パス)、「動かす」の設定ファイルの場所 | `src/config.ts` の `expandEnv`、`src/index.ts` の `main` |
 | 「使い方」のコマンドの表 | `src/discord/commands.ts` (定義)、`src/discord/bot.ts` の `InteractionHandler` (運営のロールの確認) |
@@ -102,6 +103,7 @@ Discord の権限の名前は、README と createToken.md では Developer Porta
   - B (bot を別々に動かす) は、コードを変えずにできるはずだが、実際に 2 つ動かしてはいない。サーバの設定でコマンドを使えるチャンネルを bot ごとに絞る手順も、Discord の機能の説明から書いたもの。
 - 受信の設定を bot が入れる動作 ([design.md の §5.8](design.md#58-枠のチャンネルの受信の設定を-bot-が入れる)) のうち、出力が SRT caller の場合 (denpachan が listener で待つ) と、RTMP の枠。出力が SRT listener の場合は、実機で、bot が入れた設定で denpachan が受けてテストが最後まで進むことを確かめた。
 - 録画から静止画を取る動作のうち、RTMP の枠の録画と、bot を別の PC で動かしたときの予備 (フローのサムネイル)。SRT の枠の録画中のファイルから ffmpeg で取り出せることは、実機で確かめた。
+- 録画と録音を Google ドライブに上げる動作 ([design.md の §8.1](design.md#81-録画と録音を-google-ドライブに上げる))。Drive API の代わりの偽物での試験だけで、実際の共有ドライブには上げていない。サービスアカウントを共有ドライブのメンバーにする手順、スコープ `drive` で足りること、数百 MB のファイルを 16 MB ずつ送ったときの時間は、実際に上げて確かめる。
 - マイクの声の録音 ([design.md の §7.3](design.md#73-マイクの声の録音-discord-のボイスチャンネル))。
   - 実際のサーバのボイスチャンネルで、1 人の声を受けて .ogg に書き、ffmpeg で音量を測れることは確かめた (`@discordjs/voice` 0.19.2)。
   - 同じボイスチャンネルに複数人がいるときに、その配信者の声だけが録れることは、見ていない。

@@ -24,6 +24,7 @@
 | RTMP サーバ | SRT で安定しない配信者を案内する先 |
 | denpachan | フローの出力と RTMP サーバの配信を受ける。メトリクスの受信口を有効にする。bot と同じ PC で動かす (別の PC でも動くが、録画から静止画を取れない) |
 | Google スプレッドシート | 結果を書くシートと、サービスアカウントのキー (JSON ファイル) |
+| Google ドライブ (使うときだけ) | 録画と録音を上げる先の共有ドライブ。Google Workspace の共有ドライブが要る (マイドライブには上げられない) |
 
 ## 準備
 
@@ -54,6 +55,7 @@ cp config.example.yaml config.yaml
 | AWS MediaConnect | IAM Identity Center の許可セットを割り当てたプロファイル (環境変数 `AWS_PROFILE`)。リージョンは `aws.region` | 許可セットのポリシーに `mediaconnect:DescribeFlow`、`mediaconnect:StartFlow`、`mediaconnect:StopFlow`、`mediaconnect:DescribeFlowSourceMetadata`、`mediaconnect:DescribeFlowSourceThumbnail` | Resource は `flows` に書いたフローの ARN に絞る |
 | AWS CloudWatch | 同上 | 同じ許可セットのポリシーに `cloudwatch:GetMetricData` | Resource は `*` (リソースで絞れないアクション) |
 | Google スプレッドシート | `sheet.credentialsFile`、`sheet.spreadsheetId`、`sheet.tabName` | シートを、サービスアカウントのメールアドレスに「編集者」で共有する | Google Cloud のプロジェクトで Google Sheets API を有効にしておく。IAM ロールは要らない。`sheet.tabName` の名前のシート (タブ) を作っておく |
+| Google ドライブ | `drive.folderId` (キーは `sheet.credentialsFile` のもの) | サービスアカウントを、上げる先の共有ドライブのメンバー (投稿者以上) にする | 録画と録音を上げるときだけ。Google Cloud のプロジェクトで Google Drive API を有効にしておく。未設定なら上げない |
 | denpachan | `denpachan.host`、`denpachan.port`、`denpachan.token` | 下の「denpachan」のとおり | トークンは、loopback (同じ PC) に繋ぐなら無くてよい。それ以外では必須 |
 
 - Discord の権限の名前は、Developer Portal の日本語の表示のもの。
@@ -137,6 +139,21 @@ voice:
 - 録音は同時に 1 人だけ。SRT の枠を増やして同時にテストしていても、録音そのものは順番になる (bot は同時に 1 つのボイスチャンネルにしか入れない)。同時にテストする人数だけ、ボイスチャンネルを用意しておくと待たせずに済む。
 - bot が入れるボイスチャンネルが 1 つも無いと、録音の手順は飛ばされる (運営に知らせる)。
 - Discord は bot が音声を受け取る機能を文書にしておらず、動作を保証していない。録音できなかったときは運営に知らせ、テストはそのまま進む。
+
+### 録画と録音を Google ドライブに上げる
+
+録画と録音は、bot と denpachan を動かしている PC に残る。後日聞く人がその PC を触れないときは、Google ドライブに上げる。既定では上げない。
+
+```yaml
+drive:
+  folderId: 0AbCdEfGhIjKlMnOpQ      # 共有ドライブ (またはその中のフォルダ) の ID
+```
+
+- **共有ドライブが要る。** bot はサービスアカウント (シートと同じキー) で上げるが、サービスアカウントには保存容量が無く、マイドライブのフォルダには上げられない。Google Workspace の共有ドライブを使い、サービスアカウントのメールアドレスをその共有ドライブのメンバー (投稿者以上) にする。手順は [docs/createToken.md](docs/createToken.md)。
+- テストが終わると、テストごとのフォルダ (`配信テスト 2026-11-15 20:08 pasta`) を作り、そのテストの録画ファイルすべてと録音を入れる。シートの「Google ドライブ」の列に、フォルダのリンクを書く。
+- アップロードは、テストの進行とは別に裏で進む。録画は 15 分のテストで 300 MB ほどあるので、回線の上りによっては数分かかる。それまで、シートには「アップロード待ち」と出る。
+- 上げられなかったときは、間を空けて 3 回まで試し、だめならシートと運営への通知に理由を出す。PC の上のファイルは、上げたあとも消さない。
+- bot を止めても、上げ残したテストは次に起動したときに上げる。
 
 ## 動かす
 

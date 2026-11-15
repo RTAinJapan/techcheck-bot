@@ -62,6 +62,12 @@ sheet:
   tabName: techcheck
   credentialsFile: ./google-service-account.json
 
+# テストの録画と録音を Google ドライブに上げる (README の「録画と録音を Google ドライブに上げる」)。
+# 共有ドライブ (またはその中のフォルダ) の ID を書く。サービスアカウントには保存容量が無いので、マイドライブのフォルダには上げられない。
+# サービスアカウント (sheet.credentialsFile のもの) を、その共有ドライブのメンバーにしておく。書かなければ上げない
+# drive:
+#   folderId: 0AbCdEfGhIjKlMnOpQ
+
 guide:
   obsProfile: "RTA 配信用 2026"
   # 配布した OBS のプロファイルの値。最初の案内で配信者に見せ、届いた配信の解像度と fps が違えば伝える

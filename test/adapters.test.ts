@@ -1,9 +1,10 @@
 import assert from "node:assert/strict";
-import { mkdtempSync, rmSync } from "node:fs";
+import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, it } from "node:test";
 import { NodeDns } from "../src/adapters/dns.js";
+import { GoogleDrive, mimeTypeFor } from "../src/adapters/drive.js";
 import { OggOpusWriter, oggCrc, opusPacketSamples } from "../src/adapters/ogg.js";
 import { FfmpegStill } from "../src/adapters/still.js";
 import { parseVolumedetect } from "../src/adapters/voice.js";
@@ -52,6 +53,69 @@ describe("録音の書き出し (Ogg / Opus)", () => {
         const text = "[Parsed_volumedetect_0 @ 0] n_samples: 0\n[Parsed_volumedetect_0 @ 0] n_samples: 583680\n mean_volume: -15.5 dB\n max_volume: 0.0 dB\n histogram_0db: 1404\n";
         assert.deepEqual(parseVolumedetect(text), { maxDb: 0, meanDb: -15.5, clippedPct: 0.24 });
         assert.deepEqual(parseVolumedetect(""), { maxDb: undefined, meanDb: undefined, clippedPct: undefined });
+    });
+});
+
+describe("Google ドライブへのアップロード", () => {
+    /** Drive API の代わり。受け取ったかたまりを覚え、決めた回数だけ 503 を返す */
+    function fakeDriveApi(failChunks = 0) {
+        const calls: { url: string; method: string; range?: string; bytes: number; body?: string }[] = [];
+        const received: Buffer[] = [];
+        let failures = failChunks;
+        const fetchFn = (async (url: string, init: RequestInit) => {
+            const headers = init.headers as Record<string, string>;
+            const body = init.body;
+            const bytes = body instanceof Uint8Array ? body.length : 0;
+            calls.push({ url: String(url), method: init.method ?? "GET", range: headers["content-range"], bytes, body: typeof body === "string" ? body : undefined });
+            if (String(url).includes("uploadType=resumable")) return new Response(null, { status: 200, headers: { location: "https://upload.example/session-1" } });
+            if (String(url).startsWith("https://upload.example/")) {
+                if (failures > 0) {
+                    failures--;
+                    return new Response("backend error", { status: 503 });
+                }
+                received.push(Buffer.from(body as Uint8Array));
+                const [, end, size] = /bytes \d+-(\d+)\/(\d+)/.exec(headers["content-range"]!)!;
+                return new Response(null, { status: Number(end) + 1 === Number(size) ? 200 : 308 });
+            }
+            return new Response(JSON.stringify({ id: "FOLDER-1" }), { status: 200 });
+        }) as unknown as typeof fetch;
+        return { fetchFn, calls, received };
+    }
+    const token = async () => "token";
+
+    it("フォルダは、アップロード先の中に作る (共有ドライブに対応する指定を付ける)", async () => {
+        const api = fakeDriveApi();
+        const drive = new GoogleDrive("ROOT", token, api.fetchFn);
+        assert.equal(await drive.createFolder("配信テスト 2026-11-15 20:08 pasta"), "FOLDER-1");
+        assert.match(api.calls[0]!.url, /drive\/v3\/files\?supportsAllDrives=true/);
+        assert.deepEqual(JSON.parse(api.calls[0]!.body!), { name: "配信テスト 2026-11-15 20:08 pasta", mimeType: "application/vnd.google-apps.folder", parents: ["ROOT"] });
+        assert.equal(drive.folderUrl("FOLDER-1"), "https://drive.google.com/drive/folders/FOLDER-1");
+    });
+
+    it("ファイルは、かたまりに分けて順に送り、一時的な失敗はやり直す", async () => {
+        const dir = mkdtempSync(join(tmpdir(), "techcheck-drive-"));
+        try {
+            const file = join(dir, "15 20-15-57.mkv");
+            const data = Buffer.from(Array.from({ length: 700 }, (_, i) => i % 251));
+            writeFileSync(file, data);
+            const api = fakeDriveApi(2); // 最初のかたまりが 2 回失敗する
+            const waits: number[] = [];
+            await new GoogleDrive("ROOT", token, api.fetchFn, 256, async (ms) => void waits.push(ms)).upload(file, "FOLDER-1");
+            assert.match(api.calls[0]!.url, /uploadType=resumable&supportsAllDrives=true/);
+            assert.deepEqual(JSON.parse(api.calls[0]!.body!), { name: "15 20-15-57.mkv", parents: ["FOLDER-1"] });
+            assert.deepEqual(api.calls.slice(1).map((c) => c.range), ["bytes 0-255/700", "bytes 0-255/700", "bytes 0-255/700", "bytes 256-511/700", "bytes 512-699/700"]);
+            assert.deepEqual(waits, [2000, 4000]);
+            assert.ok(Buffer.concat(api.received).equals(data), "送った中身が、ファイルと同じ");
+            assert.equal(mimeTypeFor(file), "video/x-matroska");
+            assert.equal(mimeTypeFor("a.ogg"), "audio/ogg");
+        } finally {
+            rmSync(dir, { recursive: true, force: true });
+        }
+    });
+
+    it("サービスアカウントでマイドライブに上げようとしたときは、直し方を添える", async () => {
+        const fetchFn = (async () => new Response('{"error":{"errors":[{"reason":"storageQuotaExceeded"}],"message":"Service Accounts do not have storage quota."}}', { status: 403 })) as unknown as typeof fetch;
+        await assert.rejects(new GoogleDrive("ROOT", token, fetchFn).createFolder("x"), /403 \(サービスアカウントには保存容量がありません。drive\.folderId を、サービスアカウントをメンバーにした共有ドライブの中のフォルダにしてください\)/);
     });
 });
 

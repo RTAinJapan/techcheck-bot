@@ -13,6 +13,7 @@ import type {
     ChatPort,
     Clock,
     DnsPort,
+    DrivePort,
     FlowInfo,
     FlowPort,
     OutMessage,
@@ -25,8 +26,8 @@ import type {
     VoiceRecording,
     WebhookPort,
 } from "./ports.js";
-import { audioVerdictColumn, buildRow, buildWebhookPayload, columnLetter, formatRecPos, formatTime } from "./record.js";
-import type { FinishedRecord, Phase, QueueOffer, QueueState, Session, SlotState, SrtSlotState, StepRecord } from "./session.js";
+import { audioVerdictColumn, buildRow, buildWebhookPayload, cellInRow, columnLetter, driveColumn, formatRecPos, formatTime } from "./record.js";
+import type { FinishedRecord, Phase, QueueOffer, QueueState, Session, SlotState, SrtSlotState, StepRecord, UploadJob } from "./session.js";
 import type { KeyValueStore } from "./store.js";
 
 export interface Deps {
@@ -40,6 +41,8 @@ export interface Deps {
     voice?: VoicePort;
     /** 録音の置き場所 (voice.dir を、設定ファイルのフォルダから見た場所にしたもの) */
     voiceDir?: string;
+    /** 録画と録音を上げる Google ドライブ (設定の drive.folderId があるときだけ渡す) */
+    drive?: DrivePort;
     dns: DnsPort;
     chat: ChatPort;
     sheet: SheetPort;
@@ -75,6 +78,11 @@ const kStillMinRecordSec = 3;
 /** 録画の「今」から、どれだけ手前の絵を取るか (秒)。書き込みが追いついている所を読む */
 const kStillBackSec = 2;
 /** マイクの録音: 届いた声がこれより短ければ「届いていない」とみなす (ミリ秒。Discord は無音の間は送らない) */
+/** テストが終わってから Google ドライブに上げ始めるまで (denpachan が録画ファイルを閉じるのを待つ) */
+const kUploadSettleMs = 10_000;
+/** 上げるのに失敗したとき、やり直す回数と、やり直しまでの間隔 (回数を掛ける) */
+const kUploadAttempts = 3;
+const kUploadRetryMs = 60_000;
 const kVoiceMinMs = 1_000;
 /** マイクの録音: 振り切れたサンプルがこの割合 (%) 以上なら、音が割れていると伝える */
 const kVoiceClippedPct = 0.1;
@@ -169,6 +177,9 @@ export class TechcheckService {
     private orphansChecked = false;
     /** いまマイクの声を録音しているテスト (bot は 1 つのサーバで同時に 1 つのボイスチャンネルにしか入れない) */
     private voiceBusy: string | undefined;
+    /** Google ドライブに上げるのを待っている、終わったテスト (設計書 §8.1)。1 つずつ上げる */
+    private uploads: UploadJob[];
+    private uploading = false;
 
     constructor(private readonly d: Deps) {
         this.cfg = d.config;
@@ -194,6 +205,7 @@ export class TechcheckService {
         d.store.set("slotsConfig", this.slotsConfig);
         this.langPrefs = d.store.get<Record<string, Lang>>("langPrefs") ?? {};
         this.finished = d.store.get<Record<string, FinishedRecord>>("finished") ?? {};
+        this.uploads = d.store.get<UploadJob[]>("uploads") ?? [];
     }
 
     // ================= 外から呼ぶもの =================
@@ -215,9 +227,72 @@ export class TechcheckService {
                 }
                 this.save();
             });
+            this.pumpUploads();
         } finally {
             this.ticking = false;
         }
+    }
+
+    // ================= Google ドライブへのアップロード (設計書 §8.1) =================
+
+    /** 上げる仕事があれば、裏で 1 つ進める。録画は大きく、数分かかるので、ロックの外で、テストの進行を止めずに上げる */
+    private pumpUploads(): void {
+        if (this.uploading || !this.d.drive) return;
+        const job = this.uploads.find((j) => j.readyAt <= this.now());
+        if (!job) return;
+        this.uploading = true;
+        void this.runUpload(job, this.d.drive)
+            .catch((e) => this.log(`Google ドライブ: ${errorText(e)}`))
+            .finally(() => {
+                this.uploading = false;
+            });
+    }
+
+    private async runUpload(job: UploadJob, drive: DrivePort): Promise<void> {
+        try {
+            if (!job.folderId) {
+                job.folderId = await drive.createFolder(job.folderName);
+                this.saveUploads();
+            }
+            for (const file of job.files) {
+                if (job.done.includes(file) || job.skipped.some((x) => x.startsWith(file))) continue;
+                this.log(`Google ドライブ (${job.displayName}): ${file} を上げます`);
+                try {
+                    await drive.upload(file, job.folderId);
+                    job.done.push(file);
+                } catch (e) {
+                    // ファイルが無い (録画先を消した、別の PC の録画) のは、やり直しても直らない。ほかのファイルは上げる
+                    if ((e as NodeJS.ErrnoException).code !== "ENOENT") throw e;
+                    job.skipped.push(`${file} (ファイルがありません)`);
+                }
+                this.saveUploads();
+            }
+        } catch (e) {
+            job.attempts++;
+            if (job.attempts < kUploadAttempts) {
+                job.readyAt = this.now() + kUploadRetryMs * job.attempts;
+                this.saveUploads();
+                this.log(`Google ドライブ (${job.displayName}): 上げられませんでした。あとでやり直します (${job.attempts}/${kUploadAttempts}): ${errorText(e)}`);
+                return;
+            }
+            const reason = errorText(e);
+            return this.closeUpload(job, `アップロード失敗: ${reason}`, `録画と録音を Google ドライブに上げられませんでした: ${job.displayName} (${reason})。ファイルは PC に残っています`);
+        }
+        const url = drive.folderUrl(job.folderId);
+        const skipped = job.skipped.length > 0 ? ` (上げられなかったもの: ${job.skipped.join("、")})` : "";
+        await this.closeUpload(job, `${url}${skipped}`, `録画と録音を Google ドライブに上げました: ${job.displayName} ${url}${skipped}`);
+    }
+
+    /** 上げる仕事を終える: シートの「Google ドライブ」の列に結果を書き、運営に知らせる */
+    private async closeUpload(job: UploadJob, cell: string, notice: string): Promise<void> {
+        this.uploads = this.uploads.filter((j) => j !== job);
+        this.saveUploads();
+        if (job.sheetCell) await this.d.sheet.update(job.sheetCell, [cell]).catch((e) => this.log(`シート: ${errorText(e)}`));
+        await this.ops(notice);
+    }
+
+    private saveUploads(): void {
+        this.d.store.set("uploads", this.uploads);
     }
 
     /** /techcheck start */
@@ -852,6 +927,13 @@ export class TechcheckService {
         lines.push(`RTMP の枠: ch${this.slots.rtmp.channel ?? "?"} / ${this.slots.rtmp.enabled ? "受付中" : "止めている"}`);
         lines.push(`進行中のテスト: ${this.sessions.length > 0 ? this.sessions.map((s) => `${s.displayName} (${s.phase})`).join("、") : "なし"}`);
         lines.push(`待ちの列: ${this.queue.entries.length > 0 ? this.queue.entries.map((e) => e.displayName).join("、") : "なし"}`);
+        if (this.uploads.length > 0) {
+            lines.push(
+                this.d.drive
+                    ? `Google ドライブに上げるのを待っているテスト: ${this.uploads.map((j) => j.displayName).join("、")} (続きから上げます)`
+                    : `Google ドライブに上げるのを待っているテストがありますが、drive.folderId が未設定なので上げません: ${this.uploads.map((j) => j.displayName).join("、")}`,
+            );
+        }
         // 保存してあった状態を、今の設定ファイルに合わせて変えたこと
         lines.push(...this.startupNotes);
         return lines;
@@ -1585,11 +1667,28 @@ export class TechcheckService {
         const threadUrl = this.d.chat.threadUrl(s.threadId);
         let sheetRange: string | undefined;
         let sheetError: string | undefined;
+        // 録画と録音は、このあと裏で Google ドライブに上げる (設定してあれば)。シートには、まず「アップロード待ち」と書いておく
+        const uploadFiles = this.d.drive ? [...s.recordFiles, ...(s.voice?.file ? [s.voice.file] : [])] : [];
         try {
-            sheetRange = await this.d.sheet.append(buildRow(s, this.checks, result, threadUrl));
+            sheetRange = await this.d.sheet.append(buildRow(s, this.checks, result, threadUrl, uploadFiles.length > 0 ? "アップロード待ち" : ""));
         } catch (e) {
             sheetError = errorText(e);
             this.log(`シート: ${sheetError}`);
+        }
+        if (uploadFiles.length > 0) {
+            this.uploads.push({
+                id: s.id,
+                displayName: s.displayName,
+                folderName: `配信テスト ${formatTime(s.createdAt)} ${s.displayName}`.slice(0, 100),
+                files: uploadFiles,
+                done: [],
+                skipped: [],
+                sheetCell: sheetRange ? cellInRow(sheetRange, driveColumn) : undefined,
+                // denpachan が録画ファイルを閉じるのを待ってから上げる
+                readyAt: this.now() + kUploadSettleMs,
+                attempts: 0,
+            });
+            this.saveUploads();
         }
         await this.post(s, { content: this.closingMessage(s, result) }).catch(() => undefined);
         try {

@@ -167,6 +167,9 @@ export const configSchema = z
                 dir: z.string().min(1).prefault("./voice"), // 録音 (.ogg) の置き場所
             })
             .prefault({}),
+        // テストの録画と録音を Google ドライブに上げる。folderId が空なら上げない。
+        // サービスアカウント (sheet.credentialsFile) には保存容量が無いので、共有ドライブ (またはその中のフォルダ) の ID を書く
+        drive: z.object({ folderId: optionalText }).prefault({}),
         // 配信の静止画を、denpachan の録画から取り出すのに使う ffmpeg。既定は PATH の ffmpeg
         ffmpeg: z.object({ path: z.string().min(1).prefault("ffmpeg") }).prefault({}),
         i18n: z.object({ dir: z.string().prefault("./messages"), fallback: lang.prefault("en") }).prefault({}),

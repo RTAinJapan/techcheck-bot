@@ -40,7 +40,19 @@ export const sheetColumns = [
     "スレッド",
     // 列は後ろに足す (前に足すと、すでに書いてあるシートの列がずれる)
     "マイクの録音 (VC)",
+    "Google ドライブ",
 ] as const;
+
+/** Google ドライブへのアップロードの結果を書く列 (0 始まり) */
+export const driveColumn = sheetColumns.indexOf("Google ドライブ");
+
+/** append が返した範囲 (`techcheck!A7:AH7`) から、その行の、ある列のセルを作る */
+export function cellInRow(sheetRange: string, column: number): string | undefined {
+    const row = /(\d+)(?::[A-Z]+\d+)?$/.exec(sheetRange)?.[1];
+    if (!row) return undefined;
+    const tab = sheetRange.includes("!") ? `${sheetRange.split("!")[0]}!` : "";
+    return `${tab}${columnLetter(column)}${row}`;
+}
 
 /** 後日の音声の判定で書き換える列 (0 始まり) */
 export const audioVerdictColumn = sheetColumns.indexOf("音声の判定");
@@ -121,7 +133,8 @@ export function describeVoice(s: Session): string {
     return `${v.file} (${parts.join("、")})`;
 }
 
-export function buildRow(s: Session, checks: CheckStep[], result: "done" | "aborted", threadUrl: string): (string | number)[] {
+/** drive は、Google ドライブの列に最初に書く文 (アップロードが済んだら、フォルダのリンクに書き換える) */
+export function buildRow(s: Session, checks: CheckStep[], result: "done" | "aborted", threadUrl: string, drive = ""): (string | number)[] {
     const m = s.summary;
     const row: Record<(typeof sheetColumns)[number], string | number> = {
         日時: formatTime(s.createdAt),
@@ -157,6 +170,7 @@ export function buildRow(s: Session, checks: CheckStep[], result: "done" | "abor
         配信者のメモ: s.memo ?? "",
         スレッド: threadUrl,
         "マイクの録音 (VC)": describeVoice(s),
+        "Google ドライブ": drive,
     };
     return sheetColumns.map((c) => row[c]);
 }
