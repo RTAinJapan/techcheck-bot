@@ -263,6 +263,24 @@ export const configSchema = z
                     if (urls.has(l[k])) ctx.addIssue({ code: "custom", path: ["webcam", "links", i, k], message: `webcam.links: 同じ URL を 2 回書いています (${k})` });
                     urls.add(l[k]);
                 }
+                // 組の取り違えに気づけるように: 受信用は、送信用と同じストリーム ID (と、部屋を使うなら同じ部屋) を見ること。
+                // 合っていないと、配信者が送っても bot には届かず、「web カメラが届かない」まま時間切れになる
+                const param = (url: string, name: string) => {
+                    try {
+                        return new URL(url).searchParams.get(name);
+                    } catch {
+                        return null;
+                    }
+                };
+                const pushId = param(l.push, "push");
+                const viewId = param(l.view, "view");
+                if (pushId && viewId && pushId !== viewId) {
+                    ctx.addIssue({ code: "custom", path: ["webcam", "links", i, "view"], message: `webcam.links: view のストリーム ID (${viewId}) が、push (${pushId}) と違います` });
+                }
+                const room = param(l.push, "room");
+                if (room && param(l.view, "room") !== room) {
+                    ctx.addIssue({ code: "custom", path: ["webcam", "links", i, "view"], message: `webcam.links: push が部屋 (room=${room}) を使っているので、view にも同じ &room=${room} が要ります (https://vdo.ninja/?view=<ID>&solo&room=<部屋> の形。部屋を付けないと届きません)` });
+                }
             });
         }
         if (c.notify.webhookUrl && !/^https:\/\//.test(c.notify.webhookUrl)) {

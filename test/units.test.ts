@@ -106,6 +106,11 @@ describe("config", () => {
         const c = parseConfig(baseYaml + one, {});
         assert.equal(c.webcam.links[0]!.push, "https://vdo.ninja/?push=a");
         assert.deepEqual([c.webcam.browser.channel, c.webcam.browser.path, c.webcam.lostSec], ["chrome", "", 10]);
+        // 部屋を使う送信用の URL には、同じ部屋とストリーム ID の受信用の URL が要る
+        const room = (view: string) => `webcam:\n  links:\n    - push: "https://vdo.ninja/?room=r1&push=s1&broadcast&directorsonly&webcam"\n      view: "${view}"\n`;
+        assert.equal(parseConfig(baseYaml + room("https://vdo.ninja/?view=s1&solo&room=r1"), {}).webcam.links.length, 1);
+        assert.throws(() => parseConfig(baseYaml + room("https://vdo.ninja/?view=s1"), {}), /同じ &room=r1 が要ります/);
+        assert.throws(() => parseConfig(baseYaml + room("https://vdo.ninja/?view=s2&solo&room=r1"), {}), /view のストリーム ID \(s2\) が、push \(s1\) と違います/);
         // マイクの声の録音は、VDO.ninja の手順が最後に足される。Discord のボイスチャンネルと両方は使えない
         assert.equal(c.checks.at(-1)!.kind, "webcamVoice");
         assert.equal(parseConfig(`${baseYaml + one}  mic: false\n`, {}).checks.length, defaultChecks.length);
