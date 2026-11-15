@@ -603,7 +603,7 @@ describe("マイクの声の録音 (ボイスチャンネル)", () => {
         await press(w, thread, "step-start");
         await w.flush();
         assert.deepEqual({ ...w.voice.calls[0], file: "" }, { channelId: "VC-1", userId: "U1", file: "", seconds: 15 });
-        assert.match(w.voice.calls[0]!.file, /^voice-dir\/2026-11-01-12-\d\d Runner_A U1\.ogg$/);
+        assert.match(w.voice.calls[0]!.file, /^voice-dir\/2026-11-01-12-\d\d-\d\d Runner_A U1\.ogg$/);
         const texts = w.chat.texts(thread);
         assert.ok(texts.some((x) => x.includes("録音しています。15 秒ほど")));
         assert.ok(texts.some((x) => x.includes("録音しました (声が 10 秒ぶん届きました)")));
@@ -638,8 +638,8 @@ describe("マイクの声の録音 (ボイスチャンネル)", () => {
         const again = w.chat.lastPost(thread)!;
         assert.match(again.content, /手順 6\/6[\s\S]*入るボイスチャンネル: <#VC-1>/);
         assert.deepEqual(again.buttons?.map((b) => b.label), ["始める", "マイクは使わない"]);
-        // 2 回目: ちょうどよい
-        w.clock.t += 60_000;
+        // 2 回目: ちょうどよい。同じ分のうちに録り直しても、前の録音を上書きしない (ファイル名に秒まで入れる)
+        w.clock.t += 20_000;
         w.voice.next = { packets: 500, bytes: 60_000, audioMs: 11_000, maxDb: -5, meanDb: -22, clippedPct: 0 };
         await press(w, thread, "step-start");
         await w.flush();

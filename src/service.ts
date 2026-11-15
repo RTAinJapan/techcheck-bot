@@ -1442,7 +1442,8 @@ export class TechcheckService {
         const voice = this.d.voice!;
         const s0 = this.sessions.find((x) => x.id === sessionId);
         if (!s0) return;
-        const stamp = formatTime(this.now()).replace(/[: ]/g, "-");
+        // 秒まで入れる: 録り直しが同じ分のうちに始まっても、前の録音を上書きしない (分までだと、同じ名前になる)
+        const stamp = `${formatTime(this.now()).replace(/[: ]/g, "-")}-${String(Math.floor(this.now() / 1000) % 60).padStart(2, "0")}`;
         const safeName = s0.displayName.replace(/[^\p{L}\p{N}_-]+/gu, "_").slice(0, 40);
         const file = `${this.d.voiceDir ?? "."}/${stamp} ${safeName} ${s0.userId}.ogg`;
         let result: VoiceRecording | undefined;
