@@ -416,6 +416,47 @@ describe("届いた配信の形を、期待する出力と比べる", () => {
     });
 });
 
+describe("結果のまとめ", () => {
+    it("配信者には、手順を意味の分かる名前で見せる (内部の名前は出さない)。シートは内部の名前のまま", async () => {
+        const w = makeWorld("voice: { enabled: true }\n");
+        const { thread } = await startAndStream(w);
+        await passChecks(w, thread);
+        await press(w, thread, "voice-skip");
+        const done = w.chat.lastPost(thread)!.content;
+        const labels = ["ゲーム音が来ている", "無音シーン", "OBS にマイクが入っていない", "OBS にゲーム以外のデスクトップ音などが入っていない", "送信されたゲーム映像が意図通り", "マイク音"];
+        assert.deepEqual(
+            done.split("\n").filter((l) => l.startsWith("- ")).map((l) => l.replace(/: [^:]*$/, "")),
+            labels.map((l) => `- ${l}`),
+        );
+        assert.match(done, /- ゲーム音が来ている: OK\n/);
+        assert.ok(!/game-audio|silence|desktop|picture|voice/.test(done));
+        await w.service.complete(sessionIdOf(w, thread), "");
+        const closing = w.chat.texts(thread).find((x) => x.includes("配信テストの結果"))!;
+        assert.match(closing, /- ゲーム音が来ている: OK \d\d:\d\d-\d\d:\d\d\n- 無音シーン: OK/);
+        assert.ok(!closing.includes("game-audio"));
+        // シートは運営向けなので、これまでどおりの名前
+        assert.match(String(w.sheet.rows[0]![25]), /^game-audio: OK/);
+
+        // 英語の案内では英語の名前
+        const en = makeWorld();
+        await en.service.start(U1, "C-test", "en", "en-US");
+        await en.flush();
+        en.flow.sampleAt = (t) => goodSample(t);
+        await en.run(140, () => en.rx.live(7));
+        const t = en.chat.threads[0]!.id;
+        await passChecks(en, t);
+        assert.match(en.chat.lastPost(t)!.content, /- Game audio arrives: /);
+    });
+
+    it("名前を付けていない手順 (設定の checks に自分で足したもの) は、id のまま出す", async () => {
+        const custom = [{ id: "my-step", kind: "confirm", seconds: 0, text: { ja: "よいですか", en: "OK?" }, failHint: { ja: "直してください", en: "Fix it" } }];
+        const w = makeWorld(`checks: ${JSON.stringify(custom)}\n`);
+        const { thread } = await startAndStream(w);
+        await press(w, thread, "yes");
+        assert.match(w.chat.lastPost(thread)!.content, /- my-step: OK/);
+    });
+});
+
 describe("録画ファイルが途中で切り替わる", () => {
     it("区間にファイル名を添え、シートにすべてのファイルを残す (1 つだけなら添えない)", async () => {
         const w = makeWorld();

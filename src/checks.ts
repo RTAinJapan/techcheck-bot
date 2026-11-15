@@ -6,6 +6,7 @@ import type { CheckStep } from "./config.js";
 export const defaultChecks: CheckStep[] = [
     {
         id: "game-audio",
+        label: { ja: "ゲーム音が来ている", en: "Game audio arrives" },
         kind: "sound",
         seconds: 15,
         thresholdDb: -40,
@@ -21,6 +22,7 @@ export const defaultChecks: CheckStep[] = [
     },
     {
         id: "silence",
+        label: { ja: "無音シーン", en: "Silent scene" },
         kind: "silence",
         seconds: 10,
         thresholdDb: -60,
@@ -36,6 +38,7 @@ export const defaultChecks: CheckStep[] = [
     },
     {
         id: "mic",
+        label: { ja: "OBS にマイクが入っていない", en: "Microphone is not in the OBS audio" },
         kind: "quiet",
         seconds: 10,
         marginDb: 6,
@@ -51,6 +54,7 @@ export const defaultChecks: CheckStep[] = [
     },
     {
         id: "desktop",
+        label: { ja: "OBS にゲーム以外のデスクトップ音などが入っていない", en: "No desktop or other non-game audio in OBS" },
         kind: "quiet",
         seconds: 10,
         marginDb: 6,
@@ -65,6 +69,7 @@ export const defaultChecks: CheckStep[] = [
     },
     {
         id: "picture",
+        label: { ja: "送信されたゲーム映像が意図通り", en: "The game picture is as intended" },
         kind: "confirm",
         seconds: 0,
         text: {
@@ -86,6 +91,7 @@ export const defaultChecks: CheckStep[] = [
  */
 export const reconnectStep: CheckStep = {
     id: "reconnect",
+    label: { ja: "配信を始め直して戻れる", en: "Stream comes back after a restart" },
     kind: "reconnect",
     seconds: 60,
     text: {
@@ -106,6 +112,7 @@ export const reconnectStep: CheckStep = {
  */
 export const voiceStep: CheckStep = {
     id: "voice",
+    label: { ja: "マイク音", en: "Microphone voice" },
     kind: "voice",
     seconds: 15,
     text: {

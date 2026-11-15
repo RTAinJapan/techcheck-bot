@@ -1545,8 +1545,16 @@ export class TechcheckService {
         await this.promptStep(s);
     }
 
+    /**
+     * 配信者に見せる、手順の名前 (何を確かめた手順か)。手順の id (game-audio など) は運営向けの記録に使う名前で、
+     * 配信者には意味が分かりにくい。label の無い手順 (設定の checks に自分で足したもの) は id のまま出す
+     */
+    private stepLabel(s: Session, id: string): string {
+        return this.checks.find((c) => c.id === id)?.label?.[s.lang] ?? id;
+    }
+
     private async checksDone(s: Session): Promise<void> {
-        const lines = s.results.map((r) => `- ${r.id}: ${this.t(s.lang, `verdict.${r.verdict}`)}${r.skipped ? ` (${this.t(s.lang, "checks.skipped")})` : ""}`);
+        const lines = s.results.map((r) => `- ${this.stepLabel(s, r.id)}: ${this.t(s.lang, `verdict.${r.verdict}`)}${r.skipped ? ` (${this.t(s.lang, "checks.skipped")})` : ""}`);
         await this.post(s, {
             content: `${this.t(s.lang, "checks.done")}\n${lines.join("\n")}`,
             buttons: [this.btn(s, "done", "button.done", "success"), this.btn(s, "abort", "button.abort", "danger")],
@@ -1719,7 +1727,7 @@ export class TechcheckService {
         if (s.protocol === "srt" && s.confirmedLatencyMs) lines.push(this.t(s.lang, "finish.latency", { latencyUs: obsLatency(s.confirmedLatencyMs) }));
         for (const r of s.results) {
             const range = r.recFrom !== undefined ? ` ${formatRecPos(r.recFrom)}-${formatRecPos(r.recTo)}` : "";
-            lines.push(`- ${r.id}: ${this.t(s.lang, `verdict.${r.verdict}`)}${range}`);
+            lines.push(`- ${this.stepLabel(s, r.id)}: ${this.t(s.lang, `verdict.${r.verdict}`)}${range}`);
         }
         lines.push(this.t(s.lang, "finish.bye"));
         return lines.join("\n");

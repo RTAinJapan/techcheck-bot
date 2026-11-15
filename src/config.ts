@@ -20,6 +20,9 @@ const localized = z.object({ ja: nonEmpty, en: nonEmpty });
 
 export const checkStepSchema = z.object({
     id: nonEmpty,
+    // 配信者に見せる結果のまとめでの、この手順の名前 (何を確かめた手順か)。省くと id をそのまま出す。
+    // id はシートなど運営向けの記録に使う名前で、配信者には意味が分かりにくい
+    label: localized.optional(),
     // sound: 音が載ることを期待 / silence: 静かにする (ノイズの大きさを測る) / quiet: 載らないことを期待 (基準は silence)
     // confirm: 静止画を見て はい / いいえ / reconnect: 配信を止めて始め直す
     // voice: Discord のボイスチャンネルで話してもらい、その声を録音する (voice.enabled が要る)
