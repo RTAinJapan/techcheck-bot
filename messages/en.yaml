@@ -31,6 +31,8 @@ button:
   retry: "Retry"
   next: "Continue anyway"
   voiceSkip: "I don't use a mic"
+  voiceRetry: "Record again"
+  voiceNext: "Looks good"
   done: "Finish"
 
 prepare:
@@ -104,7 +106,9 @@ voice:
   freed: "Thank you for waiting. A voice channel is free now."
   busy: "We are recording someone else right now. Wait a moment and press again."
   recording: "Recording. Talk in your normal voice for about {seconds} seconds…"
-  recorded: "Recorded ({seconds} seconds of your voice reached us). Staff will listen to it later. Please leave the voice channel."
+  recorded: "Recorded ({seconds} seconds of your voice reached us). Staff will listen to it later."
+  retryHint: "To adjust your microphone volume and record again, press \"Record again\". If this is fine, press \"Looks good\"."
+  leave: "Please leave the voice channel."
   level: "Level of your voice as it reached us: peak {max} dB, average {mean} dB (0 dB is the limit)."
   waveform: "The image below is the waveform of the recording. The red lines at the top and bottom are the limit; where the wave touches them, your voice clips."
   clipped: "Your voice clips in places. Try lowering your microphone input volume a little."

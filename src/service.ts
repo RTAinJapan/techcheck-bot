@@ -1475,15 +1475,18 @@ export class TechcheckService {
             if (result.waveform) notes.push(this.t(s.lang, "voice.waveform"));
             if ((result.clippedPct ?? 0) >= kVoiceClippedPct) notes.push(this.t(s.lang, "voice.clipped"));
             else if (result.meanDb !== undefined && result.meanDb < kVoiceQuietDb) notes.push(this.t(s.lang, "voice.quiet"));
+            // すぐには次へ進まない: 音量を見て、配信者が自分でマイクの入力を直して録り直せるように、「録り直す」と「これでよい」を出す。
+            // 録り直すと、記録に残る (シートとドライブに上がる) のは最後の録音
+            notes.push(this.t(s.lang, "voice.retryHint"));
             await this.post(s, {
                 content: [this.t(s.lang, "voice.recorded", { seconds: Math.round(result.audioMs / 1000) }), ...notes].join("\n"),
                 image: result.waveform ? { name: "voice-waveform.png", data: result.waveform } : undefined,
+                buttons: [this.btn(s, "step-retry", "button.voiceRetry", "secondary"), this.btn(s, "step-next", "button.voiceNext", "primary")],
             });
             s.results = s.results.filter((x) => x.id !== step.id);
             s.results.push({ id: step.id, verdict: "ok", value: result.meanDb });
+            s.checkState = "result";
             s.lastActivity = this.now();
-            s.checkIndex++;
-            await this.promptStep(s);
             this.save();
         });
     }
@@ -1634,8 +1637,12 @@ export class TechcheckService {
             }
             case "step-next": {
                 if (s.phase !== "checks" || s.checkState !== "result") return { ephemeral: this.t(s.lang, "button.ack") };
-                const rec = s.results.find((r) => r.id === this.checks[s.checkIndex]?.id);
-                if (rec) rec.skipped = true;
+                const step = this.checks[s.checkIndex];
+                const rec = s.results.find((r) => r.id === step?.id);
+                // 「おかしい」のまま進めた印。録音の手順の「次へ」は、録音できたあとにも出るので、判定が「おかしい」のときだけ付ける
+                if (rec && rec.verdict === "ng") rec.skipped = true;
+                // 録音の手順を抜けるとき: ボイスチャンネルを空けてもらう (残っていると、次の人に案内できない)
+                if (step?.kind === "voice") await this.post(s, { content: this.t(s.lang, "voice.leave") });
                 s.checkIndex++;
                 await this.promptStep(s);
                 return {};

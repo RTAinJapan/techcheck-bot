@@ -461,6 +461,7 @@ describe("録画と録音を Google ドライブに上げる", () => {
             w.voice.where.U1 = "VC-1";
             await press(w, thread, "step-start");
             await w.flush();
+            await press(w, thread, "step-next");
         }
         await w.service.complete(sessionIdOf(w, thread), "");
         return w;
@@ -564,17 +565,50 @@ describe("マイクの声の録音 (ボイスチャンネル)", () => {
         assert.match(w.voice.calls[0]!.file, /^voice-dir\/2026-11-01-12-\d\d Runner_A U1\.ogg$/);
         const texts = w.chat.texts(thread);
         assert.ok(texts.some((x) => x.includes("録音しています。15 秒ほど")));
-        assert.ok(texts.some((x) => x.includes("録音しました (声が 10 秒ぶん届きました)") && x.includes("ボイスチャンネルからは退出してください")));
+        assert.ok(texts.some((x) => x.includes("録音しました (声が 10 秒ぶん届きました)")));
         // どれくらいの音量で届いたかを、数字と波形の画像で返す
-        const recorded = w.chat.posts.find((p) => p.threadId === thread && p.msg.content.includes("録音しました"))!.msg;
+        const recorded = w.chat.lastPost(thread)!;
         assert.match(recorded.content, /届いた声の音量: 最大 -6 dB、平均 -24 dB \(0 dB が上限です\)。\n下の画像は、録音した声の波形です/);
         assert.equal(recorded.image?.name, "voice-waveform.png");
         assert.equal(recorded.image?.data.toString(), "waveform");
+        // すぐには次へ進まない: 音量を見て、録り直すか、これでよいかを配信者が選ぶ
+        assert.match(recorded.content, /マイクの音量を直して録り直すときは「録り直す」を、これでよければ「これでよい」を押してください/);
+        assert.deepEqual(recorded.buttons?.map((b) => b.label), ["録り直す", "これでよい"]);
+        await press(w, thread, "step-next");
+        assert.ok(w.chat.texts(thread).some((x) => x === "ボイスチャンネルからは退出してください。"));
         assert.match(w.chat.lastPost(thread)!.content, /確認はすべて終わりました/);
+        assert.ok(!w.chat.lastPost(thread)!.content.includes("そのまま進めた"));
         await w.service.complete(sessionIdOf(w, thread), "");
         const row = w.sheet.rows[0]!;
         assert.match(String(row[sheetColumns.indexOf("マイクの録音 (VC)")]), /^voice-dir\/.*U1\.ogg \(声 10 秒、最大 -6 dB、平均 -24 dB\)$/);
-        assert.match(String(row[25]), /voice: OK \(-24 dB\)/);
+        assert.match(String(row[25]), /voice: OK \(-24 dB\)$/);
+    });
+
+    it("録音のあと、音量を直して録り直せる。記録に残るのは最後の録音", async () => {
+        const { w, thread } = await toVoiceStep();
+        w.voice.where.U1 = "VC-1";
+        // 1 回目: 声が小さい
+        w.voice.next = { packets: 400, bytes: 30_000, audioMs: 9_000, maxDb: -30, meanDb: -48, clippedPct: 0 };
+        await press(w, thread, "step-start");
+        await w.flush();
+        assert.match(w.chat.lastPost(thread)!.content, /声が小さめです/);
+        await press(w, thread, "step-retry");
+        // 同じボイスチャンネルを、もう一度案内する
+        const again = w.chat.lastPost(thread)!;
+        assert.match(again.content, /手順 6\/6[\s\S]*入るボイスチャンネル: <#VC-1>/);
+        assert.deepEqual(again.buttons?.map((b) => b.label), ["始める", "マイクは使わない"]);
+        // 2 回目: ちょうどよい
+        w.clock.t += 60_000;
+        w.voice.next = { packets: 500, bytes: 60_000, audioMs: 11_000, maxDb: -5, meanDb: -22, clippedPct: 0 };
+        await press(w, thread, "step-start");
+        await w.flush();
+        assert.ok(!w.chat.lastPost(thread)!.content.includes("声が小さめです"));
+        await press(w, thread, "step-next");
+        assert.equal(w.voice.calls.length, 2);
+        assert.notEqual(w.voice.calls[0]!.file, w.voice.calls[1]!.file, "録り直しは別のファイルに録る");
+        await w.service.complete(sessionIdOf(w, thread), "");
+        const cell = String(w.sheet.rows[0]![sheetColumns.indexOf("マイクの録音 (VC)")]);
+        assert.ok(cell.startsWith(w.voice.calls[1]!.file) && cell.includes("平均 -22 dB"));
     });
 
     it("声が届かなければ直し方を出し、やり直せる。音が割れていれば伝える", async () => {
@@ -764,7 +798,11 @@ describe("マイクの声の録音 (ボイスチャンネル)", () => {
         w.voice.where.U1 = "VC-1";
         await press(w, t1, "step-start", U1);
         await w.flush();
-        // 1 人目の録音は終わったが、まだ中にいる
+        // 1 人目の録音は終わったが、録り直すかもしれないので、ボイスチャンネルは 1 人目のもののまま
+        await w.run(2, quiet(w));
+        assert.match(w.chat.lastPost(t2)!.content, /いま、空いているボイスチャンネルがありません/);
+        // 1 人目が「これでよい」で次へ進んだが、まだ中にいる
+        await press(w, t1, "step-next", U1);
         await w.run(2, quiet(w));
         assert.match(w.chat.lastPost(t2)!.content, /いま、空いているボイスチャンネルがありません/);
         delete w.voice.where.U1;
