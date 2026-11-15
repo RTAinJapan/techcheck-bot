@@ -465,6 +465,70 @@ describe("結果のまとめ", () => {
     });
 });
 
+describe("ゲームの音を完全には消せない", () => {
+    it("「音を消せない」で、小さくした音量を測って進む。その音量を基準に、あとの手順を比べる", async () => {
+        const w = makeWorld();
+        const { thread } = await startAndStream(w);
+        await press(w, thread, "step-start");
+        await w.run(18, () => w.rx.live(7, { peak: -20 }));
+        // 「静かにする」手順には、「始める」と「音を消せない」がある
+        const prompt = w.chat.lastPost(thread)!;
+        assert.match(prompt.content, /ゲームの音を完全には消せない場合は「音を消せない」を押してください/);
+        assert.deepEqual(prompt.buttons?.map((b) => b.label), ["始める", "音を消せない"]);
+        await press(w, thread, "cannot-mute");
+        assert.match(w.chat.lastPost(thread)!.content, /ゲームの音をできるだけ小さくして、10 秒ほどそのままにしてください/);
+        assert.ok(w.chat.opsLog.some((l) => l.includes("ゲームの音を消せないとの申告: Runner A")));
+        // ゲームの音が -45 dB で残っている: 無音ではないが、「おかしい」とは言わずに進む
+        await w.run(13, () => w.rx.live(7, { peak: -45 }));
+        const texts = w.chat.texts(thread);
+        assert.ok(!texts.some((x) => x.includes("何も鳴らしていないのに音が載っています")));
+        // マイクの手順: 同じ音量のままにしてもらう。ゲームの音と同じ大きさなら OK
+        const mic = w.chat.lastPost(thread)!;
+        assert.match(mic.content, /手順 3\/5[\s\S]*\(ゲームの音は、さきほどと同じ小さい音量のままにしてください。\)/);
+        assert.deepEqual(mic.buttons?.map((b) => b.label), ["始める"]);
+        await press(w, thread, "step-start");
+        await w.run(13, () => w.rx.live(7, { peak: -44 }));
+        assert.match(w.chat.lastPost(thread)!.content, /手順 4\/5/);
+        // PC の音の手順: 基準よりずっと大きい音が載ったら伝えるが、ゲームの音が大きくなっただけのこともあると添える
+        await press(w, thread, "step-start");
+        await w.run(13, () => w.rx.live(7, { peak: -20 }));
+        const ng = w.chat.lastPost(thread)!;
+        assert.match(ng.content, /PC の音が配信に入っています[\s\S]*ゲームの音が大きくなっただけのこともあります/);
+        await press(w, thread, "step-next");
+        await press(w, thread, "yes");
+        await w.service.complete(sessionIdOf(w, thread), "");
+        const checks = String(w.sheet.rows[0]![kChecks]);
+        assert.match(checks, /silence: 判定なし \(ゲームの音を消せない\) \(-45 dB\)/);
+        assert.match(checks, /mic: OK/);
+        assert.match(checks, /desktop: おかしい \(そのまま進めた\)/);
+        assert.equal(w.sheet.rows[0]![col("ノイズ (dBFS)")], -45);
+    });
+
+    it("「始める」でやり直せば、音を消せる扱いに戻る", async () => {
+        const w = makeWorld();
+        const { thread } = await startAndStream(w);
+        await press(w, thread, "step-start");
+        await w.run(18, () => w.rx.live(7, { peak: -20 }));
+        // 「音を消せない」は、「静かにする」手順でだけ効く
+        await press(w, thread, "cannot-mute");
+        await w.run(13, () => w.rx.live(7, { peak: -45 }));
+        assert.equal((await press(w, thread, "cannot-mute")).ephemeral, "受け付けました。");
+        // ここでは戻せないので、別のテストで: 音を消せた人は、これまでどおり判定する
+        const ok = makeWorld();
+        const t = await startAndStream(ok);
+        await press(ok, t.thread, "step-start");
+        await ok.run(18, () => ok.rx.live(7, { peak: -20 }));
+        await press(ok, t.thread, "step-start");
+        await ok.run(13, () => ok.rx.live(7, { peak: -45 }));
+        assert.match(ok.chat.lastPost(t.thread)!.content, /何も鳴らしていないのに音が載っています/);
+        // 「やり直す」→「音を消せない」に切り替えられる
+        await press(ok, t.thread, "step-retry");
+        await press(ok, t.thread, "cannot-mute");
+        await ok.run(13, () => ok.rx.live(7, { peak: -45 }));
+        assert.match(ok.chat.lastPost(t.thread)!.content, /手順 3\/5/);
+    });
+});
+
 describe("録画ファイルが途中で切り替わる", () => {
     it("区間にファイル名を添え、シートにすべてのファイルを残す (1 つだけなら添えない)", async () => {
         const w = makeWorld();

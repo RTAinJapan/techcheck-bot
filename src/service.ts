@@ -1370,10 +1370,12 @@ export class TechcheckService {
             return;
         }
         if (step.kind === "voice") return this.promptVoice(s, step, false);
-        await this.post(s, {
-            content: `${header}\n${step.text[s.lang]}`,
-            buttons: [this.btn(s, "step-start", "button.stepStart", "primary")],
-        });
+        const buttons = [this.btn(s, "step-start", "button.stepStart", "primary")];
+        // ゲームによっては、音を完全には消せない。その人は「音を消せない」で、できるだけ小さくした状態を測って進む
+        if (step.kind === "silence") buttons.push(this.btn(s, "cannot-mute", "button.cannotMute", "secondary"));
+        // 音を消せない人には、このあとの「載らない」手順で、同じ小さい音量のままにしてもらう (その音量を基準に比べる)
+        const note = step.kind === "quiet" && s.cannotMute ? `\n${this.t(s.lang, "checks.cannotMuteKeep")}` : "";
+        await this.post(s, { content: `${header}\n${step.text[s.lang]}${note}`, buttons });
     }
 
     /** いま録音の手順にいて、ボイスチャンネルを案内してある、ほかのテスト */
@@ -1521,6 +1523,8 @@ export class TechcheckService {
         if (elapsed >= (step.seconds + 2) * 1000) {
             const r = evaluateAudioStep(step, this.d.rx.connected() ? s.checkPeaks : [], s.noiseDb, this.cfg.judge.silentDb);
             if (step.kind === "silence" && r.value !== undefined) s.noiseDb = r.value;
+            // ゲームの音を消せない人: 無音にはならないので、判定はしない (測った大きさは、このあとの手順の基準として残す)
+            if (step.kind === "silence" && s.cannotMute) return this.stepResult(s, step, { verdict: "unknown", value: r.value });
             return this.stepResult(s, step, r);
         }
     }
@@ -1535,8 +1539,10 @@ export class TechcheckService {
         s.checkState = "result";
         s.lastActivity = this.now();
         if (r.verdict === "ng") {
+            // 音を消せない人の「載らない」手順は、ゲームの音が大きくなっただけでも「おかしい」になる。そのことを添える
+            const note = step.kind === "quiet" && s.cannotMute ? `\n${this.t(s.lang, "checks.cannotMuteNg")}` : "";
             await this.post(s, {
-                content: `${this.t(s.lang, "checks.ng")}\n${step.failHint[s.lang]}`,
+                content: `${this.t(s.lang, "checks.ng")}\n${step.failHint[s.lang]}${note}`,
                 buttons: [this.btn(s, "step-retry", "button.retry", "primary"), this.btn(s, "step-next", "button.next", "secondary")],
             });
             return;
@@ -1613,11 +1619,26 @@ export class TechcheckService {
                     void this.recordVoice(s.id, channelId, step);
                     return {};
                 }
+                // 「静かにする」手順を「始める」でやり直したら、音を消せる扱いに戻す
+                if (step.kind === "silence") s.cannotMute = false;
                 s.checkState = "running";
                 s.checkStartedAt = this.now();
                 this.markCheckStart(s);
                 s.checkPeaks = [];
                 await this.post(s, { content: this.t(s.lang, "checks.running", { seconds: step.seconds }) });
+                return {};
+            }
+            case "cannot-mute": {
+                // ゲームの音を完全には消せない人: できるだけ小さくした状態を測って、そのまま進む (設計書 §7.1)
+                const step = this.checks[s.checkIndex];
+                if (s.phase !== "checks" || step?.kind !== "silence" || s.checkState !== "prompt") return { ephemeral: this.t(s.lang, "button.ack") };
+                s.cannotMute = true;
+                s.checkState = "running";
+                s.checkStartedAt = this.now();
+                this.markCheckStart(s);
+                s.checkPeaks = [];
+                await this.post(s, { content: this.t(s.lang, "checks.cannotMuteRunning", { seconds: step.seconds }) });
+                await this.ops(`ゲームの音を消せないとの申告: ${s.displayName}。音声は、録画を聞いて確かめてください`);
                 return {};
             }
             case "yes":

@@ -85,6 +85,8 @@ export interface Session {
     stillWarned?: boolean;
     /** マイクの声の録音 (Discord のボイスチャンネル)。skipped は「マイクは使わない」 */
     voice?: { file?: string; audioMs?: number; maxDb?: number; meanDb?: number; clippedPct?: number; skipped?: boolean };
+    /** 「静かにする」手順で、ゲームの音を完全には消せないと申告した (その手順は判定せず、測った大きさをあとの手順の基準にする) */
+    cannotMute?: boolean;
     /** 録音の手順で、この人に案内したボイスチャンネル。手順が終わるまで、ほかの人には案内しない */
     voiceChannelId?: string;
     streamFps?: number;

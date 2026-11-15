@@ -117,7 +117,9 @@ export function describeChecks(s: Session, checks: CheckStep[]): string {
             const step = checks.find((c) => c.id === r.id);
             const range = describeRange(r, s.recordFiles.length);
             const value = r.value !== undefined ? ` (${step?.kind === "sound" ? `${Math.round(r.value * 100)}%` : `${r.value} dB`})` : "";
-            return `${r.id}: ${verdictJa[r.verdict]}${r.skipped ? " (そのまま進めた)" : ""}${value}${range}`;
+            // ゲームの音を消せないと申告した人: 聞く人が、ゲームの音が残っている前提で聞けるように
+            const cannotMute = step?.kind === "silence" && s.cannotMute ? " (ゲームの音を消せない)" : "";
+            return `${r.id}: ${verdictJa[r.verdict]}${r.skipped ? " (そのまま進めた)" : ""}${cannotMute}${value}${range}`;
         })
         .join(" / ");
 }

@@ -28,8 +28,8 @@ export const defaultChecks: CheckStep[] = [
         thresholdDb: -60,
         // 「ミュートして」とだけ書くと、OBS の側でミュートしてしまい、配信に載る音の確認にならない。ゲームの側で音を止めてもらう
         text: {
-            ja: "ゲームの側で音が出ない状態にして、10 秒ほど静かにしてください。ゲームの中で音の無い場面に移るか、ゲーム内の設定で音量を 0 にします。OBS の設定 (ミュートや音量) は変えないでください。",
-            en: "Make the game itself silent and stay quiet for about 10 seconds. Move to a scene with no sound in the game, or set the volume to 0 in the game's own settings. Do not change anything in OBS (mute or volume).",
+            ja: "ゲームの側で音が出ない状態にして、10 秒ほど静かにしてください。ゲームの中で音の無い場面に移るか、ゲーム内の設定で音量を 0 にします。OBS の設定 (ミュートや音量) は変えないでください。ゲームの音を完全には消せない場合は「音を消せない」を押してください。",
+            en: "Make the game itself silent and stay quiet for about 10 seconds. Move to a scene with no sound in the game, or set the volume to 0 in the game's own settings. Do not change anything in OBS (mute or volume). If the game cannot be made completely silent, press \"Can't mute the game\".",
         },
         failHint: {
             ja: "何も鳴らしていないのに音が載っています (ノイズの可能性)。キャプチャボードの音量や、ゲーム機の設定を確かめてください。",
