@@ -30,13 +30,16 @@ CI (`.github/workflows/ci.yml`) でも、型の確認・試験・ビルドを回
 ## README とコードの対応
 
 README の次の箇所は、コードが実際にしていることを写したもの。コードを変えたら README も直す。コードの側にも、同じことをコメントで書いてある。
+Discord と AWS の権限を変えたら、[createToken.md](createToken.md) の招待の URL (権限の整数) と許可セットのポリシーも直す。
+
+Discord の権限の名前は、README と createToken.md では Developer Portal の日本語の表示、コードのコメントではそれに API の名前を添えて書いてある。
 
 | README の箇所 | コード |
 | --- | --- |
 | 「トークンと権限」の Discord の招待 (OAuth2 スコープ、Gateway Intent) | `src/index.ts` (ログイン、`/techcheck` の登録、`intents`) |
 | 「トークンと権限」の Discord のチャンネルごとの権限 | `src/discord/bot.ts` の `DiscordChat` (メソッドごとに、要る権限をコメントに書いてある) |
 | 「トークンと権限」の Discord の webhook | `src/adapters/webhook.ts` |
-| 「トークンと権限」の AWS (IAM のアクション) | `src/adapters/aws.ts` (送っているコマンドが、そのままアクションの名前) |
+| 「トークンと権限」の AWS (許可セットのポリシーのアクション) | `src/adapters/aws.ts` (送っているコマンドが、そのままアクションの名前。認証は AWS SDK の既定の探し方で、プロファイルは `AWS_PROFILE` で選ぶ) |
 | 「トークンと権限」の Google スプレッドシート | `src/adapters/sheet.ts` (OAuth スコープは `https://www.googleapis.com/auth/spreadsheets`) |
 | 「トークンと権限」の denpachan と、「denpachan」の準備 | `src/adapters/receiver.ts` (繋ぎ方とトークン)、`src/service.ts` (呼ぶメソッド: `startChannel`、`stopChannel`、`setRecording`、`patchChannel`)、`src/config.ts` (loopback 以外ではトークンが必須) |
 | 「準備」の設定ファイル (`${環境変数名}`、相対パス)、「動かす」の設定ファイルの場所 | `src/config.ts` の `expandEnv`、`src/index.ts` の `main` |
@@ -48,8 +51,8 @@ README の次の箇所は、コードが実際にしていることを写した�
 
 - CloudWatch のメトリクスのディメンション名 (`FlowARN`) と 1 秒の粒度で取れること。AWS のドキュメントの記述どおりにしてあるが、実際のアカウントで一度確かめる (`src/adapters/aws.ts`)。
 - `DescribeFlowSourceMetadata` の `StreamType` と `FrameRate` の実際の値の形。
-- README の「[トークンと権限](../README.md#トークンと権限)」の表のうち、次の 3 つ。
-  - `applications.commands` スコープが要ること (招待の URL はコードに無いので、Discord の仕様から割り出した)。
-  - `/techcheck shot` の返事 (実行した人だけに見える返事) にファイルを付けるのに、Attach Files が要るかどうか。
-  - `mediaconnect:DescribeFlowSourceMetadata` と `mediaconnect:DescribeFlowSourceThumbnail` を、IAM ポリシーでフローの ARN に絞れるかどうか。
+- README の「[トークンと権限](../README.md#トークンと権限)」と [createToken.md](createToken.md) のうち、次の 3 つ。
+  - `/techcheck shot` の返事 (実行した人だけに見える返事) にファイルを付けるのに、「ファイルを添付」が要るかどうか。
+  - IAM Identity Center のプロファイルで bot を動かしたときの動作。とくに、サインインの期限が切れたあと、`aws sso login` をし直せば bot を起動し直さなくても AWS の呼び出しが戻るかどうか。
+  - createToken.md の画面の手順 (Developer Portal、IAM Identity Center のコンソール、`aws configure sso` の聞かれること)。公式の文書から書いたもので、実際の画面で通してはいない。
 - denpachan のメトリクスの受信口と実際に繋いだ動作。`channels` メッセージの形は denpachan の `src/engine/metrics_view.cpp` に合わせて試験している。

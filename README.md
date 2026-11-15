@@ -18,7 +18,7 @@
 | --- | --- |
 | Node.js | 22.13 以上 |
 | Discord | bot (トークン)、配信テストのチャンネル、運営のロール、運営への通知のチャンネル。結果の通知を使うなら webhook も |
-| AWS | 配信者が SRT で送る先の MediaConnect のフローと、bot 用の IAM のアクセスキー |
+| AWS | 配信者が SRT で送る先の MediaConnect のフローと、bot 用の許可セット (IAM Identity Center)。bot を動かす PC に AWS CLI v2 |
 | RTMP サーバ | SRT で安定しない配信者を案内する先 |
 | denpachan | フローの出力と RTMP サーバの配信を受ける。メトリクスの受信口を有効にする |
 | Google スプレッドシート | 結果を書くシートと、サービスアカウントのキー (JSON ファイル) |
@@ -40,18 +40,21 @@ cp config.example.yaml config.yaml
 
 ### トークンと権限
 
+Discord と AWS のトークンを用意する手順は [docs/createToken.md](docs/createToken.md)。AWS のアカウントは、IAM Identity Center で管理している前提。
+
 | サービス | 設定 | 要る権限 | 備考 |
 | --- | --- | --- | --- |
 | Discord (bot の招待) | `discord.token` | OAuth2 スコープ `bot`、`applications.commands` | bot をサーバに招待するときに付ける。Privileged Gateway Intents は、どれも有効にしなくてよい |
-| Discord (配信テストのチャンネル) | `discord.techcheckChannelId` | View Channel、Send Messages、Create Private Threads、Send Messages in Threads、Manage Threads、Attach Files、Read Message History | 権限の整数は 360777354240 |
-| Discord (運営への通知のチャンネル) | `discord.opsChannelId` | View Channel、Send Messages | |
+| Discord (配信テストのチャンネル) | `discord.techcheckChannelId` | チャンネルを表示、メッセージを送る、プライベートスレッドを作成、Threadsでメッセージを送る、スレッドを管理、ファイルを添付、メッセージ履歴を読む | 権限の整数は 360777354240 |
+| Discord (運営への通知のチャンネル) | `discord.opsChannelId` | チャンネルを表示、メッセージを送る | |
 | Discord (webhook) | `notify.webhookUrl` | 無い (URL そのものが秘密) | 未設定なら結果の通知を送らない |
-| AWS MediaConnect | 環境変数 `AWS_ACCESS_KEY_ID` / `AWS_SECRET_ACCESS_KEY` か AWS のプロファイル。リージョンは `aws.region` | `mediaconnect:DescribeFlow`、`mediaconnect:StartFlow`、`mediaconnect:StopFlow`、`mediaconnect:DescribeFlowSourceMetadata`、`mediaconnect:DescribeFlowSourceThumbnail` | Resource は `flows` に書いたフローの ARN に絞る |
-| AWS CloudWatch | 同上 | `cloudwatch:GetMetricData` | Resource は `*` (リソースで絞れないアクション) |
+| AWS MediaConnect | IAM Identity Center の許可セットを割り当てたプロファイル (環境変数 `AWS_PROFILE`)。リージョンは `aws.region` | 許可セットのポリシーに `mediaconnect:DescribeFlow`、`mediaconnect:StartFlow`、`mediaconnect:StopFlow`、`mediaconnect:DescribeFlowSourceMetadata`、`mediaconnect:DescribeFlowSourceThumbnail` | Resource は `flows` に書いたフローの ARN に絞る |
+| AWS CloudWatch | 同上 | 同じ許可セットのポリシーに `cloudwatch:GetMetricData` | Resource は `*` (リソースで絞れないアクション) |
 | Google スプレッドシート | `sheet.credentialsFile`、`sheet.spreadsheetId` | シートを、サービスアカウントのメールアドレスに「編集者」で共有する | GCP のプロジェクトで Google Sheets API を有効にしておく。IAM ロールは要らない |
 | denpachan | `denpachan.host`、`denpachan.port`、`denpachan.token` | 下の「denpachan」のとおり | トークンは、loopback (同じ PC) に繋ぐなら無くてよい。それ以外では必須 |
 
-`flows[].passphrase` と `rtmp.key` は、配信者に案内する URL に入れる値で、配信者のスレッドに表示される。
+- Discord の権限の名前は、Developer Portal の日本語の表示のもの。
+- `flows[].passphrase` と `rtmp.key` は、配信者に案内する URL に入れる値で、配信者のスレッドに表示される。
 
 ### MediaConnect のフロー
 
@@ -70,9 +73,11 @@ cp config.example.yaml config.yaml
 ## 動かす
 
 ```sh
+aws sso login --profile techcheck   # AWS にサインインする (プロファイルの作り方は docs/createToken.md)
 npm start
 ```
 
+- AWS のプロファイルは、環境変数 `AWS_PROFILE` で選ぶ。サインインの期限が切れると AWS の呼び出しが失敗するので、`aws sso login` でサインインし直す。
 - 設定ファイルは、今いるフォルダの `config.yaml`。別のファイルを使うには `node dist/src/index.js path/to/config.yaml` か、環境変数 `TECHCHECK_CONFIG`。
 - 起動すると、設定したサーバに `/techcheck` を登録する (すぐ反映される)。
 - 止めるには Ctrl+C。進行中のテスト、待ちの列、枠の設定は `db.path` のファイルに残り、起動し直すと続きから進む。
@@ -102,5 +107,6 @@ npm start
 
 ## ドキュメント
 
+- トークンの払い出し (Discord と AWS): [docs/createToken.md](docs/createToken.md)
 - 設計 (テストの流れ、判定の規則、設定値の一覧): [docs/design.md](docs/design.md)
 - 開発 (ファイルの構成、試験、README とコードの対応): [docs/development.md](docs/development.md)

@@ -14,7 +14,7 @@ notify:
   webhookUrl: ${TECHCHECK_WEBHOOK_URL}       # 結果の通知。未設定なら送らない
 
 aws:
-  region: ap-northeast-1                     # 認証は AWS_ACCESS_KEY_ID などの環境変数か AWS のプロファイル
+  region: ap-northeast-1                     # 認証は IAM Identity Center のプロファイル (環境変数 AWS_PROFILE。docs/createToken.md)
 
 # bot が開始・停止・監視してよいフロー。フローと配信用のドメインを組で持つ
 flows:

@@ -46,7 +46,7 @@ async function main(): Promise<void> {
 
     client.once(Events.ClientReady, async (c) => {
         log(`Discord: ${c.user.tag} でログインしました`);
-        // サーバのコマンドの登録。bot を招待するときの OAuth2 スコープに applications.commands が要る (README の「トークンと権限」)
+        // サーバのコマンドの登録。bot を招待するときの OAuth2 スコープ applications.commands で許される (bot スコープに含まれる。README の「トークンと権限」)
         const guild = await c.guilds.fetch(config.discord.guildId);
         await guild.commands.set([buildCommand(config.flows).toJSON()]);
         log("/techcheck を登録しました");

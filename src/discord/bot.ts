@@ -1,10 +1,12 @@
 // Discord とのやりとり: ChatPort の実装と、コマンド・ボタン・モーダルの受け付け。
 //
-// bot に要る Discord の権限は、DiscordChat のメソッドごとにコメントに書いてある。まとめると:
-// - 配信テストのチャンネル: View Channel、Send Messages、Create Private Threads、Send Messages in Threads、
-//   Manage Threads、Attach Files、Read Message History
-// - 運営への通知のチャンネル: View Channel、Send Messages
-// 使う操作を足したり減らしたりしたら、ここと README の「トークンと権限」の表を直す。
+// bot に要る Discord の権限は、DiscordChat のメソッドごとにコメントに書いてある。
+// 名前は Developer Portal の日本語の表示 (かっこの中は API の名前)。まとめると:
+// - 配信テストのチャンネル: チャンネルを表示 (VIEW_CHANNEL)、メッセージを送る (SEND_MESSAGES)、
+//   プライベートスレッドを作成 (CREATE_PRIVATE_THREADS)、Threadsでメッセージを送る (SEND_MESSAGES_IN_THREADS)、
+//   スレッドを管理 (MANAGE_THREADS)、ファイルを添付 (ATTACH_FILES)、メッセージ履歴を読む (READ_MESSAGE_HISTORY)
+// - 運営への通知のチャンネル: チャンネルを表示、メッセージを送る
+// 使う操作を足したり減らしたりしたら、ここと README の「トークンと権限」の表、docs/createToken.md の権限の整数を直す。
 
 import {
     ActionRowBuilder,
@@ -81,7 +83,7 @@ export class DiscordChat implements ChatPort {
         return ch;
     }
 
-    // 権限: Create Private Threads (スレッドを作る)、Send Messages in Threads (配信者を足す)
+    // 権限: プライベートスレッドを作成 (スレッドを作る)、Threadsでメッセージを送る (配信者を足す)
     async createThread(name: string, userId: string): Promise<string> {
         const parent = (await this.client.channels.fetch(this.cfg.discord.techcheckChannelId)) as TextChannel | null;
         if (!parent || parent.type !== ChannelType.GuildText) throw new Error("配信テストのチャンネルがテキストチャンネルではありません");
@@ -95,7 +97,7 @@ export class DiscordChat implements ChatPort {
         return thread.id;
     }
 
-    // 権限: Send Messages in Threads、Attach Files (静止画を付けるとき)
+    // 権限: Threadsでメッセージを送る、ファイルを添付 (静止画を付けるとき)
     async post(threadId: string, msg: OutMessage): Promise<string> {
         const t = await this.thread(threadId);
         if (t.archived) await t.setArchived(false);
@@ -103,14 +105,14 @@ export class DiscordChat implements ChatPort {
         return m.id;
     }
 
-    // 権限: Read Message History (送ったメッセージを取り直す)。無いと失敗し、ボタンが残る
+    // 権限: メッセージ履歴を読む (送ったメッセージを取り直す)。無いと失敗し、ボタンが残る
     async clearButtons(threadId: string, messageId: string): Promise<void> {
         const t = await this.thread(threadId);
         const m = await t.messages.fetch(messageId);
         await m.edit({ components: [] });
     }
 
-    // 権限: Manage Threads (ロック)
+    // 権限: スレッドを管理 (ロック)
     async closeThread(threadId: string): Promise<void> {
         const t = await this.thread(threadId);
         await t.setLocked(true);
@@ -121,7 +123,7 @@ export class DiscordChat implements ChatPort {
         return `https://discord.com/channels/${this.cfg.discord.guildId}/${threadId}`;
     }
 
-    // 権限: 配信テストのチャンネルの Send Messages。DM には、サーバの権限は要らない
+    // 権限: 配信テストのチャンネルの「メッセージを送る」。DM には、サーバの権限は要らない
     async callUser(userId: string, msg: OutMessage): Promise<void> {
         const ch = await this.channel(this.cfg.discord.techcheckChannelId);
         await ch.send({ ...payload(msg), allowedMentions: { users: [userId] } });
@@ -133,7 +135,7 @@ export class DiscordChat implements ChatPort {
         }
     }
 
-    // 権限: 運営への通知のチャンネルの Send Messages
+    // 権限: 運営への通知のチャンネルの「メッセージを送る」
     async ops(text: string): Promise<void> {
         const ch = await this.channel(this.cfg.discord.opsChannelId);
         await ch.send({ content: text.slice(0, 2000), allowedMentions: { parse: [] } });
