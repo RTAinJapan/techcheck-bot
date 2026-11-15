@@ -5,6 +5,7 @@
 import { Client, Events, GatewayIntentBits } from "discord.js";
 import { resolve } from "node:path";
 import { AwsFlowPort } from "./adapters/aws.js";
+import { checkPermissions, permissionLines } from "./adapters/aws-permissions.js";
 import { NodeDns } from "./adapters/dns.js";
 import { GoogleDrive } from "./adapters/drive.js";
 import { WsReceiver } from "./adapters/receiver.js";
@@ -114,6 +115,13 @@ async function main(): Promise<void> {
                 (e) => log(`AWS: フロー ${f.name} を読めません。このままだと、このフローのテストは準備で失敗します: ${errorText(e)}`),
             );
         }
+        // 開始・停止も含めて、要る権限がそろっているかを、何も実行せずに確かめる (IAM のポリシーのシミュレーション)
+        void checkPermissions(config.aws.region, awsKey, config.flows.map((f) => f.arn)).then(
+            (check) => {
+                for (const line of permissionLines(check, config.flows)) log(line);
+            },
+            (e) => log(`AWS: 権限の確認に失敗しました: ${errorText(e)}`),
+        );
         rx.start();
         // 準備の途中で止まったテストは、denpachan に繋がってから準備をやり直す
         const since = Date.now();

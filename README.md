@@ -54,6 +54,7 @@ cp config.example.yaml config.yaml
 | Discord (webhook) | `notify.webhookUrl` | 無い (URL そのものが秘密) | 未設定なら結果の通知を送らない |
 | AWS MediaConnect | `aws.accessKeyId`、`aws.secretAccessKey` (bot 専用の IAM ユーザーのアクセスキー)。リージョンは `aws.region` | IAM ユーザーのポリシーに `mediaconnect:DescribeFlow`、`mediaconnect:StartFlow`、`mediaconnect:StopFlow`、`mediaconnect:DescribeFlowSourceMetadata`、`mediaconnect:DescribeFlowSourceThumbnail` | Resource は `flows` に書いたフローの ARN に絞る。IAM ユーザーには、このポリシーだけを付ける |
 | AWS CloudWatch | 同上 | 同じポリシーに `cloudwatch:GetMetricData` | Resource は `*` (リソースで絞れないアクション) |
+| AWS IAM (起動時の権限の確認) | 同上 | 同じポリシーに `iam:SimulatePrincipalPolicy` | Resource は bot の IAM ユーザー自身。上の権限がそろっているかを、何も実行せずに確かめるのに使う。無くても動くが、確認は「フローを読めるか」だけになる |
 | Google スプレッドシート | `google.credentialsFile`、`google.sheet.spreadsheetId`、`google.sheet.tabName` | シートを、サービスアカウントのメールアドレスに「編集者」で共有する | Google Cloud のプロジェクトで Google Sheets API を有効にしておく。IAM ロールは要らない。`google.sheet.tabName` の名前のシート (タブ) を作っておく |
 | Google ドライブ | `google.drive.folderId` (キーは、シートと同じ `google.credentialsFile`) | サービスアカウントを、上げる先の共有ドライブのメンバー (投稿者以上) にする | 録画と録音を上げるときだけ。Google Cloud のプロジェクトで Google Drive API を有効にしておく。未設定なら上げない |
 | denpachan | `denpachan.host`、`denpachan.port`、`denpachan.token` | 下の「denpachan」のとおり | トークンは、loopback (同じ PC) に繋ぐなら無くてよい。それ以外では必須 |
@@ -165,7 +166,7 @@ google:
 npm start
 ```
 
-- 起動のとき、AWS のアクセスキーで `flows` の各フローを読めるかを確かめて、コンソールに出す (`AWS: フロー flow-a を読めました (STANDBY)`)。「読めません」と出たら、そのフローのテストは準備で失敗するので、キーとポリシーを確かめる。
+- 起動のとき、AWS のアクセスキーで `flows` の各フローを読めるかと、bot の使う操作 (フローの開始・停止を含む) が許可されているかを確かめて、コンソールに出す (`AWS: フロー flow-a を読めました (STANDBY)`、`AWS: 権限: bot の使う操作は、すべて許可されています`)。「読めません」「権限が足りません」と出たら、そのフローのテストは失敗するので、キーとポリシーを確かめる。
 - 設定ファイルは、今いるフォルダの `config.yaml`。別のファイルを使うには `node dist/src/index.js path/to/config.yaml` か、環境変数 `TECHCHECK_CONFIG`。
 - 起動すると、設定したサーバに `/techcheck` を登録する (すぐ反映される)。
 - 動きはコンソールに出る: 起動したときの設定と枠、受け付けたコマンドとボタンとその返事、テストの進み具合、スレッドに書いたこと、運営への通知、エラー。運営への通知のチャンネルや webhook を見なくても、何が起きたかを追える。トークンなどの秘密は出さない。

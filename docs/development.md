@@ -77,7 +77,7 @@ Discord の権限の名前は、README と createToken.md では Developer Porta
 | 「トークンと権限」の Discord の招待 (OAuth2 スコープ、Gateway Intent) | `src/index.ts` (ログイン、`/techcheck` の登録、`intents`) |
 | 「トークンと権限」の Discord のチャンネルごとの権限 | `src/discord/bot.ts` の `DiscordChat` (メソッドごとに、要る権限をコメントに書いてある) |
 | 「トークンと権限」の Discord の webhook | `src/adapters/webhook.ts` |
-| 「トークンと権限」の AWS (IAM ユーザーのポリシーのアクション) | `src/adapters/aws.ts` (送っているコマンドが、そのままアクションの名前。認証は、設定の `aws.accessKeyId` と `aws.secretAccessKey`。無ければ AWS SDK の既定の探し方)、`src/index.ts` (起動のときに各フローを読んで確かめる) |
+| 「トークンと権限」の AWS (IAM ユーザーのポリシーのアクション) | `src/adapters/aws.ts` (送っているコマンドが、そのままアクションの名前。認証は、設定の `aws.accessKeyId` と `aws.secretAccessKey`。無ければ AWS SDK の既定の探し方)、`src/index.ts` (起動のときに各フローを読んで確かめる)、`src/adapters/aws-permissions.ts` (起動のときに、ポリシーのシミュレーションで権限を確かめる。確かめる操作の一覧は `aws.ts` が送るコマンドとそろえる) |
 | 「トークンと権限」の Google スプレッドシート | `src/adapters/sheet.ts` (OAuth スコープは `https://www.googleapis.com/auth/spreadsheets`) |
 | 「録画と録音を Google ドライブに上げる」と、「トークンと権限」の Google ドライブ | `src/adapters/drive.ts` (OAuth スコープは `https://www.googleapis.com/auth/drive`。フォルダを作る、再開できるアップロード)、`src/service.ts` (`finish` が仕事を積み、`pumpUploads` / `runUpload` が裏で上げる)、`src/record.ts` (`driveColumn`) |
 | 「トークンと権限」の denpachan と、「denpachan」の準備 | `src/adapters/receiver.ts` (繋ぎ方とトークン)、`src/service.ts` (呼ぶメソッド: `startChannel`、`stopChannel`、`setRecording`、`patchChannel`)、`src/config.ts` (loopback 以外ではトークンが必須) |

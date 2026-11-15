@@ -116,6 +116,12 @@ bot は、bot 専用の IAM ユーザーのアクセスキーで動く。
       "Effect": "Allow",
       "Action": "cloudwatch:GetMetricData",
       "Resource": "*"
+    },
+    {
+      "Sid": "TechcheckSelfCheck",
+      "Effect": "Allow",
+      "Action": "iam:SimulatePrincipalPolicy",
+      "Resource": "arn:aws:iam::123456789012:user/techcheck-bot"
     }
   ]
 }
@@ -123,6 +129,7 @@ bot は、bot 専用の IAM ユーザーのアクセスキーで動く。
 
 - MediaConnect の 5 つのアクションは、どれもフローの ARN で絞れる。フローを足したら、ここにも ARN を足す。
 - `cloudwatch:GetMetricData` はリソースで絞れないアクションなので、`Resource` は `*` にする。
+- `iam:SimulatePrincipalPolicy` は、bot が起動のときに、上の権限がそろっているかを確かめるのに使う (ポリシーのシミュレーション。何も実行せずに、フローの開始・停止の権限まで確かめられる)。`Resource` は、2 で作る IAM ユーザー自身の ARN にする (アカウント ID とユーザー名を置き換える)。自分のポリシーを読んで試すだけの権限で、何かを変えることはできない。付けなくても bot は動くが、権限の確認は「フローを読めるか」だけになる。
 
 ### 2. IAM ユーザーを作る
 
@@ -147,7 +154,8 @@ aws:
   secretAccessKey: ${AWS_SECRET_ACCESS_KEY}
 ```
 
-- bot は起動のとき、`flows` の各フローを 1 回読んで、結果をコンソールに出す (`AWS: フロー flow-a を読めました (STANDBY)`)。キーやポリシーが違っていれば、配信者が来る前に、ここで分かる。
+- bot は起動のとき、`flows` の各フローを 1 回読んで、結果をコンソールに出す (`AWS: フロー flow-a を読めました (STANDBY)`)。キーが違っていれば、配信者が来る前に、ここで分かる。
+- 続けて、bot の使う操作 (フローの開始・停止を含む) がポリシーで許可されているかを確かめて、コンソールに出す。そろっていれば `AWS: 権限: bot の使う操作は、すべて許可されています`、足りなければ `AWS: 権限が足りません: フロー flow-b の StartFlow、StopFlow (許可が無い)` のように出る。
 - フローのリージョンは `aws.region` で決まる。
 - 片方だけ書くと、起動のときに断る。
 - 2 つとも書かなければ、bot は AWS SDK の既定の探し方で認証情報を探す (環境変数 `AWS_ACCESS_KEY_ID` と `AWS_SECRET_ACCESS_KEY`、`AWS_PROFILE` で選んだプロファイルなど)。IAM Identity Center のプロファイルでも動くが、サインインの期限が切れるたびに `aws sso login` が要る。

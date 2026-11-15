@@ -3,6 +3,7 @@ import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, it } from "node:test";
+import { deniedFrom, iamUserName, kFlowActions, kGlobalActions, permissionLines } from "../src/adapters/aws-permissions.js";
 import { NodeDns } from "../src/adapters/dns.js";
 import { GoogleDrive, mimeTypeFor } from "../src/adapters/drive.js";
 import { OggOpusWriter, oggCrc, opusPacketSamples } from "../src/adapters/ogg.js";
@@ -55,6 +56,57 @@ describe("録音の書き出し (Ogg / Opus)", () => {
         const text = "[Parsed_volumedetect_0 @ 0] n_samples: 0\n[Parsed_volumedetect_0 @ 0] n_samples: 583680\n mean_volume: -15.5 dB\n max_volume: 0.0 dB\n histogram_0db: 1404\n";
         assert.deepEqual(parseVolumedetect(text), { maxDb: 0, meanDb: -15.5, clippedPct: 0.24 });
         assert.deepEqual(parseVolumedetect(""), { maxDb: undefined, meanDb: undefined, clippedPct: undefined });
+    });
+});
+
+describe("AWS の権限の確認 (ポリシーのシミュレーション)", () => {
+    const flows = [
+        { name: "flow-a", arn: "arn:aws:mediaconnect:ap-northeast-1:123456789012:flow:1-AAAA:runner-a" },
+        { name: "flow-b", arn: "arn:aws:mediaconnect:ap-northeast-1:123456789012:flow:1-BBBB:runner-b" },
+    ];
+
+    it("IAM ユーザーの ARN から名前を取る (ロールなどは対象外)", () => {
+        assert.equal(iamUserName("arn:aws:iam::123456789012:user/techcheck-bot"), "techcheck-bot");
+        assert.equal(iamUserName("arn:aws:iam::123456789012:user/bots/techcheck-bot"), "techcheck-bot");
+        assert.equal(iamUserName("arn:aws:sts::123456789012:assumed-role/AWSReservedSSO_TechcheckBot_abc/someone"), undefined);
+        assert.equal(iamUserName(undefined), undefined);
+    });
+
+    it("シミュレーションの結果から、許可されていない操作を拾う", () => {
+        const denied = deniedFrom([
+            { EvalActionName: "mediaconnect:DescribeFlow", EvalResourceName: flows[0]!.arn, EvalDecision: "allowed" },
+            { EvalActionName: "mediaconnect:StartFlow", EvalResourceName: flows[1]!.arn, EvalDecision: "implicitDeny" },
+        ]);
+        assert.deepEqual(denied, [{ action: "mediaconnect:StartFlow", resource: flows[1]!.arn, decision: "implicitDeny" }]);
+    });
+
+    it("コンソールに出す行: すべて許可、足りない (フローごと・理由ごとにまとめる)、確かめられなかった", () => {
+        assert.deepEqual(permissionLines({ user: "techcheck-bot", denied: [] }, flows), ["AWS: 権限: bot の使う操作は、すべて許可されています (IAM ユーザー techcheck-bot)"]);
+        const lines = permissionLines(
+            {
+                user: "techcheck-bot",
+                denied: [
+                    { action: "mediaconnect:StartFlow", resource: flows[1]!.arn, decision: "implicitDeny" },
+                    { action: "mediaconnect:StopFlow", resource: flows[1]!.arn, decision: "implicitDeny" },
+                    { action: "cloudwatch:GetMetricData", resource: "*", decision: "explicitDeny" },
+                ],
+            },
+            flows,
+        );
+        assert.deepEqual(lines.slice(0, 2), ["AWS: 権限が足りません: フロー flow-b の StartFlow、StopFlow (許可が無い)", "AWS: 権限が足りません: cloudwatch:GetMetricData (明示的に拒否されている)"]);
+        assert.match(lines[2]!, /IAM ユーザー techcheck-bot のポリシーを確かめてください/);
+        assert.deepEqual(permissionLines({ skipped: "理由", denied: [] }, flows), ["AWS: 権限の確認はしていません: 理由"]);
+    });
+
+    it("確かめる操作は、bot が送るコマンドと同じ 6 つ", () => {
+        assert.deepEqual([...kFlowActions, ...kGlobalActions].sort(), [
+            "cloudwatch:GetMetricData",
+            "mediaconnect:DescribeFlow",
+            "mediaconnect:DescribeFlowSourceMetadata",
+            "mediaconnect:DescribeFlowSourceThumbnail",
+            "mediaconnect:StartFlow",
+            "mediaconnect:StopFlow",
+        ]);
     });
 });
 

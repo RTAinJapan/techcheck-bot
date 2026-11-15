@@ -5,7 +5,8 @@
 // 設定に無ければ、AWS SDK の既定の探し方 (環境変数、AWS_PROFILE のプロファイルなど) に任せる。
 // IAM ユーザーのポリシーに要るアクションは、ここで送っているコマンドと同じ名前:
 // mediaconnect:DescribeFlow、StartFlow、StopFlow、DescribeFlowSourceMetadata、DescribeFlowSourceThumbnail、cloudwatch:GetMetricData。
-// コマンドを足したり減らしたりしたら、README の「トークンと権限」の表と、docs/createToken.md のポリシーも直す。
+// コマンドを足したり減らしたりしたら、README の「トークンと権限」の表、docs/createToken.md のポリシー、
+// 起動のときに確かめる操作の一覧 (aws-permissions.ts) も直す。
 
 import { CloudWatchClient, GetMetricDataCommand, type MetricDataQuery } from "@aws-sdk/client-cloudwatch";
 import {
