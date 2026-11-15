@@ -951,7 +951,7 @@ export class TechcheckService {
 
     private async silenceAlert(s: Session, ch: ReceiverChannel | undefined): Promise<void> {
         if (!ch || ch.status !== "live") return;
-        // 知らせるのは、映像を判定している間だけ。チェックの間は知らせない: 手順が「ゲームの音を止めて」と頼み、
+        // 知らせるのは、映像を判定している間だけ。チェックの間は知らせない: 手順が「ゲームの側で音が出ない状態にして」と頼み、
         // そのあとの手順 (画面) でも止めたままなので、無音は頼んだとおりの状態。
         // 音が届いているかは、チェックの最初の手順 (ゲーム音) が確かめる
         const silent = (ch.audio?.silentSec ?? 0) > this.cfg.judge.silentAlertSec;

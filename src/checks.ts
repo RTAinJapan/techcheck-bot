@@ -24,9 +24,10 @@ export const defaultChecks: CheckStep[] = [
         kind: "silence",
         seconds: 10,
         thresholdDb: -60,
+        // 「ミュートして」とだけ書くと、OBS の側でミュートしてしまい、配信に載る音の確認にならない。ゲームの側で音を止めてもらう
         text: {
-            ja: "ゲームの音を止めて (ミュートして)、10 秒ほど静かにしてください。",
-            en: "Mute the game and stay quiet for about 10 seconds.",
+            ja: "ゲームの側で音が出ない状態にして、10 秒ほど静かにしてください。ゲームの中で音の無い場面に移るか、ゲーム内の設定で音量を 0 にします。OBS の設定 (ミュートや音量) は変えないでください。",
+            en: "Make the game itself silent and stay quiet for about 10 seconds. Move to a scene with no sound in the game, or set the volume to 0 in the game's own settings. Do not change anything in OBS (mute or volume).",
         },
         failHint: {
             ja: "何も鳴らしていないのに音が載っています (ノイズの可能性)。キャプチャボードの音量や、ゲーム機の設定を確かめてください。",
@@ -39,8 +40,8 @@ export const defaultChecks: CheckStep[] = [
         seconds: 10,
         marginDb: 6,
         text: {
-            ja: "ゲームの音を止めたまま、マイクに向かって普段の声で 10 秒ほど話してください。",
-            en: "Keep the game muted and talk into your microphone in your normal voice for about 10 seconds.",
+            ja: "ゲームの音が出ない状態のまま、マイクに向かって普段の声で 10 秒ほど話してください。",
+            en: "Keep the game silent and talk into your microphone in your normal voice for about 10 seconds.",
         },
         failHint: {
             ja: "マイクの音が配信に入っています。OBS のマイクの入力を、配信の音声から外してください (マイクは別の経路で送ってもらいます)。",
@@ -53,8 +54,8 @@ export const defaultChecks: CheckStep[] = [
         seconds: 10,
         marginDb: 6,
         text: {
-            ja: "ゲームの音を止めたまま、PC の音 (ブラウザの動画、Discord の通知音など) を 10 秒ほど鳴らしてください。",
-            en: "Keep the game muted and play some PC sound (a video in your browser, a Discord notification, etc.) for about 10 seconds.",
+            ja: "ゲームの音が出ない状態のまま、PC の音 (ブラウザの動画、Discord の通知音など) を 10 秒ほど鳴らしてください。",
+            en: "Keep the game silent and play some PC sound (a video in your browser, a Discord notification, etc.) for about 10 seconds.",
         },
         failHint: {
             ja: "PC の音が配信に入っています。OBS のデスクトップ音声を、配信の音声から外してください。",
