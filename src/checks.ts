@@ -66,9 +66,10 @@ export const defaultChecks: CheckStep[] = [
         kind: "confirm",
         seconds: 0,
         text: {
-            // 静止画を付けられないとき (フローのサムネイルが無効、RTMP) にも読める文にする
-            ja: "配信に映っている画面は正しいですか (ゲーム画面が全体に映っている、余計なウィンドウが無い)。",
-            en: "Is the picture in your stream correct (the game fills the screen, no other windows)?",
+            // 静止画を付けられないときにも読める文にする。
+            // 余白があってもよい (受ける側で切り抜く)。送る側は、ゲーム画面の要る範囲がすべて配信の画面に収まっていればよい
+            ja: "配信に映っている画面は正しいですか (ゲーム画面が全て映っている。余計なウインドウが無い)。",
+            en: "Is the picture in your stream correct (the whole game screen is visible, and there are no other windows)?",
         },
         failHint: {
             ja: "OBS のシーンを直してから「やり直す」を押してください。",

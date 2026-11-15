@@ -5,6 +5,7 @@ import { join } from "node:path";
 import { describe, it } from "node:test";
 import { NodeDns } from "../src/adapters/dns.js";
 import { OggOpusWriter, oggCrc, opusPacketSamples } from "../src/adapters/ogg.js";
+import { FfmpegStill } from "../src/adapters/still.js";
 import { parseVolumedetect } from "../src/adapters/voice.js";
 import { WsReceiver } from "../src/adapters/receiver.js";
 import { SqliteStore } from "../src/store.js";
@@ -51,6 +52,49 @@ describe("録音の書き出し (Ogg / Opus)", () => {
         const text = "[Parsed_volumedetect_0 @ 0] n_samples: 0\n[Parsed_volumedetect_0 @ 0] n_samples: 583680\n mean_volume: -15.5 dB\n max_volume: 0.0 dB\n histogram_0db: 1404\n";
         assert.deepEqual(parseVolumedetect(text), { maxDb: 0, meanDb: -15.5, clippedPct: 0.24 });
         assert.deepEqual(parseVolumedetect(""), { maxDb: undefined, meanDb: undefined, clippedPct: undefined });
+    });
+});
+
+describe("録画から静止画を取る", () => {
+    /** 中身が end 秒までのファイル。その先を頼むと、フレームが無い */
+    function recording(end: number) {
+        const asked: number[] = [];
+        const file = { end };
+        const still = new FfmpegStill("ffmpeg", async (_file, at) => {
+            asked.push(at);
+            return at <= file.end ? Buffer.from(`frame@${at}`) : undefined;
+        });
+        return { still, asked, file };
+    }
+
+    it("その位置にフレームがあれば、1 回で取る", async () => {
+        const { still, asked } = recording(400);
+        assert.equal((await still.fromRecording("a.mkv", 398)).toString(), "frame@398");
+        assert.deepEqual(asked, [398]);
+    });
+
+    it("配信が途切れてファイルの中身が短いときは、手前へ探して、終わりに寄せる。次からはその位置を先に試す", async () => {
+        // 録画を始めて 398 秒だが、途中で 10 秒途切れたので、ファイルの中身は 388.8 秒まで
+        const { still, asked, file } = recording(388.8);
+        const image = (await still.fromRecording("a.mkv", 398)).toString();
+        const at = Number(image.replace("frame@", ""));
+        assert.ok(at <= 388.8 && at > 388.8 - 2, `終わりの 2 秒手前までに寄る (${at})`);
+        assert.ok(asked.length <= 6, `試す回数 (${asked.length})`);
+        // 5 秒後 (ファイルも 5 秒伸びた): 覚えた遅れを使って、1 回で取る
+        file.end = 393.8;
+        asked.length = 0;
+        const next = Number((await still.fromRecording("a.mkv", 403)).toString().replace("frame@", ""));
+        assert.deepEqual(asked.length, 1);
+        assert.ok(next > at && next <= 393.8);
+        // 別の録画には、覚えた遅れを使わない
+        asked.length = 0;
+        await still.fromRecording("b.mkv", 100);
+        assert.deepEqual(asked, [100]);
+    });
+
+    it("どこにもフレームが無ければ (ファイルを開けない、など)、理由を付けて失敗する", async () => {
+        const still = new FfmpegStill("ffmpeg", async () => undefined);
+        await assert.rejects(still.fromRecording("a.mkv", 30), /録画から静止画を取り出せませんでした/);
     });
 });
 
