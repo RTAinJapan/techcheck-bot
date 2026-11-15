@@ -6,6 +6,8 @@ import { describe, it } from "node:test";
 import { NodeDns } from "../src/adapters/dns.js";
 import { GoogleDrive, mimeTypeFor } from "../src/adapters/drive.js";
 import { OggOpusWriter, oggCrc, opusPacketSamples } from "../src/adapters/ogg.js";
+import { GoogleSheet } from "../src/adapters/sheet.js";
+import { columnLetter, sheetColumns } from "../src/record.js";
 import { FfmpegStill } from "../src/adapters/still.js";
 import { parseVolumedetect } from "../src/adapters/voice.js";
 import { WsReceiver } from "../src/adapters/receiver.js";
@@ -53,6 +55,67 @@ describe("録音の書き出し (Ogg / Opus)", () => {
         const text = "[Parsed_volumedetect_0 @ 0] n_samples: 0\n[Parsed_volumedetect_0 @ 0] n_samples: 583680\n mean_volume: -15.5 dB\n max_volume: 0.0 dB\n histogram_0db: 1404\n";
         assert.deepEqual(parseVolumedetect(text), { maxDb: 0, meanDb: -15.5, clippedPct: 0.24 });
         assert.deepEqual(parseVolumedetect(""), { maxDb: undefined, meanDb: undefined, clippedPct: undefined });
+    });
+});
+
+describe("Google スプレッドシート", () => {
+    /** Sheets API の代わり。見出しと、シートの列の数を持つ */
+    function fakeSheetsApi(header: string[], columnCount: number) {
+        const calls: { method: string; path: string; body?: unknown }[] = [];
+        const state = { columnCount };
+        const fetchFn = (async (url: string, init: RequestInit) => {
+            const path = decodeURIComponent(String(url).replace("https://sheets.googleapis.com/v4/spreadsheets/SHEET", ""));
+            const body = init.body ? JSON.parse(String(init.body)) : undefined;
+            calls.push({ method: init.method ?? "GET", path, body });
+            const json = (x: unknown, status = 200) => new Response(JSON.stringify(x), { status });
+            if (path.startsWith("?fields=sheets")) return json({ sheets: [{ properties: { sheetId: 7, title: "techcheck", gridProperties: { columnCount: state.columnCount } } }] });
+            if (path === ":batchUpdate") {
+                state.columnCount += body.requests[0].appendDimension.length;
+                return json({});
+            }
+            if (path === "/values/techcheck!1:1") return json(header.length > 0 ? { values: [header] } : {});
+            if (path.includes(":append")) return json({ updates: { updatedRange: "techcheck!A2:AH2" } });
+            // values.update: シートの外のセルは断る (本物と同じ)
+            const column = /!([A-Z]+)\d+/.exec(path)![1]!;
+            const index = [...column].reduce((n, c) => n * 26 + c.charCodeAt(0) - 64, 0);
+            if (index + (body.values[0].length - 1) > state.columnCount) return json({ error: { message: "exceeds grid limits" } }, 400);
+            return json({});
+        }) as unknown as typeof fetch;
+        return { fetchFn, calls, state };
+    }
+    const token = async () => "token";
+
+    it("見出しが無ければ、すべて書く", async () => {
+        const api = fakeSheetsApi([], 26);
+        const sheet = new GoogleSheet("SHEET", "techcheck", token, api.fetchFn);
+        assert.equal(await sheet.append(["a"]), "techcheck!A2:AH2");
+        assert.equal(api.state.columnCount, sheetColumns.length, "列が足りなければ足す");
+        const header = api.calls.find((c) => c.method === "PUT")!;
+        assert.equal(header.path, "/values/techcheck!A1?valueInputOption=RAW");
+        assert.deepEqual((header.body as { values: string[][] }).values[0], [...sheetColumns]);
+    });
+
+    it("列があとから増えたシートでは、列を足してから、足りない後ろの見出しだけを書き足す", async () => {
+        // 「Google ドライブ」の列が増える前に作ったシート (見出しも、シートの列も 1 つ少ない)
+        const old = sheetColumns.slice(0, -1);
+        const api = fakeSheetsApi([...old], old.length);
+        const sheet = new GoogleSheet("SHEET", "techcheck", token, api.fetchFn);
+        await sheet.append(["a"]);
+        assert.deepEqual(api.calls.find((c) => c.path === ":batchUpdate")!.body, { requests: [{ appendDimension: { sheetId: 7, dimension: "COLUMNS", length: 1 } }] });
+        const header = api.calls.find((c) => c.method === "PUT")!;
+        assert.equal(header.path, `/values/techcheck!${columnLetter(old.length)}1?valueInputOption=RAW`);
+        assert.deepEqual((header.body as { values: string[][] }).values[0], ["Google ドライブ"]);
+        // 2 回目は、見出しもシートの列も確かめ直さない
+        const before = api.calls.length;
+        await sheet.append(["b"]);
+        assert.equal(api.calls.length, before + 1);
+    });
+
+    it("行を足す前にセルを書き換えるとき (起動し直したあとのアップロードの結果など) も、列を足してから書く", async () => {
+        const api = fakeSheetsApi([...sheetColumns.slice(0, -1)], sheetColumns.length - 1);
+        const sheet = new GoogleSheet("SHEET", "techcheck", token, api.fetchFn);
+        await sheet.update(`techcheck!${columnLetter(sheetColumns.length - 1)}7`, ["https://drive.google.com/drive/folders/x"]);
+        assert.equal(api.state.columnCount, sheetColumns.length);
     });
 });
 
