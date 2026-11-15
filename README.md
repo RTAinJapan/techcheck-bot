@@ -26,10 +26,28 @@ npm start                            # または node dist/src/index.js path/to/
 ```
 
 - 起動すると、設定したサーバに `/techcheck` を登録する (サーバのコマンドなので、すぐ反映される)。
-- bot に要る Discord の権限: 配信テストのチャンネルでメッセージの送信、プライベートスレッドの作成、スレッドでのメッセージの送信、スレッドの管理 (ロックとアーカイブ)。運営への通知のチャンネルでメッセージの送信。
-- AWS の IAM ユーザーに要る権限: `mediaconnect:DescribeFlow`、`mediaconnect:StartFlow`、`mediaconnect:StopFlow`、`mediaconnect:DescribeFlowSourceMetadata`、`mediaconnect:DescribeFlowSourceThumbnail`、`cloudwatch:GetMetricData`。
-- シートは、サービスアカウントのメールアドレスに編集の権限を共有しておく。1 行目が空なら見出しを書く。
+- 各サービスのトークンと、それに要る権限は、下の「トークンと権限」の表のとおり。
+- シートは、1 行目が空なら見出しを書く。
 - denpachan の側では、全体設定でメトリクスの受信口を有効にし (`allowControl` も on)、枠に使うチャンネルに「配信テスト用」の印を付ける。
+
+## トークンと権限
+
+bot が実際に呼んでいる操作に要る、最小の権限。操作を足したら、この表も直す。
+
+| サービス | トークンの種類 | 設定名 | 要る権限 | 何のために要るか | 備考 |
+| --- | --- | --- | --- | --- | --- |
+| Discord (bot) | Bot トークン | `discord.token` (`${DISCORD_TOKEN}`) | OAuth2 スコープ: `bot`、`applications.commands` | Gateway へのログイン、サーバのコマンド `/techcheck` の登録 (`src/index.ts`) | bot をサーバに招待するときに付ける |
+| Discord (bot) | 同上 | 同上 | Gateway Intent: `Guilds` だけ。Privileged Intent は要らない | サーバとチャンネルの情報、interaction の受け取り (`src/index.ts`) | 運営のロールは interaction の member から見るので、Server Members Intent は要らない |
+| Discord (bot) | 同上 | チャンネルは `discord.techcheckChannelId` | 配信テストのチャンネルで View Channel、Send Messages、Create Private Threads、Send Messages in Threads、Manage Threads、Attach Files、Read Message History | プライベートスレッドの作成と配信者の追加、スレッドへの投稿と静止画の添付、押したあとのボタンを外すためのメッセージの取得、ロックとアーカイブ、順番の知らせのメンション (`src/discord/bot.ts` の `DiscordChat`) | 権限の整数は 360777354240。Read Message History が無いと、ボタンが残る (エラーにはならない) |
+| Discord (bot) | 同上 | チャンネルは `discord.opsChannelId` | 運営への通知のチャンネルで View Channel、Send Messages | 運営への通知 (`DiscordChat.ops`) | |
+| Discord (webhook) | Webhook の URL | `notify.webhookUrl` (`${TECHCHECK_WEBHOOK_URL}`) | 権限は無い (URL そのものが秘密) | 結果の通知 (`src/adapters/webhook.ts`) | 未設定なら送らない。URL を作る人に Manage Webhooks が要る |
+| AWS MediaConnect | IAM のアクセスキー | 環境変数 `AWS_ACCESS_KEY_ID` / `AWS_SECRET_ACCESS_KEY` か AWS のプロファイル。リージョンは `aws.region` | `mediaconnect:DescribeFlow`、`mediaconnect:StartFlow`、`mediaconnect:StopFlow`、`mediaconnect:DescribeFlowSourceMetadata`、`mediaconnect:DescribeFlowSourceThumbnail` | フローの状態と受け口、開始と停止、映像の形式、静止画 (`src/adapters/aws.ts`) | Resource は `flows` に書いたフローの ARN に絞る |
+| AWS CloudWatch | 同上 | 同上 | `cloudwatch:GetMetricData` | 名前空間 `AWS/MediaConnect` のメトリクスを 1 秒の粒度で取る (`src/adapters/aws.ts`) | Resource は `*` (リソースで絞れないアクション) |
+| Google Sheets API v4 | サービスアカウントのキー (JSON ファイル) | `sheet.credentialsFile`、`sheet.spreadsheetId`、`sheet.tabName` | OAuth スコープ `https://www.googleapis.com/auth/spreadsheets`。シートをサービスアカウントのメールアドレスに「編集者」で共有する | 1 行目の読み取り、行の追加、後日の音声の判定の書き換え (`src/adapters/sheet.ts`) | GCP の IAM ロールは要らない。プロジェクトで Sheets API を有効にしておく |
+| denpachan (メトリクスの受信口) | 受信口のトークン | `denpachan.token` (`${DENPACHAN_TOKEN}`) | トークンに権限の区別は無い。denpachan の側で `metrics.enabled` と `metrics.allowControl` を on にし、枠のチャンネルに「配信テスト用」の印 (`testSlot`) を付ける | `channels` の受信、`startChannel`、`stopChannel`、`setRecording`、`patchChannel` (`src/adapters/receiver.ts`、`src/service.ts`) | loopback に繋ぐならトークンは無くてよい。それ以外では必須 |
+
+- `flows[].passphrase` と `rtmp.key` は、配信者に案内する URL に入れるだけで、API の認証には使わない。
+- CI (GitHub Actions) は、自動で発行される `GITHUB_TOKEN` の `contents: read` だけを使う。リポジトリのシークレットは要らない。
 
 ## 試験
 
@@ -44,6 +62,10 @@ CI (`.github/workflows/ci.yml`) でも、型の確認・試験・ビルドを回
 
 - CloudWatch のメトリクスのディメンション名 (`FlowARN`) と 1 秒の粒度で取れること。AWS のドキュメントの記述どおりにしてあるが、実際のアカウントで一度確かめる (`src/adapters/aws.ts`)。
 - `DescribeFlowSourceMetadata` の `StreamType` と `FrameRate` の実際の値の形。
+- 「トークンと権限」の表のうち、次の 3 つ。
+  - `applications.commands` スコープが要ること (招待の URL はコードに無いので、Discord の仕様から割り出した)。
+  - `/techcheck shot` の返事 (実行した人だけに見える返事) にファイルを付けるのに、Attach Files が要るかどうか。
+  - `mediaconnect:DescribeFlowSourceMetadata` と `mediaconnect:DescribeFlowSourceThumbnail` を、IAM ポリシーでフローの ARN に絞れるかどうか。
 - denpachan のメトリクスの受信口と実際に繋いだ動作。`channels` メッセージの形は denpachan の `src/engine/metrics_view.cpp` に合わせて試験している。
 
 ## 構成
