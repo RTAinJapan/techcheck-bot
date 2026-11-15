@@ -47,7 +47,7 @@ guide:
 
 wait:
   arrived: "Your stream is arriving. Keep streaming for about 2 minutes (moving around in the game makes it easier to check)."
-  remind: "Your stream has not arrived yet. Check that the URL (including the passphrase) is correct and that no firewall blocks it."
+  remind: "Your stream has not arrived yet. Check that you pasted the URL exactly as given and that no firewall blocks it."
   opsChecking: "Your stream is arriving, but we are checking our receiving side. Please wait a moment."
   notYet: "Nothing has arrived yet. We will tell you in this thread when it does."
 

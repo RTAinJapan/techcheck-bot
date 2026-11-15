@@ -17,6 +17,8 @@ aws:
   region: ap-northeast-1                     # 認証は IAM Identity Center のプロファイル (環境変数 AWS_PROFILE。docs/createToken.md)
 
 # bot が開始・停止・監視してよいフロー。フローと配信用のドメインを組で持つ
+# passphrase は、フローの source に SRT の暗号化 (パスワード) を設定しているときだけ書く。そのパスワードと同じ値にする。
+# 暗号化していなければ、行を消すか、環境変数を設定しないでおく (案内する URL にパスフレーズを入れない)
 flows:
   - name: flow-a
     arn: arn:aws:mediaconnect:ap-northeast-1:123456789012:flow:1-AAAA:runner-a

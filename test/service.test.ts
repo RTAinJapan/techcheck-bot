@@ -3,7 +3,7 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 import type { SrtSample } from "../src/advisor.js";
-import { goodSample, makeWorld, twoSlotsYaml, type World } from "./helpers.js";
+import { baseYaml, goodSample, makeWorld, twoSlotsYaml, type World } from "./helpers.js";
 
 const U1 = { id: "U1", displayName: "Runner A" };
 const U2 = { id: "U2", displayName: "Runner B" };
@@ -98,6 +98,15 @@ describe("テストの流れ", () => {
         // 後日の音声の判定
         assert.match(await w.service.review("U1", true, "きれい"), /書きました/);
         assert.deepEqual(w.sheet.updates[0], { range: "techcheck!AC2:AD2", values: ["OK", "きれい"] });
+    });
+
+    it("フローにパスフレーズが無ければ、案内する URL にも入れない", async () => {
+        const w = makeWorld("", baseYaml.replace("    passphrase: pass-a\n", ""));
+        await w.service.start(U1, "C-test", undefined, "ja");
+        await w.flush();
+        const texts = w.chat.texts(w.chat.threads[0]!.id);
+        assert.ok(texts.some((x) => x.includes("srt://srt-a.example.jp:5000?mode=caller&latency=120000")));
+        assert.ok(!texts.some((x) => x.includes("passphrase") || x.includes("pbkeylen")));
     });
 
     it("もともと動いていたフローは止めない", async () => {

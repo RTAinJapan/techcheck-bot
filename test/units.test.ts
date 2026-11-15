@@ -113,8 +113,9 @@ describe("config", () => {
     });
     it("見本の設定 (config.example.yaml) は、必須の環境変数だけで読める", () => {
         const example = readFileSync(join(here, "..", "config.example.yaml"), "utf8");
-        const c = parseConfig(example, { DISCORD_TOKEN: "t", FLOW_A_PASSPHRASE: "a", FLOW_B_PASSPHRASE: "b", RTMP_KEY: "k" });
+        const c = parseConfig(example, { DISCORD_TOKEN: "t", RTMP_KEY: "k" });
         assert.equal(c.notify.webhookUrl, "", "TECHCHECK_WEBHOOK_URL が無ければ、結果の通知を送らない");
+        assert.deepEqual(c.flows.map((f) => f.passphrase), ["", ""], "FLOW_x_PASSPHRASE が無ければ、パスフレーズなし");
         assert.equal(c.slots.srt.length, 1);
     });
     it("必須の項目が無ければ、場所と環境変数の名前を出す", () => {

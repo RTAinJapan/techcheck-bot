@@ -36,7 +36,9 @@ const flowSchema = z.object({
     name: nonEmpty,
     arn: nonEmpty,
     domain: nonEmpty,
-    passphrase: nonEmpty,
+    // フローの source に SRT の暗号化を設定しているときだけ書く。空なら、案内する URL にパスフレーズを入れない
+    // (暗号化していないフローにパスフレーズ付きで送ると、SRT は接続を断る)
+    passphrase: optionalText,
     pbkeylen: z.number().int().prefault(16),
 });
 export type FlowConfig = z.infer<typeof flowSchema>;

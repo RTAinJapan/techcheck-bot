@@ -55,6 +55,7 @@ cp config.example.yaml config.yaml
 
 - Discord の権限の名前は、Developer Portal の日本語の表示のもの。
 - `flows[].passphrase` と `rtmp.key` は、配信者に案内する URL に入れる値で、配信者のスレッドに表示される。
+- `flows[].passphrase` は、フローの source に SRT の暗号化 (パスワード) を設定しているときだけ書き、そのパスワードと同じ値にする。設定していなければ書かない (書くと、配信者が接続できない)。
 
 ### MediaConnect のフロー
 
@@ -62,6 +63,7 @@ cp config.example.yaml config.yaml
 - source の `MinLatency` は、`latency.initialMs` (既定 120 ms) 以下にする。これより大きいと、配信者が OBS で設定した latency が効かない。
 - denpachan 向けの SRT の出力を足しておく。
 - スレッドに配信の静止画を貼るには、フローのサムネイル (`SourceMonitoringConfig` の `ThumbnailState`) を有効にする。
+- source に SRT の暗号化を設定しているなら、そのパスワードを `flows[].passphrase` に書く。設定していなければ書かない。
 - フローと配信用のドメインを組にして `flows` に書く。bot が開始・停止・監視するのは、ここに書いたフローだけ。
 
 ### denpachan

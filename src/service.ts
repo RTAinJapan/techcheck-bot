@@ -525,7 +525,9 @@ export class TechcheckService {
 
     private srtUrl(s: Session, port: number, latencyMs: number): string {
         const f = this.cfg.flows.find((x) => x.name === s.srt.flowName)!;
-        return `srt://${f.domain}:${port}?mode=caller&latency=${latencyMs * 1000}&passphrase=${encodeURIComponent(f.passphrase)}&pbkeylen=${f.pbkeylen}`;
+        // パスフレーズは、フローが暗号化しているとき (設定に書いてあるとき) だけ付ける
+        const encryption = f.passphrase ? `&passphrase=${encodeURIComponent(f.passphrase)}&pbkeylen=${f.pbkeylen}` : "";
+        return `srt://${f.domain}:${port}?mode=caller&latency=${latencyMs * 1000}${encryption}`;
     }
 
     private srtPort = new Map<string, number>();
