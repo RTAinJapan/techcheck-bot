@@ -1961,6 +1961,8 @@ export class TechcheckService {
             const range = r.recFrom !== undefined ? ` ${formatRecPos(r.recFrom)}-${formatRecPos(r.recTo)}` : "";
             lines.push(`- ${this.stepLabel(s, r.id)}: ${this.verdictText(s, r)}${range}`);
         }
+        // 案内した URL (配信、web カメラ) は配信テスト用。本番では、本番のときに送る URL を使ってもらう
+        lines.push(this.t(s.lang, "finish.testUrls"));
         // カメラのページを開いたままにすると、同じ URL を使う次の人のテストに、この人の映像が届いてしまう
         if (webcamOpen) lines.push(this.t(s.lang, "finish.webcamClose"));
         lines.push(this.t(s.lang, "finish.bye"));

@@ -49,6 +49,7 @@ guide:
     {url}
     ```
     3. Start streaming in OBS. We will tell you when it arrives.
+    This URL is for the stream test only. At the event, use the URL we send you then.
     Next we check video, then audio (10-15 minutes in total).
 
 wait:
@@ -66,7 +67,7 @@ audio:
   silent: "No audio is arriving. Check the audio settings in OBS (game audio source and mute)."
 
 judge:
-  ok: "Your video is arriving cleanly. Please keep the latency at **{latencyUs} μs** for the event."
+  ok: "Your video is arriving cleanly. Please use a latency of **{latencyUs} μs** at the event too (use the URL we send you at the event, and set its `latency=` to this value)."
   okRtmp: "Your video is arriving cleanly over RTMP. Please use RTMP for the event."
 
 latency:
@@ -85,6 +86,7 @@ rtmp:
     SRT is not stable for you, so let's try RTMP. Change the OBS stream settings as follows and start streaming again. Then press "Done".
     Server: `{url}`
     Stream key: `{key}`
+    This server and stream key are for the stream test only. At the event, use the ones we send you then.
   arrived: "Your RTMP stream is arriving. Keep streaming for about a minute."
   remind: "We are waiting for the switch to RTMP. Change the OBS stream settings and start streaming again."
   waitArrive: "Thanks. We continue once it arrives."
@@ -132,6 +134,7 @@ webcam:
     {url}
     ```
     2. Allow camera access, select the camera you will use at the event, and press the start button.
+    This URL is for the stream test only. At the event, use the URL we send you then.
     We will tell you when the video arrives. If you don't use a webcam, press "I don't use a webcam".
   arrived: "Your webcam video has arrived. Leave both the OBS stream and the webcam page running for about 2 minutes (we check that the video stays stable while you send both)."
   remind: "Your webcam video has not arrived yet. Check that you opened the URL, allowed the camera, and pressed the start button."
@@ -159,6 +162,7 @@ finish:
   abortedTitle: "**The stream test was stopped**"
   protocol: "Protocol: {protocol}"
   latency: "Latency for the event: {latencyUs} μs"
+  testUrls: "The URLs we gave you here are for the stream test only. At the event, use the URLs we send you then."
   bye: "You can stop streaming in OBS now. Thank you!"
   webcamClose: "Close the webcam page (the browser tab)."
 
