@@ -61,7 +61,9 @@ describe("テストの流れ", () => {
 
         // 初回の案内は IP でなくドメインの URL
         const texts = w.chat.texts(thread);
-        assert.ok(texts.some((x) => x.includes("srt://srt-a.example.jp:5000?mode=caller&latency=120000&passphrase=pass-a&pbkeylen=16")));
+        // 配布している OBS の設定の URL と同じ形 (mode=caller は付けない。OBS は書かなければ caller)
+        assert.ok(texts.some((x) => x.includes("srt://srt-a.example.jp:5000?latency=120000&passphrase=pass-a&pbkeylen=16")));
+        assert.ok(!texts.some((x) => x.includes("mode=")));
         assert.ok(!texts.some((x) => x.includes("203.0.113.10")));
         assert.ok(texts.some((x) => x.includes("配信が届きました")));
         assert.ok(texts.some((x) => x.includes("映像は問題なく届いています") && x.includes("**120000 μs**")));
@@ -126,7 +128,7 @@ describe("テストの流れ", () => {
         await w.service.start(U1, "C-test", undefined, "ja");
         await w.flush();
         const texts = w.chat.texts(w.chat.threads[0]!.id);
-        assert.ok(texts.some((x) => x.includes("srt://srt-a.example.jp:5000?mode=caller&latency=120000")));
+        assert.ok(texts.some((x) => x.includes("srt://srt-a.example.jp:5000?latency=120000")));
         assert.ok(!texts.some((x) => x.includes("passphrase") || x.includes("pbkeylen")));
     });
 

@@ -786,7 +786,9 @@ export class TechcheckService {
         const f = this.cfg.flows.find((x) => x.name === s.srt.flowName)!;
         // パスフレーズは、フローが暗号化しているとき (設定に書いてあるとき) だけ付ける
         const encryption = f.passphrase ? `&passphrase=${encodeURIComponent(f.passphrase)}&pbkeylen=${f.pbkeylen}` : "";
-        return `srt://${f.domain}:${port}?mode=caller&latency=${obsLatency(latencyMs)}${encryption}`;
+        // mode=caller は付けない: OBS は何も書かなければ caller で繋ぐ。配布している OBS の設定の URL と同じ形
+        // (srt://<ドメイン>:<port>?latency=<値>) にして、配信者が見比べて latency の数字だけを直せるようにする
+        return `srt://${f.domain}:${port}?latency=${obsLatency(latencyMs)}${encryption}`;
     }
 
     private srtPort = new Map<string, number>();

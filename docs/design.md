@@ -495,7 +495,7 @@ sequenceDiagram
 
 準備が終わったらスレッドに書く。
 
-- 接続先: SRT の URL (`srt://<組のドメイン>:<port>?mode=caller&latency=<初期値>000&passphrase=…&pbkeylen=16`。`passphrase` と `pbkeylen` は、フローにパスフレーズを設定しているときだけ付ける)。IP アドレスは出さない。OBS の「配信」の設定にそのまま貼れる形で。
+- 接続先: SRT の URL (`srt://<組のドメイン>:<port>?latency=<初期値>000&passphrase=…&pbkeylen=16`。`passphrase` と `pbkeylen` は、フローにパスフレーズを設定しているときだけ付ける)。配布している OBS の設定に入っている URL (`srt://srt-a1.rtaij.app:20000?latency=100000`) と同じ形にして、配信者が見比べて数字だけを直せるようにする。`mode=caller` は付けない (OBS は、書かなければ caller で繋ぐ)。IP アドレスは出さない。OBS の「配信」の設定にそのまま貼れる形で。
 - 配布した OBS の設定 (プロファイルとシーンコレクション) を使っていることの確認と、期待する出力 (解像度、fps、ビットレート、キーフレーム間隔)。
 - 「OBS で配信を始めてください。このあと、映像の確認、音声の確認の順に進めます (全体で 10〜15 分)」。
 - 「配信を始めた」「中断する」のボタン。
