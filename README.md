@@ -2,7 +2,7 @@
 
 イベント前の配信テストを Discord で進める bot。
 
-- **設計書**: [denpachan の docs/stream-test-automation.md](https://github.com/RTAinJapan/denpachan/blob/main/docs/stream-test-automation.md)。コードのコメントの「設計書 §x」は、この文書の節を指す。
+- **設計書**: [docs/design.md](docs/design.md)。コードのコメントの「設計書 §x」は、この文書の節を指す。
 - 受信には [denpachan](https://github.com/RTAinJapan/denpachan) を使う。bot と denpachan は、denpachan のメトリクスの受信口 (WebSocket) だけでやりとりする。
 - はじめは denpachan のリポジトリの `bot/techcheck/` で作った。そのときのコミットの履歴を引き継いでいる。
 

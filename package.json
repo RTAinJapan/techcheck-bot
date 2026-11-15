@@ -2,7 +2,7 @@
   "name": "techcheck-bot",
   "version": "0.1.0",
   "private": true,
-  "description": "配信テスト (techcheck) を進める Discord bot。設計は denpachan の docs/stream-test-automation.md",
+  "description": "配信テスト (techcheck) を進める Discord bot。設計は docs/design.md",
   "type": "module",
   "engines": {
     "node": ">=22.13"
