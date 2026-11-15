@@ -40,8 +40,9 @@ export const defaultChecks: CheckStep[] = [
         seconds: 10,
         marginDb: 6,
         text: {
-            ja: "ゲームの音が出ない状態のまま、マイクに向かって普段の声で 10 秒ほど話してください。",
-            en: "Keep the game silent and talk into your microphone in your normal voice for about 10 seconds.",
+            // 何のためにマイクで話すのかを先に伝える (マイクの音質を見る手順だと思われないように)
+            ja: "OBS にゲーム音だけが載る設定になっていることを確認します。\nゲームの音が出ない状態のまま、マイクに向かって普段の声で 10 秒ほど話してください。",
+            en: "We check that OBS is set up to send only the game audio.\nKeep the game silent and talk into your microphone in your normal voice for about 10 seconds.",
         },
         failHint: {
             ja: "マイクの音が配信に入っています。OBS のマイクの入力を、配信の音声から外してください (マイクは別の経路で送ってもらいます)。",
