@@ -35,7 +35,8 @@ rtmp:
   key: ${RTMP_KEY}
   # statsUrl: http://rtmp.example.jp:8080/stat
 
-# 枠の初期値。/techcheck slot で設定し直した値の方が優先する
+# 枠。/techcheck slot で設定し直した値は、起動し直しても残る。
+# ここを書き換えて起動し直すと、書き換えた枠はここの値になる (あとから変えた方が効く)
 # SRT の枠は既定で 1 つ (テストは 1 人ずつ)。同時に進めるには、枠を並べる (README の「同時に複数人をテストする」):
 #   srt:
 #     - { flow: flow-a, channel: 7 }

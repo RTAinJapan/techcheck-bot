@@ -130,7 +130,11 @@ npm start
 | `/techcheck cancel <user>` | 運営 | テストを中止して枠を空ける |
 | `/techcheck review <user> <audio> [memo]` | 運営 | 後日、録画を聞いた音声の判定 (OK / NG) をシートに書く |
 
-`slots` の値は初期値で、`/techcheck slot` で設定し直した値の方が優先する。SRT の枠の数は、設定ファイルの `slots.srt` に並べた数で決まる (変えたら bot を起動し直す)。
+枠の設定は、設定ファイルの `slots` と `/techcheck slot` の、あとから変えた方が効く。
+
+- `/techcheck slot` で設定し直した値は保存され、bot を起動し直しても残る。
+- 設定ファイルの `slots` を書き換えて起動し直すと、書き換えた枠は設定ファイルの値になる (その枠を `/techcheck slot` で設定し直していた値は捨てる)。
+- SRT の枠の数は、設定ファイルの `slots.srt` に並べた数で決まる。
 
 ## ドキュメント
 

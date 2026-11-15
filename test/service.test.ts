@@ -367,6 +367,22 @@ describe("準備と枠", () => {
         assert.match(await w.service.slotSet("srt", 7, "flow-a"), /設定しました/);
     });
 
+    it("起動し直したとき: 設定ファイルの枠を書き換えていればそれが効き、書き換えていなければ設定し直した値が残る", async () => {
+        const w1 = makeWorld();
+        assert.match(await w1.service.slotShow(), /SRT の枠: フロー flow-a \/ ch7[\s\S]*RTMP の枠: ch8/);
+
+        // 設定ファイルのチャンネルを 7、8 から 6、5 に書き換えて起動し直す
+        const edited = baseYaml.replace("srt: { flow: flow-a, channel: 7 }", "srt: { flow: flow-a, channel: 6 }").replace("rtmp: { channel: 8 }", "rtmp: { channel: 5 }");
+        const w2 = makeWorld("", edited, w1.store);
+        assert.match(await w2.service.slotShow(), /SRT の枠: フロー flow-a \/ ch6[\s\S]*RTMP の枠: ch5/);
+
+        // /techcheck slot で設定し直した値は、設定ファイルがそのままなら、起動し直しても残る
+        assert.match(await w2.service.slotSet("srt", 7, "flow-a"), /設定しました/);
+        await w2.service.slotEnable("srt", false);
+        const w3 = makeWorld("", edited, w2.store);
+        assert.match(await w3.service.slotShow(), /SRT の枠: フロー flow-a \/ ch7 \/ 止めている/);
+    });
+
     it("届かないまま 10 分で催促し、30 分で中断する", async () => {
         const w = makeWorld();
         await w.service.start(U1, "C-test", undefined, "ja");

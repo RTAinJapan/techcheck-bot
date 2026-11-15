@@ -50,17 +50,38 @@ const kAssumePressedMs = 30_000;
 const kReconnectLiveMs = 30_000;
 const kSenderDecodeErrors = 5;
 
+/** 設定ファイルに書いてある枠の値。保存した枠が、どの設定のときのものかを覚えておくために、枠と一緒に保存する */
+export interface SlotConfigSnapshot {
+    srt: { flow: string | null; channel: number | null; enabled: boolean }[];
+    rtmp: { channel: number | null };
+}
+
+export function slotConfigSnapshot(cfg: Config): SlotConfigSnapshot {
+    return {
+        srt: cfg.slots.srt.map((c) => ({ flow: c.flow ?? null, channel: c.channel ?? null, enabled: c.enabled })),
+        rtmp: { channel: cfg.slots.rtmp.channel ?? null },
+    };
+}
+
 /**
- * 保存してある枠を読む。SRT の枠の数は設定 (slots.srt) で決まり、それぞれの中身は、
- * `/techcheck slot` で設定し直して保存した値があればそちらを使う (無ければ設定の初期値)。
+ * 保存してある枠を読む。SRT の枠の数は設定 (slots.srt) で決まる。それぞれの中身は:
+ * - 設定ファイルのその枠が、保存したときから変わっていなければ、保存してある値 (`/techcheck slot` で設定し直した値が、起動し直しても残る)。
+ * - 変わっていれば、設定ファイルの値 (設定ファイルを書き換えて起動し直したら、それが効く)。
+ * storedBase は、保存したときの設定ファイルの値 (slotConfigSnapshot)。無ければ (これを保存していなかった版の保存) 設定ファイルの値を使う。
  * 枠が 1 つだったときの保存の形 (srt が配列でない) も読む。
  */
-export function loadSlots(stored: unknown, cfg: Config): SlotState {
+export function loadSlots(stored: unknown, storedBase: unknown, cfg: Config): SlotState {
     const old = stored as { srt?: SrtSlotState | SrtSlotState[]; rtmp?: SlotState["rtmp"] } | undefined;
     const storedSrt = old?.srt === undefined ? [] : Array.isArray(old.srt) ? old.srt : [old.srt];
+    const base = storedBase as Partial<SlotConfigSnapshot> | undefined;
+    const now = slotConfigSnapshot(cfg);
+    const unchanged = (a: unknown, b: unknown) => a !== undefined && JSON.stringify(a) === JSON.stringify(b);
     return {
-        srt: cfg.slots.srt.map((c, i) => storedSrt[i] ?? { flow: c.flow, channel: c.channel, enabled: c.enabled }),
-        rtmp: old?.rtmp ?? { channel: cfg.slots.rtmp.channel, enabled: true },
+        srt: cfg.slots.srt.map((c, i) => {
+            const kept = storedSrt[i];
+            return kept && unchanged(base?.srt?.[i], now.srt[i]) ? kept : { flow: c.flow, channel: c.channel, enabled: c.enabled };
+        }),
+        rtmp: old?.rtmp && unchanged(base?.rtmp, now.rtmp) ? old.rtmp : { channel: cfg.slots.rtmp.channel, enabled: true },
     };
 }
 
@@ -76,6 +97,7 @@ export class TechcheckService {
     private sessions: Session[];
     private queue: QueueState;
     private slots: SlotState;
+    private readonly slotsConfig: SlotConfigSnapshot;
     private langPrefs: Record<string, Lang>;
     private finished: Record<string, FinishedRecord>;
     private readonly samples = new Map<string, Map<number, SrtSample>>();
@@ -90,7 +112,11 @@ export class TechcheckService {
         // 枠が 1 つだったときに保存したセッションには、枠の番号が無い
         for (const s of this.sessions) s.srt.slot ??= 0;
         this.queue = loadQueue(d.store.get<unknown>("queue"));
-        this.slots = loadSlots(d.store.get<unknown>("slots"), d.config);
+        this.slots = loadSlots(d.store.get<unknown>("slots"), d.store.get<unknown>("slotsConfig"), d.config);
+        // 読んだ枠と、そのもとにした設定ファイルの値を、組で保存し直す (次に起動したとき、設定ファイルが変わったかを見分ける)
+        this.slotsConfig = slotConfigSnapshot(d.config);
+        d.store.set("slots", this.slots);
+        d.store.set("slotsConfig", this.slotsConfig);
         this.langPrefs = d.store.get<Record<string, Lang>>("langPrefs") ?? {};
         this.finished = d.store.get<Record<string, FinishedRecord>>("finished") ?? {};
     }
@@ -1316,6 +1342,7 @@ export class TechcheckService {
         this.d.store.set("sessions", this.sessions);
         this.d.store.set("queue", this.queue);
         this.d.store.set("slots", this.slots);
+        this.d.store.set("slotsConfig", this.slotsConfig);
         this.d.store.set("langPrefs", this.langPrefs);
         this.d.store.set("finished", this.finished);
     }

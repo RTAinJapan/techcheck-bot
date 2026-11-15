@@ -237,7 +237,8 @@ export class FakeDns implements DnsPort {
     }
 }
 
-export function makeWorld(extraYaml = "", baseYamlText = baseYaml) {
+/** existingStore を渡すと、前の世界の保存を引き継ぐ (bot を起動し直したことにする) */
+export function makeWorld(extraYaml = "", baseYamlText = baseYaml, existingStore?: MemoryStore) {
     const config = testConfig(extraYaml, baseYamlText);
     const clock = new FakeClock();
     const flow = new FakeFlow();
@@ -246,7 +247,7 @@ export function makeWorld(extraYaml = "", baseYamlText = baseYaml) {
     const sheet = new FakeSheet();
     const webhook = new FakeWebhook();
     const dns = new FakeDns();
-    const store = new MemoryStore();
+    const store = existingStore ?? new MemoryStore();
     const logs: string[] = [];
     const service = new TechcheckService({
         config,

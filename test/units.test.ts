@@ -9,7 +9,7 @@ import { defaultChecks, evaluateAudioStep } from "../src/checks.js";
 import { ConfigError, expandEnv, parseConfig } from "../src/config.js";
 import { I18n, checkParity, langFromLocale } from "../src/i18n.js";
 import { buildRow, columnLetter, formatRecPos, sheetColumns } from "../src/record.js";
-import { loadQueue, loadSlots } from "../src/service.js";
+import { loadQueue, loadSlots, slotConfigSnapshot } from "../src/service.js";
 import { baseYaml, goodSample, here, messagesDir, testConfig, twoSlotsYaml } from "./helpers.js";
 
 const table = testConfig().judge.multipliers;
@@ -141,18 +141,30 @@ describe("config", () => {
         assert.throws(() => parseConfig(twoSlotsYaml.replace("{ flow: flow-b, channel: 6 }", "{ flow: flow-b, channel: 7 }"), {}), /チャンネル 7 を 2 つの枠で/);
         assert.throws(() => parseConfig(twoSlotsYaml.replace("{ flow: flow-b, channel: 6 }", "{ flow: flow-b, channel: 8 }"), {}), /チャンネル 8 を 2 つの枠で/);
     });
-    it("保存してある枠と待ちの列は、枠が 1 つだったときの形も読める", () => {
+    it("保存してある枠は、設定ファイルのその枠が変わっていなければ使い、変わっていれば設定ファイルの値にする", () => {
         const two = testConfig("", twoSlotsYaml);
-        // 保存が無ければ設定の初期値
-        assert.deepEqual(loadSlots(undefined, two).srt.map((s) => s.channel), [7, 6]);
-        // 古い形 (srt が 1 つ)。設定し直した値は 1 つ目の枠に残り、2 つ目は設定の初期値
-        const old = { srt: { flow: "flow-a", channel: 5, enabled: false }, rtmp: { channel: 8, enabled: true } };
-        assert.deepEqual(loadSlots(old, two).srt, [
-            { flow: "flow-a", channel: 5, enabled: false },
-            { flow: "flow-b", channel: 6, enabled: true },
-        ]);
+        const base = slotConfigSnapshot(two);
+        // 保存が無ければ設定ファイルの値
+        assert.deepEqual(loadSlots(undefined, undefined, two).srt.map((s) => s.channel), [7, 6]);
+        // /techcheck slot で設定し直した値 (ch5、止めている) は、設定ファイルが同じなら残る
+        const saved = { srt: [{ flow: "flow-a", channel: 5, enabled: false }, { flow: "flow-b", channel: 6, enabled: true }], rtmp: { channel: 8, enabled: false } };
+        assert.deepEqual(loadSlots(saved, base, two), saved);
+        // 設定ファイルの 1 番の枠のチャンネルを書き換えたら、その枠は設定ファイルの値になる。変えていない枠は保存の値のまま
+        const edited = parseConfig(twoSlotsYaml.replace("{ flow: flow-a, channel: 7 }", "{ flow: flow-a, channel: 1 }").replace("rtmp: { channel: 8 }", "rtmp: { channel: 2 }"), {});
+        const savedBoth = { ...saved, srt: [saved.srt[0]!, { flow: "flow-b", channel: 6, enabled: false }] };
+        assert.deepEqual(loadSlots(savedBoth, base, edited), {
+            srt: [{ flow: "flow-a", channel: 1, enabled: true }, { flow: "flow-b", channel: 6, enabled: false }],
+            rtmp: { channel: 2, enabled: true },
+        });
+        // もとにした設定を保存していなかった版の保存は、設定ファイルの値にする
+        assert.deepEqual(loadSlots(saved, undefined, two).srt.map((s) => s.channel), [7, 6]);
+        // 枠が 1 つだったときの形 (srt が配列でない) も読める
+        const one = testConfig();
+        assert.deepEqual(loadSlots({ srt: saved.srt[0], rtmp: saved.rtmp }, slotConfigSnapshot(one), one).srt, [saved.srt[0]]);
         // 設定の枠を減らしたら、余った分は使わない
-        assert.equal(loadSlots({ srt: [old.srt, old.srt], rtmp: old.rtmp }, testConfig()).srt.length, 1);
+        assert.equal(loadSlots(saved, base, one).srt.length, 1);
+    });
+    it("保存してある待ちの列は、知らせが 1 人だけだったときの形も読める", () => {
         assert.deepEqual(loadQueue({ entries: [], offer: { userId: "U1", offeredAt: 1 } }).offers, [{ userId: "U1", offeredAt: 1 }]);
         assert.deepEqual(loadQueue(undefined), { entries: [], offers: [] });
     });
