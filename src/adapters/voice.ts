@@ -92,10 +92,39 @@ export class DiscordVoice implements VoicePort {
                 out.end(() => resolve());
             });
             const level = ogg.packets > 0 ? await this.measure(file).catch(() => undefined) : undefined;
-            return { file, packets: ogg.packets, bytes, audioMs: Math.round(ogg.audioMs), ...level };
+            const waveform = ogg.packets > 0 ? await this.waveform(file).catch(() => undefined) : undefined;
+            return { file, packets: ogg.packets, bytes, audioMs: Math.round(ogg.audioMs), ...level, waveform };
         } finally {
             connection.destroy();
         }
+    }
+
+    /**
+     * 録った声の波形の画像 (PNG、800x200)。配信者に、どれくらいの音量で届いたかを見せる。
+     * 列ごとのピークで描くので、上下の赤い線 (0 dBFS) に届いていれば、音が割れている。
+     */
+    private waveform(file: string): Promise<Buffer | undefined> {
+        const graph =
+            "color=c=0x2B2D31:s=800x200[bg];" +
+            "[0:a]aformat=channel_layouts=mono,showwavespic=s=800x200:colors=0x57F287:filter=peak[fg];" +
+            "[bg][fg]overlay=format=auto," +
+            "drawbox=x=0:y=0:w=800:h=2:color=0xED4245:t=fill,drawbox=x=0:y=198:w=800:h=2:color=0xED4245:t=fill";
+        const args = ["-hide_banner", "-loglevel", "error", "-i", file, "-filter_complex", graph, "-frames:v", "1", "-f", "image2pipe", "-vcodec", "png", "pipe:1"];
+        return new Promise((resolve, reject) => {
+            const child = spawn(this.ffmpegPath, args, { stdio: ["ignore", "pipe", "ignore"], windowsHide: true });
+            const out: Buffer[] = [];
+            const timer = setTimeout(() => child.kill(), 15_000);
+            child.stdout.on("data", (d: Buffer) => out.push(d));
+            child.on("error", (e) => {
+                clearTimeout(timer);
+                reject(e);
+            });
+            child.on("close", () => {
+                clearTimeout(timer);
+                const image = Buffer.concat(out);
+                resolve(image.length > 0 ? image : undefined);
+            });
+        });
     }
 
     /** 録ったファイルの音量 (dBFS) を ffmpeg の volumedetect で測る */

@@ -1383,10 +1383,16 @@ export class TechcheckService {
                 this.save();
                 return;
             }
+            // どれくらいの音量で届いたかを、数字と波形の画像で返す (配信者が自分で大きさを確かめられるように)
             const notes: string[] = [];
+            if (result.maxDb !== undefined && result.meanDb !== undefined) notes.push(this.t(s.lang, "voice.level", { max: result.maxDb, mean: result.meanDb }));
+            if (result.waveform) notes.push(this.t(s.lang, "voice.waveform"));
             if ((result.clippedPct ?? 0) >= kVoiceClippedPct) notes.push(this.t(s.lang, "voice.clipped"));
             else if (result.meanDb !== undefined && result.meanDb < kVoiceQuietDb) notes.push(this.t(s.lang, "voice.quiet"));
-            await this.post(s, { content: [this.t(s.lang, "voice.recorded", { seconds: Math.round(result.audioMs / 1000) }), ...notes].join("\n") });
+            await this.post(s, {
+                content: [this.t(s.lang, "voice.recorded", { seconds: Math.round(result.audioMs / 1000) }), ...notes].join("\n"),
+                image: result.waveform ? { name: "voice-waveform.png", data: result.waveform } : undefined,
+            });
             s.results = s.results.filter((x) => x.id !== step.id);
             s.results.push({ id: step.id, verdict: "ok", value: result.meanDb });
             s.lastActivity = this.now();

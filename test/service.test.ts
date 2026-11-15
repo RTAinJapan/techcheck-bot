@@ -445,6 +445,11 @@ describe("マイクの声の録音 (ボイスチャンネル)", () => {
         const texts = w.chat.texts(thread);
         assert.ok(texts.some((x) => x.includes("録音しています。15 秒ほど")));
         assert.ok(texts.some((x) => x.includes("録音しました (声が 10 秒ぶん届きました)") && x.includes("ボイスチャンネルからは退出してください")));
+        // どれくらいの音量で届いたかを、数字と波形の画像で返す
+        const recorded = w.chat.posts.find((p) => p.threadId === thread && p.msg.content.includes("録音しました"))!.msg;
+        assert.match(recorded.content, /届いた声の音量: 最大 -6 dB、平均 -24 dB \(0 dB が上限です\)。\n下の画像は、録音した声の波形です/);
+        assert.equal(recorded.image?.name, "voice-waveform.png");
+        assert.equal(recorded.image?.data.toString(), "waveform");
         assert.match(w.chat.lastPost(thread)!.content, /確認はすべて終わりました/);
         await w.service.complete(sessionIdOf(w, thread), "");
         const row = w.sheet.rows[0]!;

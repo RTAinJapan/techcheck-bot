@@ -306,7 +306,7 @@ export class FakeVoice implements VoicePort {
         return this.rooms.map((r) => ({ ...r, members: Object.keys(this.where).filter((u) => this.where[u] === r.id) }));
     }
     /** 次の録音の結果 (届いた声の長さなど) */
-    next: Partial<VoiceRecording> = { packets: 500, bytes: 60_000, audioMs: 10_000, maxDb: -6, meanDb: -24, clippedPct: 0 };
+    next: Partial<VoiceRecording> = { packets: 500, bytes: 60_000, audioMs: 10_000, maxDb: -6, meanDb: -24, clippedPct: 0, waveform: Buffer.from("waveform") };
     error: string | undefined;
     calls: { channelId: string; userId: string; file: string; seconds: number }[] = [];
     /** 設定すると、録音はこれが解決するまで終わらない (録音中の動きを試す) */

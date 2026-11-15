@@ -97,6 +97,8 @@ export interface VoiceRecording {
     meanDb?: number;
     /** 振り切れた (0 dBFS に達した) サンプルの割合 (%)。大きいと音が割れている */
     clippedPct?: number;
+    /** 録った声の波形の画像 (PNG)。配信者に音量を見せる。ffmpeg で作れなかったときは無い */
+    waveform?: Buffer;
 }
 
 export interface VoiceChannelInfo {
