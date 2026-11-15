@@ -8,7 +8,20 @@ import { evaluateAudioStep } from "./checks.js";
 import type { CheckStep, Config, FlowConfig, Lang } from "./config.js";
 import type { I18n } from "./i18n.js";
 import { langFromLocale } from "./i18n.js";
-import type { Button, ChatPort, Clock, DnsPort, FlowInfo, FlowPort, OutMessage, ReceiverChannel, ReceiverPort, SheetPort, WebhookPort } from "./ports.js";
+import type {
+    Button,
+    ChatPort,
+    Clock,
+    DnsPort,
+    FlowInfo,
+    FlowPort,
+    OutMessage,
+    ReceiverChannel,
+    ReceiverPort,
+    SheetPort,
+    StillPort,
+    WebhookPort,
+} from "./ports.js";
 import { audioVerdictColumn, buildRow, buildWebhookPayload, columnLetter, formatRecPos, formatTime } from "./record.js";
 import type { FinishedRecord, Phase, QueueOffer, QueueState, Session, SlotState, SrtSlotState } from "./session.js";
 import type { KeyValueStore } from "./store.js";
@@ -19,6 +32,7 @@ export interface Deps {
     store: KeyValueStore;
     flow: FlowPort;
     rx: ReceiverPort;
+    still: StillPort;
     dns: DnsPort;
     chat: ChatPort;
     sheet: SheetPort;
@@ -49,6 +63,10 @@ const kOpsWarnAfterSec = 60;
 const kAssumePressedMs = 30_000;
 const kReconnectLiveMs = 30_000;
 const kSenderDecodeErrors = 5;
+/** 録画から静止画を取るのに要る、録画の長さ (秒)。これより短いと、まだ絵が書かれていないことがある */
+const kStillMinRecordSec = 3;
+/** 録画の「今」から、どれだけ手前の絵を取るか (秒)。書き込みが追いついている所を読む */
+const kStillBackSec = 2;
 
 /** 設定ファイルに書いてある枠の値。保存した枠が、どの設定のときのものかを覚えておくために、枠と一緒に保存する */
 export interface SlotConfigSnapshot {
@@ -356,33 +374,54 @@ export class TechcheckService {
     async shot(userId: string): Promise<{ text: string; image?: Buffer }> {
         const s = this.sessions.find((x) => x.userId === userId);
         if (!s) return { text: "その配信者のテストは進行中ではありません" };
-        if (s.protocol !== "srt") return { text: "RTMP では静止画を取れません (MediaConnect を通らないため)" };
-        try {
-            const image = await this.d.flow.thumbnail(s.srt.flowArn);
-            return image ? { text: `${s.displayName} の静止画`, image } : { text: "静止画を取れませんでした (フローが静止画を返しませんでした)" };
-        } catch (e) {
-            return { text: `静止画を取れませんでした: ${thumbnailReason(e)}` };
-        }
+        const r = await this.takeStill(s);
+        return r.image ? { text: `${s.displayName} の静止画`, image: r.image } : { text: `静止画を取れませんでした: ${r.reasons.join(" / ")}` };
     }
 
     /**
-     * 配信の静止画 (SRT のときだけ。RTMP は MediaConnect を通らないので無い)。
-     * 取れなければ undefined を返し、理由をコンソールと運営への通知に出す (同じテストでは 1 回だけ)。
-     * 黙って失敗すると、フローのサムネイルが無効なままでも気付けない。
+     * 配信の静止画を取る。取れなければ、試した方法ごとの理由を返す。
+     * 1. denpachan の録画から取り出す (SRT でも RTMP でも使える。録画が 2 秒分たまってから)。
+     * 2. だめなら、SRT のときは MediaConnect のフローのサムネイル (フローで有効にしてあるとき)。
+     *    bot が denpachan と別の PC で動いていて、録画のファイルを開けないときのためのもの。
+     */
+    private async takeStill(s: Session): Promise<{ image?: Buffer; reasons: string[]; tooEarly: boolean }> {
+        const reasons: string[] = [];
+        const rec = this.activeChannel(s)?.record;
+        const seconds = rec?.seconds ?? 0;
+        const tooEarly = rec?.state === "recording" && seconds < kStillMinRecordSec;
+        if (!rec?.file || rec.state !== "recording") reasons.push("denpachan が録画していません");
+        else if (tooEarly) reasons.push("録画が始まったばかりです");
+        else {
+            try {
+                return { image: await this.d.still.fromRecording(rec.file, seconds - kStillBackSec), reasons, tooEarly };
+            } catch (e) {
+                reasons.push(errorText(e));
+            }
+        }
+        if (s.protocol === "srt" && !s.srt.released) {
+            try {
+                const image = await this.d.flow.thumbnail(s.srt.flowArn);
+                if (image) return { image, reasons, tooEarly };
+                reasons.push("フローが静止画を返しませんでした");
+            } catch (e) {
+                reasons.push(thumbnailReason(e));
+            }
+        }
+        return { reasons, tooEarly };
+    }
+
+    /**
+     * スレッドに貼る静止画。取れなければ undefined を返し、理由をコンソールと運営への通知に出す (同じテストでは 1 回だけ)。
+     * 黙って失敗すると、静止画が出ない原因に気付けない。録画が始まったばかりで取れないだけのときは、知らせない。
      */
     private async still(s: Session): Promise<Buffer | undefined> {
-        if (s.protocol !== "srt") return undefined;
-        try {
-            const image = await this.d.flow.thumbnail(s.srt.flowArn);
-            if (image) return image;
-            throw new Error("フローが静止画を返しませんでした");
-        } catch (e) {
-            if (!s.stillWarned) {
-                s.stillWarned = true;
-                await this.ops(`配信の静止画を取れません (${s.srt.flowName})。${s.displayName} のスレッドには静止画なしで案内します: ${thumbnailReason(e)}`);
-            }
-            return undefined;
+        const r = await this.takeStill(s);
+        if (r.image) return r.image;
+        if (!r.tooEarly && !s.stillWarned) {
+            s.stillWarned = true;
+            await this.ops(`配信の静止画を取れません。${s.displayName} のスレッドには静止画なしで案内します: ${r.reasons.join(" / ")}`);
         }
+        return undefined;
     }
 
     async setLatency(userId: string, ms: number): Promise<string> {
@@ -1620,12 +1659,10 @@ export function errorText(e: unknown): string {
     return e instanceof Error ? e.message : String(e);
 }
 
-/** 静止画を取れなかった理由。いちばん多い「フローのサムネイルが無効」は、直し方を付ける */
+/** フローのサムネイルを取れなかった理由 (録画から取れなかったときの、予備の方法) */
 function thumbnailReason(e: unknown): string {
     const text = errorText(e);
-    return /ThumbnailState/i.test(text)
-        ? "フローのサムネイルが無効です。MediaConnect のフローの source の監視の設定で、サムネイル (ThumbnailState) を有効にしてください"
-        : text;
+    return /ThumbnailState/i.test(text) ? "フローのサムネイルも無効です (録画から取れないときの予備。使うなら MediaConnect のフローで ThumbnailState を有効にします)" : `フローのサムネイル: ${text}`;
 }
 
 /** 受信の設定をログ用に書く (パスフレーズそのものは出さない) */

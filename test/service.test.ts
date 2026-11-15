@@ -616,16 +616,8 @@ describe("チェック", () => {
         assert.ok(w.chat.texts(w.chat.threads[0]!.id).some((x) => x.includes("音が届いていません")));
     });
 
-    it("静止画を取れないときは、理由を運営に知らせ、OBS のプレビューで答えてもらう", async () => {
-        const w = makeWorld();
-        w.flow.thumbnail = async () => {
-            throw new Error("This action can only be performed on a flow with ThumbnailState in SourceMonitoringConfiguration set to ENABLED.");
-        };
-        const { thread } = await startAndStream(w);
-        // 繋がったときに 1 回だけ知らせる (あとの手順で同じ知らせを繰り返さない)
-        const warned = () => w.chat.opsLog.filter((l) => l.includes("配信の静止画を取れません"));
-        assert.equal(warned().length, 1);
-        assert.match(warned()[0]!, /フローのサムネイルが無効です。.*ThumbnailState.*を有効にしてください/);
+    /** 「画面」の手順が出るところまで進める */
+    async function toPictureStep(w: World, thread: string) {
         const audio = (peak: number) => () => w.rx.live(7, { peak });
         await press(w, thread, "step-start");
         await w.run(18, audio(-20));
@@ -633,26 +625,67 @@ describe("チェック", () => {
             await press(w, thread, "step-start");
             await w.run(13, audio(-80));
         }
-        const picture = w.chat.posts.filter((p) => p.threadId === thread).at(-1)!.msg;
+        return w.chat.posts.filter((p) => p.threadId === thread).at(-1)!.msg;
+    }
+    const thumbnailsOff = async () => {
+        throw new Error("This action can only be performed on a flow with ThumbnailState in SourceMonitoringConfiguration set to ENABLED.");
+    };
+
+    it("画面の手順の静止画は、denpachan の録画から取る (フローのサムネイルが無効でも付く)", async () => {
+        const w = makeWorld();
+        w.flow.thumbnail = thumbnailsOff;
+        const { thread } = await startAndStream(w);
+        const picture = await toPictureStep(w, thread);
+        assert.equal(picture.image?.data.toString(), "still of rec-ch7.mkv");
+        assert.ok(!picture.content.includes("静止画を取れませんでした"));
+        // 録画の「今」の 2 秒手前を取る (手順を出したあとも録画は 1 秒進んでいる)
+        const rec = w.rx.channels.get(7)!.record!;
+        const call = w.still.calls.at(-1)!;
+        assert.equal(call.file, "rec-ch7.mkv");
+        assert.ok(rec.seconds! - call.atSec >= 2 && rec.seconds! - call.atSec <= 3, `録画 ${rec.seconds} 秒に対して ${call.atSec} 秒`);
+        assert.ok(!w.chat.opsLog.some((l) => l.includes("静止画を取れません")), "録画から取れていれば、サムネイルが無効でも知らせない");
+        const shot = await w.service.shot("U1");
+        assert.equal(shot.image?.toString(), "still of rec-ch7.mkv");
+    });
+
+    it("録画から取れないときは、フローのサムネイルを使う (bot が別の PC にあるとき)", async () => {
+        const w = makeWorld();
+        w.still.error = "録画から静止画を取り出せませんでした (No such file or directory)";
+        const { thread } = await startAndStream(w);
+        const picture = await toPictureStep(w, thread);
+        assert.equal(picture.image?.data.toString(), "jpeg");
+        assert.ok(!w.chat.opsLog.some((l) => l.includes("静止画を取れません")));
+    });
+
+    it("どちらでも取れないときは、理由を運営に 1 回だけ知らせ、OBS のプレビューで答えてもらう", async () => {
+        const w = makeWorld();
+        w.still.error = "ffmpeg が見つかりません (ffmpeg)。ffmpeg.path を確かめてください";
+        w.flow.thumbnail = thumbnailsOff;
+        const { thread } = await startAndStream(w);
+        const warned = () => w.chat.opsLog.filter((l) => l.includes("配信の静止画を取れません"));
+        assert.equal(warned().length, 0, "録画が始まったばかりで取れないだけのときは、知らせない");
+        const picture = await toPictureStep(w, thread);
         assert.match(picture.content, /配信に映っている画面は正しいですか[\s\S]*こちらで配信の静止画を取れませんでした。OBS のプレビューを見て答えてください/);
         assert.equal(picture.image, undefined);
         assert.equal(warned().length, 1);
-        assert.match((await w.service.shot("U1")).text, /静止画を取れませんでした: フローのサムネイルが無効です/);
+        assert.match(warned()[0]!, /ffmpeg が見つかりません.* \/ フローのサムネイルも無効です/);
+        const shot = await w.service.shot("U1");
+        assert.match(shot.text, /静止画を取れませんでした: ffmpeg が見つかりません/);
+        assert.equal(warned().length, 1, "同じ知らせを繰り返さない");
     });
 
-    it("静止画を取れるときは、画面の手順に付ける", async () => {
-        const w = makeWorld();
-        const { thread } = await startAndStream(w);
-        const audio = (peak: number) => () => w.rx.live(7, { peak });
-        await press(w, thread, "step-start");
-        await w.run(18, audio(-20));
-        for (let i = 0; i < 3; i++) {
-            await press(w, thread, "step-start");
-            await w.run(13, audio(-80));
-        }
-        const picture = w.chat.posts.filter((p) => p.threadId === thread).at(-1)!.msg;
-        assert.ok(picture.image, "静止画が付いている");
-        assert.ok(!picture.content.includes("静止画を取れませんでした"));
+    it("RTMP に移ったテストの静止画も、RTMP の枠のチャンネルの録画から取る", async () => {
+        const w = makeWorld("latency: { maxRaises: 0 }\n");
+        await w.service.start(U1, "C-test", undefined, "ja");
+        await w.flush();
+        const thread = w.chat.threads[0]!.id;
+        const t0 = Math.floor(w.clock.t / 1000);
+        w.flow.sampleAt = (t) => ({ ...goodSample(t), notRecovered: t >= t0 ? 2 : 0 });
+        await w.run(80, () => w.rx.live(7));
+        await press(w, thread, "set");
+        await w.run(10, () => w.rx.live(8));
+        const shot = await w.service.shot("U1");
+        assert.equal(shot.image?.toString(), "still of rec-ch8.mkv");
     });
 
     it("マイクが載っていたら直し方を出し、そのまま進めると印を付ける", async () => {

@@ -17,10 +17,11 @@
 | 要るもの | 内容 |
 | --- | --- |
 | Node.js | 22.13 以上 |
+| ffmpeg | 配信の静止画を、denpachan の録画から取り出すのに使う。PATH に無ければ `ffmpeg.path` に場所を書く。無くても動くが、スレッドに静止画が付かない |
 | Discord | bot (トークン)、配信テストのチャンネル、運営のロール。運営への通知を使うならそのチャンネル、結果の通知を使うなら webhook も |
 | AWS | 配信者が SRT で送る先の MediaConnect のフローと、bot 用の許可セット (IAM Identity Center)。bot を動かす PC に AWS CLI v2 |
 | RTMP サーバ | SRT で安定しない配信者を案内する先 |
-| denpachan | フローの出力と RTMP サーバの配信を受ける。メトリクスの受信口を有効にする |
+| denpachan | フローの出力と RTMP サーバの配信を受ける。メトリクスの受信口を有効にする。bot と同じ PC で動かす (別の PC でも動くが、録画から静止画を取れない) |
 | Google スプレッドシート | 結果を書くシートと、サービスアカウントのキー (JSON ファイル) |
 
 ## 準備
@@ -62,7 +63,7 @@ cp config.example.yaml config.yaml
 - source は SRT listener にする (配信者が caller)。
 - source の `MinLatency` は、`latency.initialMs` (既定 120 ms) 以下にする。これより大きいと、配信者が OBS で設定した latency が効かない。
 - denpachan 向けの SRT の出力を足しておく (ほかの受け手とは別の出力にする)。
-- スレッドに配信の静止画を貼るには、フローのサムネイル (`SourceMonitoringConfig` の `ThumbnailState`) を有効にする。
+- フローのサムネイル (`SourceMonitoringConfig` の `ThumbnailState`) は、有効にしなくてよい。配信の静止画は denpachan の録画から取る。bot を denpachan と別の PC で動かす (録画のファイルを開けない) ときだけ、予備として有効にする。
 - source に SRT の暗号化を設定しているなら、そのパスワードを `flows[].passphrase` に書く。設定していなければ書かない。
 - フローと配信用のドメインを組にして `flows` に書く。bot が開始・停止・監視するのは、ここに書いたフローだけ。
 
@@ -147,7 +148,7 @@ npm start
 | `/techcheck slot rtmp <channel>` | 運営 | RTMP の枠に使う denpachan のチャンネルを設定し直す |
 | `/techcheck slot off <kind> [slot]` / `/techcheck slot on <kind> [slot]` | 運営 | 枠の受付を止める / 再開する。止めている間も待ちの列は残る。`slot` を省くと、`off` は SRT の枠すべてを止め、`on` は枠が複数なら番号を求める |
 | `/techcheck status [user]` | 運営 | 進行中のテストの段階と数字を見る |
-| `/techcheck shot <user>` | 運営 | 配信の静止画を貼る (SRT のときだけ) |
+| `/techcheck shot <user>` | 運営 | 配信の静止画を貼る |
 | `/techcheck latency <user> <ms>` | 運営 | 配信者に案内する latency を手で決める |
 | `/techcheck latency-receiver <channel> <ms>` | 運営 | denpachan の側の latency を変える |
 | `/techcheck rtmp <user>` | 運営 | RTMP の案内に切り替える |

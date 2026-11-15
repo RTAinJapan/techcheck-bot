@@ -100,4 +100,5 @@ Discord の権限の名前は、README と createToken.md では Developer Porta
   - A (SRT の枠を増やす) は、偽物の外の口での試験だけ。実際に 2 件以上を同時に受けたときの回線と PC の負荷は見ていない。
   - B (bot を別々に動かす) は、コードを変えずにできるはずだが、実際に 2 つ動かしてはいない。サーバの設定でコマンドを使えるチャンネルを bot ごとに絞る手順も、Discord の機能の説明から書いたもの。
 - 受信の設定を bot が入れる動作 ([design.md の §5.8](design.md#58-枠のチャンネルの受信の設定を-bot-が入れる))。bot の側は偽物の外の口での試験、denpachan の側は受信口の試験 (`ws_test.sh`) で確かめてあるが、両方を繋いで実際のフローの出力を受けるところは通していない。出力が SRT caller の場合 (denpachan が listener で待つ) は、とくに試していない。
+- 録画から静止画を取る動作のうち、RTMP の枠の録画と、bot を別の PC で動かしたときの予備 (フローのサムネイル)。SRT の枠の録画中のファイルから ffmpeg で取り出せることは、実機で確かめた。
 - denpachan のメトリクスの受信口と実際に繋いだ動作。`channels` メッセージの形は denpachan の `src/engine/metrics_view.cpp` に合わせて試験している。

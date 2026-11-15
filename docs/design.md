@@ -33,7 +33,7 @@ bot (このリポジトリ) と、denpachan の engine の側 (メトリクス�
 | --- | --- | --- |
 | 配信者と運営が時間を合わせ、Discord で通話する | **配信者が好きな時間に `/techcheck start` で起動する (イベント中も)。** SRT の枠は既定で 1 つなので、テストは同時に 1 人 (枠を増やせば、その数だけ同時に進められる。§5.7)。空いていればすぐ始まり、bot が配信者ごとのスレッドで案内する。空いていなければ待ちの列に入り、順番が来たら知らせる。通話はしない | 時間を合わせる手間をなくす (§5.1) |
 | 配信者が MediaConnect に SRT で送る、運営が vMix で受ける | **bot が MediaConnect の接続状態 (`SourceConnected`) と denpachan の受信状態を見て、配信が届いたことを確かめる** | §3 |
-| 映像が乱れずに表示できること | **少しの間 (1〜2 分) 配信させ、bot が MediaConnect の取りこぼし (`SourceNotRecoveredPackets`)・CC エラーと、denpachan のデコードエラー・fps で判定し、結果を配信者に伝える** | 回復できなかったパケットとデコードエラーが 0 で fps が出ていれば、映像は乱れていない。静止画 (`DescribeFlowSourceThumbnail`) もスレッドに貼る |
+| 映像が乱れずに表示できること | **少しの間 (1〜2 分) 配信させ、bot が MediaConnect の取りこぼし (`SourceNotRecoveredPackets`)・CC エラーと、denpachan のデコードエラー・fps で判定し、結果を配信者に伝える** | 回復できなかったパケットとデコードエラーが 0 で fps が出ていれば、映像は乱れていない。静止画 (denpachan の録画から取る) もスレッドに貼る |
 | 乱れるときは latency を上げてもらう。上げても直らなければ RTMP にする | **bot が値を決めて配信者に伝え、配信者が OBS の設定を変えて始め直す (§6)。** 直ったかどうかは bot が見る。上げても直らなければ bot が RTMP (ECS の RTMP サーバ) の案内に切り替える | latency は配信者の OBS の設定に持たせる (本番でもその値で送ってもらう)。MediaConnect の `MinLatency` は低いまま固定し、実際の latency は OBS の値で決まるようにする (大きい方が使われる) |
 | 音声が正しく来ていること、ノイズが無いこと | **bot がチェックの手順 (ゲーム音を鳴らす、静かにする) を順にさせ (§7)、その区間を録画の時刻とともに記録する。** 後日、人が録画のその区間を聞いて判定する | 判定は録画でできる。手順をそろえておけば、聞く側は決まった区間だけを聞けばよい |
 | ゲーム音だけが載っていること (マイク音は別経路) | **同上。** しゃべる、デスクトップの音を鳴らす、の手順をさせる。その間に音が載ればマイク・デスクトップ音が混ざっている | denpachan の音声レベルで、その場の参考の判定もできる。明らかに混ざっていればその場で直してもらう |
@@ -82,7 +82,7 @@ bot が使う API とメトリクス。すべて AWS SDK for JavaScript v3 か�
 | ビットレート | `SourceBitRate` (bps) | 記録 (窓の平均) |
 | TS の壊れ | `SourceContinuityCounter`、`SourceTSSyncLoss` | 安定の確定の条件 (§6) |
 | 解像度・fps・コーデック | `DescribeFlowSourceMetadata` (`TransportMediaInfo.Programs[].Streams[]` の `FrameResolution`、`FrameRate`、`Codec`、`StreamType`) | 繋がったときに 1 回、期待する出力 (`guide.expected`) と比べる。音声ストリームの有無もここで分かる。fps は判定の基準にも使う |
-| 静止画 | `DescribeFlowSourceThumbnail` (Base64 の JPEG。フローの `SourceMonitoringConfig.ThumbnailState` を ENABLED にしておく) | 繋がったとき、チェックの「画面」の手順、`/techcheck shot` でスレッドに貼る。運営が vMix を開かずに絵を見られる |
+| 静止画 (予備) | `DescribeFlowSourceThumbnail` (Base64 の JPEG。フローの `SourceMonitoringConfig.ThumbnailState` を ENABLED にしたときだけ使える) | 静止画は denpachan の録画から取る (下の「配信の静止画」)。録画から取れないとき (bot が別の PC にある、ffmpeg が無い、録画が始まったばかり) の予備として、SRT のときだけこちらを使う |
 
 - CloudWatch は `GetMetricData` で、**1 秒の粒度**のメトリクスを 10 秒ごとに直近 4 分ぶん取り、bot の中で秒ごとに溜める (反映が数十秒遅れることがあるので、遅れて届いた秒も拾えるように長めに取る。高解像度のメトリクスは 3 時間残る)。名前空間は `AWS/MediaConnect`、ディメンションは `FlowARN` (フローの source は 1 つ)。
 - **推奨 latency の計算は bot が行う** (denpachan の `src/worker/srt_advisor.h` と同じ規則を bot に写す。`src/advisor.ts`): 窓 (`judge.windowSec`、既定 60 秒) の RTT の最大 × 倍率 (ロス率 〜1%: 3、〜3%: 4、〜7%: 6、〜10%: 8、それ以上: 10。`judge.multipliers`)。窓の中に `SourceNotRecoveredPackets` があれば今の 1.5 倍以上。下限 20 ms、10 ms 単位に切り上げ。接続直後の 5 秒は使わない。データのある秒が 10 秒分に満たなければ「計測中」。AWS の目安「latency は RTT のピークの 3 倍以上」と同じ考え方で、ロスが多いときに倍率を上げる分だけ厳しい。
@@ -92,7 +92,16 @@ bot が使う API とメトリクス。すべて AWS SDK for JavaScript v3 か�
 
 - denpachan の pull の受信状態 (`status`、`video.fps`、`video.decodeErrors`) だけで判定する。RTMP の pull には TCP の統計が無い (`tcp` は null) ので、再送は見ない。
 - RTMP サーバの統計 (nginx-rtmp の `/stat`、SRS の HTTP API など) は使っていない。設定の `rtmp.statsUrl` は置いてあるが、今は読まない (§10)。
-- MediaConnect を通らないので、静止画 (`/techcheck shot`、チェックの「画面」の手順) と `DescribeFlowSourceMetadata` による設定の比べは無い。
+- MediaConnect を通らないので、`DescribeFlowSourceMetadata` による設定の比べは無い。静止画は、SRT と同じく denpachan の録画から取れる。
+
+#### 配信の静止画
+
+繋がったとき、チェックの「画面」の手順、`/techcheck shot` で、配信の静止画をスレッドに貼る (運営が vMix を開かずに絵を見られる)。
+
+- **denpachan の録画から取る。** denpachan はテストの間ずっと録画しているので (SRT の枠も RTMP の枠も)、bot が ffmpeg で、録画の「今」の 2 秒手前の 1 枚を取り出す (`src/adapters/still.ts`)。録画中のファイルは長さが分からないので、末尾からではなく、録画の秒数 (`record.seconds`) から位置を決める。録画が 3 秒たまるまでは取らない。
+- フローのサムネイルの設定が要らず、RTMP でも使える。bot と denpachan が同じ PC (または録画先を同じパスで見られる PC) で動いていることと、ffmpeg (`ffmpeg.path`。既定は PATH の `ffmpeg`) が要る。
+- 録画から取れないときは、SRT なら MediaConnect のサムネイル (上の表の「静止画 (予備)」) を試す。
+- どちらでも取れないときは、静止画なしで案内し、理由 (試した方法ごと) を運営に知らせる (同じテストでは 1 回だけ。録画が始まったばかりで取れないだけのときは知らせない)。「画面」の手順では、「OBS のプレビューを見て答えてください」と添える。
 - 配信者に案内するのは RTMP の URL (`rtmp://<RTMP サーバのドメイン>/<app>`) とキー (bot の設定に持つ)。denpachan のそのチャンネルの pull の URL も同じキーにしておく。
 
 ### 3.2 denpachan のメトリクスの受信口 (MediaConnect → 運営の区間、デコード、音声、録画)
@@ -276,6 +285,7 @@ bot は denpachan の区間の数字を判定には使わず、記録 (運営の
 | | `timeouts.stepAbortMin` | latency の変更・RTMP への切り替えを頼んでから、またはチェックの手順・「完了」で操作が無いまま、中断するまで | 20 |
 | | `timeouts.halveWhenQueued` | 待っている人がいるとき、催促と中断の時間を半分にする | true |
 | チェック | `checks` | 音声とその他のチェックの手順 (§7.1)。文言 (日本語と英語)・秒数・閾値・種類 | §7.1 の 6 手順 |
+| 静止画 | `ffmpeg.path` | 配信の静止画を denpachan の録画から取り出すのに使う ffmpeg (§3.1 の「配信の静止画」) | PATH の `ffmpeg` |
 | 言語 | `i18n.dir` | 配信者への案内の文言のファイル (`ja.yaml`、`en.yaml`) のフォルダ (§4.3) | `./messages` |
 | | `i18n.fallback` | Discord の言語設定が日本語でも英語でもないときに使う言語 | `en` |
 | 保存 | `db.path` | SQLite のファイル | `./techcheck.db` |
@@ -338,7 +348,7 @@ i18n:
 | `/techcheck slot srt <組の名前> <ch> [slot]` / `/techcheck slot rtmp <ch>` | 運営 | 枠に使うフロー (とドメイン) の組と denpachan のチャンネルを設定し直す (§5.6)。組の名前は選択肢から選ぶ (`flows` の先頭 25 個まで)。`slot` は SRT の枠の番号 (1 から。省けば 1 番) |
 | `/techcheck slot off <srt\|rtmp> [slot]` / `/techcheck slot on <srt\|rtmp> [slot]` | 運営 | 枠を止める / 戻す (空いているフロー・チャンネルが無いとき)。止めている間も待ちの列は残す。`slot` を省くと、`off` は SRT の枠すべてを止める。`on` は、枠が 1 つならその枠を戻し、複数なら番号を求める (止めてある予備の枠まで、まとめて動かさないように) |
 | `/techcheck status [配信者]` | 運営 | 進行中のテストの段階と数字 (MediaConnect と denpachan の両方) を出す |
-| `/techcheck shot <配信者>` | 運営 | `DescribeFlowSourceThumbnail` の静止画を貼る (SRT のときだけ) |
+| `/techcheck shot <配信者>` | 運営 | 配信の静止画を貼る (denpachan の録画から。§3.1 の「配信の静止画」) |
 | `/techcheck latency <配信者> <ms>` | 運営 | 配信者に案内する latency を手で決める (自動の途中でも)。`/techcheck latency-receiver <ch> <ms>` は denpachan 側 (MediaConnect → 運営の区間) |
 | `/techcheck rtmp <配信者>` | 運営 | RTMP (ECS の RTMP サーバ) の案内に切り替える (自動の判定を待たずに) |
 | `/techcheck cancel <配信者>` | 運営 | 中止して枠を空ける (記録は「中断」) |
@@ -595,7 +605,7 @@ sequenceDiagram
 | 2 | ゲームの音を止めて (ミュートして)、静かにしてください | 10 | ほぼ無音 (ピーク −60 dBFS 未満)。このときのレベルを**ノイズの大きさ**として記録 | 何も鳴らしていないのに音が載っています (ノイズの可能性)。キャプチャボードの音量、ゲーム機の設定を確認 |
 | 3 | ゲームの音を止めたまま、マイクに向かって普段の声で話してください | 10 | 無音のまま (手順 2 のレベルと −60 dBFS の大きい方 + 6 dB を超えない) | マイクの音が配信に入っています。OBS のマイクの入力を配信の音声から外してください (マイクは別の経路で送ります) |
 | 4 | ゲームの音を止めたまま、PC の音 (ブラウザの動画、Discord の通知音など) を鳴らしてください | 10 | 無音のまま (同上) | PC の音が配信に入っています。OBS のデスクトップ音声を配信の音声から外してください |
-| 5 | (静止画を貼って。SRT のときだけ。静止画を取れないとき (フローのサムネイルが無効、RTMP) は「OBS のプレビューを見て答えてください」と添え、取れない理由を運営に知らせる) 配信に映っている画面は正しいですか (ゲーム画面が全体に映っている、余計なウィンドウが無い) | — | 配信者が「はい」 (「始める」は無く、「はい」「いいえ」で答える) | 「いいえ」なら OBS のシーンを直して「やり直す」 |
+| 5 | (静止画を貼って。静止画を取れないときは「OBS のプレビューを見て答えてください」と添え、取れない理由を運営に知らせる。§3.1 の「配信の静止画」) 配信に映っている画面は正しいですか (ゲーム画面が全体に映っている、余計なウィンドウが無い) | — | 配信者が「はい」 (「始める」は無く、「はい」「いいえ」で答える) | 「いいえ」なら OBS のシーンを直して「やり直す」 |
 | 6 | OBS の配信を一度止めて、もう一度始めてください (本番で切れたときの戻し方の練習) | 最大 60 + 30 | 繋ぎ直して `live` に戻る (denpachan で途切れて戻った、または `SourceUpTime` が戻った、かつ今 `live`) | 戻らなければ、URL の設定が保存されているかを確認 |
 
 - 手順は bot の設定 (YAML の `checks`) に書く。運営は文言・秒数・閾値を変えたり、手順を足したりできる。文言 (`text`、`failHint`) は日本語と英語の両方を書く (§4.3)。手順の種類 (`kind`) は `sound` (音を鳴らす。音が載ることを期待)、`silence` (静かにする。ノイズの大きさを測る)、`quiet` (載らないことを期待。基準は `silence`)、`confirm` (はい / いいえで答える)、`reconnect` (繋ぎ直す) の 5 つ。`quiet` の前には `silence` が要る (無ければ起動しない)。既定の手順は bot の `src/checks.ts`。

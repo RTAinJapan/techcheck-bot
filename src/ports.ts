@@ -71,6 +71,13 @@ export interface ReceiverPort {
     canConfigure(): boolean;
 }
 
+// ---- 配信の静止画 ----
+
+export interface StillPort {
+    /** denpachan の録画ファイルの、録画の先頭から atSec 秒のあたりの 1 枚 (JPEG) */
+    fromRecording(file: string, atSec: number): Promise<Buffer>;
+}
+
 // ---- DNS ----
 
 export interface DnsPort {

@@ -5,7 +5,20 @@ import { dirname, join } from "node:path";
 import type { SrtSample } from "../src/advisor.js";
 import { parseConfig, type Config } from "../src/config.js";
 import { I18n } from "../src/i18n.js";
-import type { ChatPort, Clock, DnsPort, FlowInfo, FlowMetadata, FlowPort, OutMessage, ReceiverChannel, ReceiverPort, SheetPort, WebhookPort } from "../src/ports.js";
+import type {
+    ChatPort,
+    Clock,
+    DnsPort,
+    FlowInfo,
+    FlowMetadata,
+    FlowPort,
+    OutMessage,
+    ReceiverChannel,
+    ReceiverPort,
+    SheetPort,
+    StillPort,
+    WebhookPort,
+} from "../src/ports.js";
 import { TechcheckService } from "../src/service.js";
 import { MemoryStore } from "../src/store.js";
 
@@ -254,6 +267,17 @@ export class FakeWebhook implements WebhookPort {
     }
 }
 
+export class FakeStill implements StillPort {
+    calls: { file: string; atSec: number }[] = [];
+    /** 設定すると、録画から取り出せないことにする */
+    error: string | undefined;
+    async fromRecording(file: string, atSec: number): Promise<Buffer> {
+        this.calls.push({ file, atSec });
+        if (this.error) throw new Error(this.error);
+        return Buffer.from(`still of ${file}`);
+    }
+}
+
 export class FakeDns implements DnsPort {
     answers: Record<string, string[]> = { "srt-a.example.jp": ["203.0.113.10"], "srt-b.example.jp": ["203.0.113.10"], "rtmp.example.jp": ["198.51.100.1"] };
     async resolve(domain: string): Promise<string[]> {
@@ -269,6 +293,7 @@ export function makeWorld(extraYaml = "", baseYamlText = baseYaml, existingStore
     const clock = new FakeClock();
     const flow = new FakeFlow();
     const rx = new FakeRx();
+    const still = new FakeStill();
     const chat = new FakeChat();
     const sheet = new FakeSheet();
     const webhook = new FakeWebhook();
@@ -281,6 +306,7 @@ export function makeWorld(extraYaml = "", baseYamlText = baseYaml, existingStore
         store,
         flow,
         rx,
+        still,
         dns,
         chat,
         sheet,
@@ -304,7 +330,7 @@ export function makeWorld(extraYaml = "", baseYamlText = baseYaml, existingStore
             await flush();
         }
     };
-    return { config, clock, flow, rx, chat, sheet, webhook, dns, store, service, logs, flush, run };
+    return { config, clock, flow, rx, still, chat, sheet, webhook, dns, store, service, logs, flush, run };
 }
 
 export type World = ReturnType<typeof makeWorld>;

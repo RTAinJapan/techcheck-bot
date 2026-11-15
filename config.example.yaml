@@ -71,6 +71,10 @@ latency:
   maxMs: 2000
   maxRaises: 4
 
+# 配信の静止画を、denpachan の録画から取り出すのに使う ffmpeg。PATH にあれば書かなくてよい
+# ffmpeg:
+#   path: C:/tools/ffmpeg/bin/ffmpeg.exe
+
 i18n:
   dir: ./messages                            # ja.yaml と en.yaml
   fallback: en

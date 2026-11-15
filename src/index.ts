@@ -8,6 +8,7 @@ import { AwsFlowPort } from "./adapters/aws.js";
 import { NodeDns } from "./adapters/dns.js";
 import { WsReceiver } from "./adapters/receiver.js";
 import { GoogleSheet } from "./adapters/sheet.js";
+import { FfmpegStill } from "./adapters/still.js";
 import { DiscordWebhook } from "./adapters/webhook.js";
 import { loadConfig } from "./config.js";
 import { buildCommand } from "./discord/commands.js";
@@ -35,6 +36,7 @@ async function main(): Promise<void> {
         store,
         flow: new AwsFlowPort(config.aws.region),
         rx,
+        still: new FfmpegStill(config.ffmpeg.path),
         dns: new NodeDns(),
         chat: new DiscordChat(client, config),
         sheet: new GoogleSheet(config.sheet.spreadsheetId, config.sheet.tabName, resolve(baseDir, config.sheet.credentialsFile)),

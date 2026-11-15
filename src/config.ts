@@ -157,6 +157,8 @@ export const configSchema = z
             })
             .prefault({}),
         checks: z.array(checkStepSchema).min(1).optional(),
+        // 配信の静止画を、denpachan の録画から取り出すのに使う ffmpeg。既定は PATH の ffmpeg
+        ffmpeg: z.object({ path: z.string().min(1).prefault("ffmpeg") }).prefault({}),
         i18n: z.object({ dir: z.string().prefault("./messages"), fallback: lang.prefault("en") }).prefault({}),
         db: z.object({ path: z.string().prefault("./techcheck.db") }).prefault({}),
     })
