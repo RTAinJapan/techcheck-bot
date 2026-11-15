@@ -11,8 +11,8 @@ export const defaultChecks: CheckStep[] = [
         thresholdDb: -40,
         ratio: 0.8,
         text: {
-            ja: "ゲーム (ゲーム機・エミュレータ) の音を鳴らしてください。BGM や効果音が出る場面で、15 秒ほど続けます。",
-            en: "Play your game (console or emulator) with sound. Stay in a scene with music or sound effects for about 15 seconds.",
+            ja: "ゲームの音を鳴らしてください。BGM や効果音が出る場面で、15 秒ほど続けます。",
+            en: "Play your game with sound. Stay in a scene with music or sound effects for about 15 seconds.",
         },
         failHint: {
             ja: "ゲームの音が届いていません。OBS のゲーム音の入力 (キャプチャボード・アプリの音声キャプチャ) と、ミュートになっていないかを確かめてください。",
