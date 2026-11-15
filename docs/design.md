@@ -99,8 +99,9 @@ bot が使う API とメトリクス。すべて AWS SDK for JavaScript v3 か�
 
 繋がったとき、チェックの「画面」の手順、`/techcheck shot` で、配信の静止画をスレッドに貼る (運営が vMix を開かずに絵を見られる)。
 
-- **denpachan の録画から取る。** denpachan はテストの間ずっと録画しているので (SRT の枠も RTMP の枠も)、bot が ffmpeg で、録画の「今」の 2 秒手前の 1 枚を取り出す (`src/adapters/still.ts`)。録画中のファイルは長さが分からないので、末尾からではなく、録画の秒数 (`record.seconds`) から位置を決める。録画が 3 秒たまるまでは取らない。
-- `record.seconds` は録画を始めてからの時間で、ファイルの中の位置ではない。配信が途切れた時間はファイルに入らないので、途切れたあと (latency を変えて OBS を始め直すと 10 秒ほど) は、ファイルの中身の方が短く、その位置にフレームが無い。そのときは手前へ探しに行き (5、10、20 秒…)、見つかったらファイルの終わりに寄せる。分かった遅れは録画ごとに覚えて、次は最初からその位置を試す。
+- **denpachan の録画から取る。** denpachan はテストの間ずっと録画しているので (SRT の枠も RTMP の枠も)、bot が ffmpeg で、録画の「今」の 2 秒手前の 1 枚を取り出す (`src/adapters/still.ts`)。録画中のファイルは長さが分からないので、末尾からではなく、denpachan が出す録画ファイルの中の位置 (`record.position`) から位置を決める。録画が 3 秒たまるまでは取らない。
+- `record.position` は、書いているファイルの時間軸で、最後に書いたパケットの時刻 (ファイルの先頭が 0)。`record.seconds` (録画を始めてからの時間) は使わない: 配信が途切れた時間はファイルに入らないので、途切れたあと (latency を変えて OBS を始め直すと 10 秒ほど) は、その分だけファイルの終わりより先を指す。`position` を出さない版の denpachan のときだけ `seconds` で代える (`src/service.ts` の `recordingPosition`)。
+- その位置にフレームが無ければ (`position` は 1 秒ごとの値で、書いたパケットがファイルに出るまでにも少し間がある。`seconds` で代えたときは途切れた分だけずれる)、手前へ探しに行き (5、10、20 秒…)、見つかったらファイルの終わりに寄せる。分かった遅れは録画ごとに覚えて、次は最初からその位置を試す。
 - フローのサムネイルの設定が要らず、RTMP でも使える。bot と denpachan が同じ PC (または録画先を同じパスで見られる PC) で動いていることと、ffmpeg (`ffmpeg.path`。既定は PATH の `ffmpeg`) が要る。
 - 録画から取れないときは、SRT なら MediaConnect のサムネイル (上の表の「静止画 (予備)」) を試す。
 - どちらでも取れないときは、静止画なしで案内し、理由 (試した方法ごと) を運営に知らせる (同じテストでは 1 回だけ。録画が始まったばかりで取れないだけのときは知らせない)。「画面」の手順では、「OBS のプレビューを見て答えてください」と添える。
@@ -169,7 +170,7 @@ WebSocket (RFC 6455)、テキストフレーム、1 フレームに JSON 1 つ�
       },
       "tcp": null,
       "audio": { "peakDb": [-9.5, -9.8], "gaps": 0, "silentSec": 0 },
-      "record": { "state": "recording", "file": "D:\\rec\\1 - 202611\\01 12-33-10.mkv", "seconds": 106 },
+      "record": { "state": "recording", "file": "D:\\rec\\1 - 202611\\01 12-33-10.mkv", "seconds": 106, "position": 96.2 },
       "rejectedSenders": 0,
       "lastError": null
     }
@@ -188,7 +189,7 @@ WebSocket (RFC 6455)、テキストフレーム、1 フレームに JSON 1 つ�
 | `latency.verdict` | 画面の経路の行の色と同じ規則 | `measuring` (推奨値がまだ無い) / `insufficient` (直近 60 秒に取りこぼしがある = 画面の赤) / `tight` (推奨値 > 実際の latency = 画面の黄) / `ok` / `generous` (実際の latency が推奨値の 2 倍以上) |
 | `tcp` | `tcp.*` | RTMP push のときだけ (それ以外は null。**RTMP pull には TCP の統計が無い**)。`rttMs`、`retransBytes`、直近 60 秒の再送 (`retransBytesLastMin`)、`verdict` (`ok` / 再送があれば `tight`) |
 | `audio` | `audioIn.*` | worker のメトリクスが無いときは null。`peakDb` (左右、dBFS)、`gaps`、`silentSec` (両チャンネルとも −60 dBFS 未満が続いた秒数。engine で数える) |
-| `record` | `record.*` | worker のメトリクスが無いときは null。`state`、`file`、`seconds` (録画の開始からの秒数。bot はチェックの手順の録画の区間に使う) |
+| `record` | `record.*` | worker のメトリクスが無いときは null。`state`、`file`、`seconds` (今のファイルに録画を始めてからの実時間。途切れていた間も進む)、`position` (**録画ファイルの中の位置**: 今書いているファイルの時間軸で、最後に書いたパケットの時刻。ファイルが切り替わると 0 から。bot はチェックの手順の録画の区間と、静止画の位置に使う。出さない版の denpachan もある) |
 | `rejectedSenders` | `video.rejectedSenders` | 同じ宛先に別の送出元がつないできて断った数 |
 | `lastError` | `video.lastError` | worker のメッセージ (`{"id": "...", ...}` の形の JSON) か null |
 
@@ -675,7 +676,7 @@ sequenceDiagram
 | 配信者のメモ、スレッド | §5.5 のモーダル、スレッドのリンク |
 | マイクの録音 (VC) | 録音のファイルと、声の長さ・最大と平均の音量・音割れ (§7.3)。使わない人は「マイクは使わない」。録音を使わない設定なら空 |
 
-録画は passthrough (再エンコードしない) で、容器は mkv。録画先と空き容量の下限は denpachan の設定のまま。録画の区間は、denpachan の録画の秒数 (`record.seconds`) から取る (取れなければ bot の時計で、録画を始めた時刻からの秒数)。
+録画は passthrough (再エンコードしない) で、容器は mkv。録画先と空き容量の下限は denpachan の設定のまま。録画の区間は、denpachan が出す録画ファイルの中の位置 (`record.position`) から取る。配信が途切れた時間はファイルに入らないので、録画を始めてからの秒数 (`record.seconds`) で書くと、途切れたあとの区間が途切れた分だけ後ろにずれる。`position` を出さない版の denpachan では `seconds` で代える。どちらも取れなければ、bot の時計で、録画を始めた時刻からの秒数。区間は、そのとき書いていたファイル (シートの録画ファイルの欄) の中の位置で、ファイルが切り替わる (途切れが denpachan の `gapTimeoutSec` を超える) と 0 から数え直しになる。
 
 ## 9. 実装
 

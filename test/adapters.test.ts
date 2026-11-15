@@ -166,6 +166,10 @@ describe("denpachan の受信口のクライアント", () => {
         assert.equal(live.video?.decodeErrors, undefined);
         assert.deepEqual(live.audio?.peakDb, [-12.5, -13]);
         assert.equal(live.record?.seconds, undefined);
+        assert.equal(live.record?.position, undefined, "position を出さない版の denpachan");
+        // 録画ファイルの中の位置 (途切れた時間を含まないので、seconds より小さい)
+        const recording = normalizeChannel({ ch: 7, record: { state: "recording", file: "D:\rec\a.mkv", seconds: 398, position: 388.8 } })!;
+        assert.deepEqual(recording.record, { state: "recording", file: "D:\rec\a.mkv", seconds: 398, position: 388.8 });
         assert.equal(live.lastError, 'srt.unreachable {"reason":"timeout"}');
         assert.equal(normalizeChannel({ name: "no ch" }), undefined);
     });

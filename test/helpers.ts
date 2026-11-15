@@ -170,7 +170,9 @@ export class FakeRx implements ReceiverPort {
             c.enabled = false;
             c.status = "stopped";
         }
-        if (method === "setRecording") c.record = params.enabled ? { state: "recording", file: `rec-ch${c.ch}.mkv`, seconds: 0 } : { state: "off" };
+        if (method === "setRecording") {
+            c.record = params.enabled ? { state: "recording", file: `rec-ch${c.ch}.mkv`, seconds: 0, ...(this.hasPosition ? { position: 0 } : {}) } : { state: "off" };
+        }
         return {};
     }
     /** 配信が届いている状態にする */
@@ -182,12 +184,25 @@ export class FakeRx implements ReceiverPort {
         const p = opts.peak ?? -20;
         c.audio = { peakDb: [p, p], gaps: 0, silentSec: p < -60 ? (c.audio?.silentSec ?? 0) + 1 : 0 };
         c.latency = { rttMs: 3, drops: 0, verdict: "ok" };
-        if (c.record?.state === "recording") c.record.seconds = (c.record.seconds ?? 0) + 1;
+        this.recordTick(c, true);
     }
+    /** 配信が届いていない状態にする (1 回が 1 秒) */
     drop(ch: number): void {
         const c = this.channels.get(ch)!;
         c.status = c.source.protocol === "srt" ? "connecting" : "listening";
         c.source.connectedSec = 0;
+        this.recordTick(c, false);
+    }
+    /** record.position (録画ファイルの中の位置) を出すか。false は、出さない版の denpachan */
+    hasPosition = true;
+    /**
+     * 録画を 1 秒進める。denpachan と同じく、seconds (録画を始めてからの実時間) は配信が届いていなくても進み、
+     * position (録画ファイルの中の位置) は届いた分だけ進む (途切れた時間はファイルに入らない)
+     */
+    private recordTick(c: ReceiverChannel, written: boolean): void {
+        if (c.record?.state !== "recording") return;
+        c.record.seconds = (c.record.seconds ?? 0) + 1;
+        if (written && c.record.position !== undefined) c.record.position += 1;
     }
 }
 

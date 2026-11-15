@@ -4,6 +4,7 @@ import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 import type { SrtSample } from "../src/advisor.js";
 import { defaultChecks, reconnectStep } from "../src/checks.js";
+import { formatRecPos } from "../src/record.js";
 import { baseYaml, goodSample, makeWorld, twoSlotsYaml, type World } from "./helpers.js";
 
 const U1 = { id: "U1", displayName: "Runner A" };
@@ -894,6 +895,41 @@ describe("チェック", () => {
         throw new Error("This action can only be performed on a flow with ThumbnailState in SourceMonitoringConfiguration set to ENABLED.");
     };
 
+    // 配信が途切れた時間は録画ファイルに入らない。denpachan の record.seconds (録画を始めてからの時間) は途切れた分だけ
+    // ファイルより先へ進むので、録画の区間と静止画の位置は record.position (録画ファイルの中の位置) から取る
+    async function checksAfterGap(hasPosition: boolean) {
+        const w = makeWorld();
+        w.rx.hasPosition = hasPosition;
+        const { thread } = await startAndStream(w);
+        const rec = w.rx.channels.get(7)!.record!;
+        // 10 秒途切れて戻る (配信者が OBS の配信を始め直した、など)
+        await w.run(10, () => w.rx.drop(7));
+        await w.run(5, () => w.rx.live(7));
+        assert.equal(rec.seconds! - (rec.position ?? rec.seconds!), hasPosition ? 10 : 0);
+        const atStart = { seconds: rec.seconds!, position: rec.position };
+        const picture = await toPictureStep(w, thread);
+        assert.ok(picture.image, "画面の手順に静止画が付く");
+        const still = w.still.calls.at(-1)!.atSec;
+        await press(w, thread, "yes");
+        await press(w, thread, "done");
+        await w.service.complete(sessionIdOf(w, thread), "");
+        const checks = String(w.sheet.rows[0]![25]);
+        return { rec, atStart, still, checks };
+    }
+
+    it("録画の区間と静止画の位置は、途切れのあとも、録画ファイルの中の位置 (record.position) から取る", async () => {
+        const { rec, atStart, still, checks } = await checksAfterGap(true);
+        assert.ok(checks.includes(`game-audio: OK (100%) ${formatRecPos(atStart.position)}〜`), checks);
+        assert.ok(!checks.includes(`${formatRecPos(atStart.seconds)}〜`), `seconds (途切れの分だけ先) の位置は書かない: ${checks}`);
+        assert.ok(rec.position! - still >= 2 && rec.position! - still <= 3, `録画の位置 ${rec.position} 秒に対して静止画は ${still} 秒`);
+    });
+
+    it("record.position を出さない版の denpachan では、record.seconds で代える", async () => {
+        const { rec, atStart, still, checks } = await checksAfterGap(false);
+        assert.ok(checks.includes(`game-audio: OK (100%) ${formatRecPos(atStart.seconds)}〜`), checks);
+        assert.ok(rec.seconds! - still >= 2 && rec.seconds! - still <= 3, `録画 ${rec.seconds} 秒に対して静止画は ${still} 秒`);
+    });
+
     it("画面の手順の静止画は、denpachan の録画から取る (フローのサムネイルが無効でも付く)", async () => {
         const w = makeWorld();
         w.flow.thumbnail = thumbnailsOff;
@@ -905,7 +941,7 @@ describe("チェック", () => {
         const rec = w.rx.channels.get(7)!.record!;
         const call = w.still.calls.at(-1)!;
         assert.equal(call.file, "rec-ch7.mkv");
-        assert.ok(rec.seconds! - call.atSec >= 2 && rec.seconds! - call.atSec <= 3, `録画 ${rec.seconds} 秒に対して ${call.atSec} 秒`);
+        assert.ok(rec.position! - call.atSec >= 2 && rec.position! - call.atSec <= 3, `録画の位置 ${rec.position} 秒に対して ${call.atSec} 秒`);
         assert.ok(!w.chat.opsLog.some((l) => l.includes("静止画を取れません")), "録画から取れていれば、サムネイルが無効でも知らせない");
         const shot = await w.service.shot("U1");
         assert.equal(shot.image?.toString(), "still of rec-ch7.mkv");

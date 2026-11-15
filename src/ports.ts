@@ -58,7 +58,12 @@ export interface ReceiverChannel {
     latency?: { rttMs?: number; drops?: number; verdict?: string } | null;
     tcp?: { rttMs?: number; retransBytes?: number } | null;
     audio?: { peakDb?: [number, number]; gaps?: number; silentSec?: number };
-    record?: { state?: string; file?: string; seconds?: number };
+    /**
+     * 録画。seconds は録画を始めてからの実時間、position は録画ファイルの中の位置 (ファイルの時間軸で、最後に書いたパケットの
+     * 時刻)。配信が途切れた時間はファイルに入らないので、途切れたあとは position の方が小さい。position を出さない版の
+     * denpachan では undefined (recordingPosition で読む)
+     */
+    record?: { state?: string; file?: string; seconds?: number; position?: number };
     lastError?: string;
 }
 

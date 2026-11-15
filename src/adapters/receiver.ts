@@ -219,7 +219,7 @@ export function normalizeChannel(raw: unknown): ReceiverChannel | undefined {
             gaps: num(audio.gaps),
             silentSec: num(audio.silentSec),
         },
-        record: record && { state: str(record.state), file: str(record.file) || undefined, seconds: num(record.seconds) },
+        record: record && { state: str(record.state), file: str(record.file) || undefined, seconds: num(record.seconds), position: num(record.position) },
         lastError: messageText(c.lastError),
     };
 }

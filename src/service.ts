@@ -404,13 +404,13 @@ export class TechcheckService {
     private async takeStill(s: Session): Promise<{ image?: Buffer; reasons: string[]; tooEarly: boolean }> {
         const reasons: string[] = [];
         const rec = this.activeChannel(s)?.record;
-        const seconds = rec?.seconds ?? 0;
-        const tooEarly = rec?.state === "recording" && seconds < kStillMinRecordSec;
+        const pos = recordingPosition(rec) ?? 0;
+        const tooEarly = rec?.state === "recording" && pos < kStillMinRecordSec;
         if (!rec?.file || rec.state !== "recording") reasons.push("denpachan が録画していません");
         else if (tooEarly) reasons.push("録画が始まったばかりです");
         else {
             try {
-                return { image: await this.d.still.fromRecording(rec.file, seconds - kStillBackSec), reasons, tooEarly };
+                return { image: await this.d.still.fromRecording(rec.file, pos - kStillBackSec), reasons, tooEarly };
             } catch (e) {
                 reasons.push(errorText(e));
             }
@@ -1721,8 +1721,9 @@ export class TechcheckService {
     }
 
     private recPos(s: Session): number | undefined {
-        const ch = this.activeChannel(s);
-        if (ch?.record?.seconds !== undefined && ch.record.state === "recording") return ch.record.seconds;
+        const rec = this.activeChannel(s)?.record;
+        const pos = rec?.state === "recording" ? recordingPosition(rec) : undefined;
+        if (pos !== undefined) return pos;
         return s.recordStartAt ? (this.now() - s.recordStartAt) / 1000 : undefined;
     }
 
@@ -1822,6 +1823,17 @@ function sum(xs: number[]): number {
  */
 export function obsLatency(latencyMs: number): number {
     return latencyMs * 1000;
+}
+
+/**
+ * 録画の「今」が、録画ファイルのどこにあたるか (秒)。手順の録画の区間と、静止画を取る位置に使う。
+ *
+ * denpachan の record.position (録画ファイルの中の位置) を使う。record.seconds は録画を始めてからの実時間で、配信が途切れた
+ * 時間 (OBS の配信を始め直すと 10 秒ほど) はファイルに入らないので、途切れたあとはその分だけファイルより先を指す。
+ * position を出さない版の denpachan のときだけ seconds で代える
+ */
+export function recordingPosition(rec: ReceiverChannel["record"]): number | undefined {
+    return rec?.position ?? rec?.seconds;
 }
 
 function round1(v: number | undefined): number | undefined {

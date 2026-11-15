@@ -3,17 +3,19 @@
 // denpachan はテストの間ずっと録画している (SRT の枠も RTMP の枠も) ので、その録画の「今」に近い 1 枚を取り出せば、
 // 配信に映っている絵が分かる。MediaConnect のサムネイル (フローごとに有効にする設定が要り、RTMP では使えない) に頼らずに済む。
 //
-// - 録画中のファイルは長さが分からないので、末尾からの指定 (-sseof) は使えない。録画の秒数 (denpachan の record.seconds) から
-//   少し手前を -ss で指定する。
-// - record.seconds は録画を始めてからの時間で、ファイルの中の位置ではない。配信が途切れた時間はファイルに入らないので、
-//   途切れたあとは、その位置にフレームが無いことがある。そのときは手前へ探しに行く (fromRecording)。
+// - 録画中のファイルは長さが分からないので、末尾からの指定 (-sseof) は使えない。録画ファイルの中の位置 (denpachan の
+//   record.position) の少し手前を -ss で指定する。
+// - その位置にフレームが無いことがある。そのときは手前へ探しに行く (fromRecording)。
+//   - position は 1 秒ごとの値で、書いたパケットがファイルに出るまでにも少し間がある (普段は「少し手前」で足りる)。
+//   - position を出さない版の denpachan では、record.seconds (録画を始めてからの時間) で代える。配信が途切れた時間は
+//     ファイルに入らないので、途切れたあとは、その分だけファイルの終わりより先を指す。
 // - bot と denpachan が同じ PC (または録画先を同じパスで見られる PC) で動いていること。別の PC なら、ファイルを開けずに失敗する。
 
 import { spawn } from "node:child_process";
 import type { StillPort } from "../ports.js";
 
 const kTimeoutMs = 10_000;
-/** 録画の秒数より、ファイルの中身がこれだけ短いと見て、手前へ探しに行く幅 (秒)。届かなければ次の幅へ */
+/** 渡された位置より、ファイルの中身がこれだけ短いと見て、手前へ探しに行く幅 (秒)。届かなければ次の幅へ */
 const kBackoffSec = [5, 10, 20, 40, 80, 160, 320, 640];
 /** 取れる位置が見つかったあと、ファイルの終わりに寄せるために挟み込む回数 */
 const kBisect = 3;
@@ -25,7 +27,7 @@ class NoFrame extends Error {}
 export type Grab = (file: string, at: number) => Promise<Buffer | undefined>;
 
 export class FfmpegStill implements StillPort {
-    /** ファイルごとの、録画の秒数に対するファイルの中身の遅れ (秒)。次に取るときの最初の位置に使う */
+    /** ファイルごとの、渡された位置に対するファイルの中身の遅れ (秒)。次に取るときの最初の位置に使う */
     private readonly lag = new Map<string, number>();
     private lastError = "";
     private readonly grab: Grab;
@@ -41,9 +43,11 @@ export class FfmpegStill implements StillPort {
     /**
      * 録画の atSec 秒のあたりの 1 枚を取り出す。
      *
-     * atSec は denpachan の record.seconds (録画を始めてからの時間) から決めるが、配信が途切れた時間はファイルに入らないので、
-     * 途切れたあとは、ファイルの中身の方が短い (OBS を始め直すと 10 秒ほど)。その位置にフレームが無ければ、手前へ探しに行き、
-     * 見つかったら、ファイルの終わりに寄せる。分かった遅れは覚えておき、次は最初からその位置を試す。
+     * atSec は denpachan の record.position (録画ファイルの中の位置) から決めるので、普段は 1 回で取れる。
+     * position を出さない版の denpachan では record.seconds (録画を始めてからの時間) から決めるが、配信が途切れた時間は
+     * ファイルに入らないので、途切れたあとは、ファイルの中身の方が短い (OBS を始め直すと 10 秒ほど)。
+     * その位置にフレームが無ければ、手前へ探しに行き、見つかったら、ファイルの終わりに寄せる。分かった遅れは覚えておき、
+     * 次は最初からその位置を試す。
      */
     async fromRecording(file: string, atSec: number): Promise<Buffer> {
         const known = this.lag.get(file) ?? 0;
