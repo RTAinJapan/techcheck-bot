@@ -64,7 +64,7 @@ sheet:
 
 guide:
   obsProfile: "RTA 配信用 2026"
-  expected: { width: 1920, height: 1080, fps: 60, bitrateKbps: 6000, keyframeSec: 2 }
+  expected: { width: 1536, height: 864, fps: 60, bitrateKbps: 6000, keyframeSec: 2 }   # 配布した OBS の設定の出力。届いた配信と違えば配信者に伝える
 
 latency:
   initialMs: 120                             # フローの MinLatency はこれ以下にしておく

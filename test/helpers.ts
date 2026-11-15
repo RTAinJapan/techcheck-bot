@@ -83,7 +83,7 @@ export class FakeFlow implements FlowPort {
     stopped = 0;
     /** t (epoch 秒) から 1 秒分のメトリクスを作る。undefined なら CloudWatch にまだ無い */
     sampleAt: (t: number) => SrtSample | undefined = () => undefined;
-    meta: FlowMetadata | undefined = { width: 1920, height: 1080, fps: 60, codec: "h264", hasAudio: true };
+    meta: FlowMetadata | undefined = { width: 1536, height: 864, fps: 60, codec: "h264", hasAudio: true };
 
     /** フローの出力 (どのフローも同じ)。main は vMix 用、sub は denpachan 用のつもり */
     outputs: FlowInfo["outputs"] = [

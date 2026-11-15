@@ -270,7 +270,7 @@ bot は denpachan の区間の数字を判定には使わず、記録 (運営の
 | | `sheet.tabName` | 記録するシートの名前 | `techcheck` |
 | | `sheet.credentialsFile` | Google のサービスアカウントの鍵のファイル (秘密) | ◯ |
 | 案内 | `guide.obsProfile` | 配布した OBS の設定 (プロファイルとシーンコレクション) の名前 | ◯ |
-| | `guide.expected` | 期待する出力 (`width`、`height`、`fps`、`bitrateKbps`、`keyframeSec`)。`DescribeFlowSourceMetadata` の値と比べる | 1920 / 1080 / 60 / 6000 / 2 |
+| | `guide.expected` | 期待する出力 (`width`、`height`、`fps`、`bitrateKbps`、`keyframeSec`)。`DescribeFlowSourceMetadata` の値と比べる (比べるのは解像度と fps。違えば配信者に伝える)。既定は、配布している走者配信用の OBS の設定の出力 | 1536 / 864 / 60 / 6000 / 2 |
 | latency | `latency.initialMs` | 最初に案内する latency。フローの `MinLatency` はこれ以下にしておく | 120 |
 | | `latency.maxMs` | 上げる上限。これでも直らなければ RTMP へ | 2000 |
 | | `latency.maxRaises` | 上げる回数の上限 | 4 |
@@ -330,7 +330,7 @@ sheet:
   credentialsFile: ./google-service-account.json
 guide:
   obsProfile: "RTA 配信用 2026"
-  expected: { width: 1920, height: 1080, fps: 60, bitrateKbps: 6000, keyframeSec: 2 }
+  expected: { width: 1536, height: 864, fps: 60, bitrateKbps: 6000, keyframeSec: 2 }
 latency:
   initialMs: 120
   maxMs: 2000

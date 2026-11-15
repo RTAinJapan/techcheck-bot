@@ -392,6 +392,18 @@ describe("denpachan の受信の設定を bot が入れる (denpachan.configure)
     });
 });
 
+describe("届いた配信の形を、期待する出力と比べる", () => {
+    it("解像度や fps が期待 (既定は 1536x864 / 60 fps) と違えば伝える。合っていれば何も言わない", async () => {
+        const ok = makeWorld();
+        const a = await startAndStream(ok);
+        assert.equal(ok.chat.texts(a.thread).some((x) => x.includes("案内と違います")), false);
+        const w = makeWorld();
+        w.flow.meta = { width: 1920, height: 1080, fps: 30, codec: "h264", hasAudio: true };
+        const b = await startAndStream(w);
+        assert.ok(w.chat.texts(b.thread).some((x) => x.includes("配信の形が案内と違います (1920x1080, 30 fps)。OBS の出力を 1536x864 / 60 fps にしてください")));
+    });
+});
+
 describe("マイクの声の録音 (ボイスチャンネル)", () => {
     const voiceOn = "voice: { enabled: true }\n";
     /** 既定の 5 手順を通して、6 つ目 (マイクの録音) が出るところまで進める */
