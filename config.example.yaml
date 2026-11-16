@@ -1,0 +1,123 @@
+# 配信テストの bot の設定。config.yaml にコピーして書き換える。
+# 項目の説明は docs/design.md の「設定値の一覧」(§4.1)、トークンに要る権限は README の「トークンと権限」。
+# 秘密 (トークン、パスフレーズ、キー、webhook の URL) は ${環境変数名} で環境変数から読める。
+# 相対パス (google.credentialsFile、i18n.dir、db.path、voice.dir) は、このファイルのあるフォルダから探す。
+
+discord:
+  token: ${DISCORD_TOKEN}
+  guildId: "123456789012345678"
+  techcheckChannelId: "223456789012345678"   # /techcheck start を受け付けるチャンネル (ここにスレッドを作る)
+  staffRoleId: "323456789012345678"          # 運営のロール
+  opsChannelId: "423456789012345678"         # 運営への通知 (途中の経過と問題) のチャンネル。空 ("") か、行を消せば送らない
+
+notify:
+  webhookUrl: ${TECHCHECK_WEBHOOK_URL}       # 結果の通知。未設定なら送らない
+
+aws:
+  region: ap-northeast-1
+  # bot 用の IAM ユーザーのアクセスキー (作り方は docs/createToken.md)。2 つとも書く。
+  # 2 つとも書かなければ (環境変数が未設定なら)、AWS SDK の既定の探し方 (AWS_PROFILE のプロファイルなど) で探す
+  accessKeyId: ${AWS_ACCESS_KEY_ID}
+  secretAccessKey: ${AWS_SECRET_ACCESS_KEY}
+
+# bot が開始・停止・監視してよいフロー。フローと配信用のドメインを組で持つ
+# passphrase は、フローの source に SRT の暗号化 (パスワード) を設定しているときだけ書く。そのパスワードと同じ値にする。
+# 暗号化していなければ、行を消すか、環境変数を設定しないでおく (案内する URL にパスフレーズを入れない)
+# output は、denpachan が受けるフローの出力の名前。denpachan.configure が true のときに要る
+# (その出力に SRT の暗号化を設定しているなら、outputPassphrase にそのパスワードも書く)
+flows:
+  - name: flow-a
+    arn: arn:aws:mediaconnect:ap-northeast-1:123456789012:flow:1-AAAA:runner-a
+    domain: srt-a.example.jp
+    passphrase: ${FLOW_A_PASSPHRASE}
+    # output: runner-a-denpachan
+  - name: flow-b
+    arn: arn:aws:mediaconnect:ap-northeast-1:123456789012:flow:1-BBBB:runner-b
+    domain: srt-b.example.jp
+    passphrase: ${FLOW_B_PASSPHRASE}
+    # output: runner-b-denpachan
+
+rtmp:
+  domain: rtmp.example.jp                    # ECS の RTMP サーバ
+  app: live
+  key: ${RTMP_KEY}
+  # statsUrl: http://rtmp.example.jp:8080/stat
+
+# 枠。/techcheck slot で設定し直した値は、起動し直しても残る。
+# ここを書き換えて起動し直すと、書き換えた枠はここの値になる (あとから変えた方が効く)
+# SRT の枠は既定で 1 つ (テストは 1 人ずつ)。同時に進めるには、枠を並べる (README の「同時に複数人をテストする」):
+#   srt:
+#     - { flow: flow-a, channel: 7 }
+#     - { flow: flow-b, channel: 6 }
+#     - { flow: flow-c, channel: 5, enabled: false }   # 予備。/techcheck slot on srt slot:3 で使い始める
+slots:
+  srt: { flow: flow-a, channel: 7 }
+  rtmp: { channel: 8 }
+
+denpachan:
+  host: 127.0.0.1                            # メトリクスの受信口
+  port: 9100
+  # token: ${DENPACHAN_TOKEN}                # loopback 以外に繋ぐときは必須
+  # configure: true                          # 枠のチャンネルの受信の設定を bot が入れる (flows の output が要る。
+  #                                          # denpachan の全体設定で「受信の設定の変更も許す」を on にする)
+
+# Google のもの。サービスアカウントのキーは、シートとドライブで同じものを使う (作り方は docs/createToken.md)
+google:
+  credentialsFile: ./google-service-account.json
+  # 結果を書くスプレッドシート。サービスアカウントに「編集者」で共有しておく
+  sheet:
+    spreadsheetId: 1AbCdEfGhIjKlMnOpQrStUvWxYz
+    tabName: techcheck
+  # テストの録画と録音を Google ドライブに上げる (README の「録画と録音を Google ドライブに上げる」)。書かなければ上げない。
+  # 共有ドライブ (またはその中のフォルダ) の ID を書く。サービスアカウントを、その共有ドライブのメンバーにしておく
+  # drive:
+  #   folderId: 0AbCdEfGhIjKlMnOpQ
+
+guide:
+  obsProfile: "RTA 配信用 2026"
+  # 配布した OBS のプロファイルの値。最初の案内で配信者に見せ、届いた配信の解像度と fps が違えば伝える
+  expected: { width: 1536, height: 864, fps: 60, bitrateKbps: 3000, keyframeSec: 2 }
+
+latency:
+  initialMs: 120                             # フローの MinLatency はこれ以下にしておく
+  maxMs: 2000
+  maxRaises: 4
+
+# 配信の静止画を、denpachan の録画から取り出すのに使う ffmpeg。PATH にあれば書かなくてよい
+# ffmpeg:
+#   path: C:/tools/ffmpeg/bin/ffmpeg.exe
+
+# マイクの声の録音 (Discord のボイスチャンネルで届く声を録って、あとで運営が聞く。README の「マイクの声を録音する」)。
+# 有効にすると、チェックの最後に録音の手順が足される。
+# 入ってもらうボイスチャンネルは、bot に「チャンネルを表示」と「接続」の権限がある所のうち、空いている所を bot が選んで案内する
+# (空いていなければ待ってもらう)。配信テストに使うボイスチャンネルにだけ、チャンネルの権限の設定で bot にその 2 つを付ける
+# voice:
+#   enabled: true
+#   dir: ./voice                             # 録音 (.ogg) の置き場所
+
+# web カメラの確認 (VDO.ninja。README の「web カメラを確かめる」)。書かなければ確かめない。
+# 配信が届いたあと、配信者に送信用の URL (push) を渡し、bot は受信用の URL (view) をブラウザで開いて、映っているかを見る。
+# そのまま、OBS の配信と web カメラの両方を送っている状態で、映像の判定と latency の調整をする。
+# 組は、同時にテストする人数 (SRT の枠の数) 以上を並べる。push と view は、同じストリーム ID の組にする
+# webcam:
+#   links:
+#     - push: https://vdo.ninja/?push=${WEBCAM_ID_1}
+#       view: https://vdo.ninja/?view=${WEBCAM_ID_1}
+#     # 部屋 (room) を使う送信用の URL のときは、受信用にも同じ部屋を付けて、&solo にする (部屋を付けないと届かない)
+#     - push: https://vdo.ninja/?room=${WEBCAM_ROOM_A}&push=${WEBCAM_ID_A2}&broadcast&directorsonly&webcam
+#       view: https://vdo.ninja/?view=${WEBCAM_ID_A2}&solo&room=${WEBCAM_ROOM_A}
+#   # mic: false                             # マイクの声の録音を VDO.ninja でしない (既定は true: チェックの最後に録音の手順を足す。
+#   #                                        # voice.enabled とは、どちらか一方)
+#   # 受信用のページを開くブラウザ。既定は、PC に入っている Google Chrome
+#   browser:
+#     channel: msedge                        # Edge を使うとき (既定は chrome)
+#     path: C:/path/to/chrome.exe            # 実行ファイルを直に指すとき (書けば channel より優先)
+
+i18n:
+  dir: ./messages                            # ja.yaml と en.yaml
+  fallback: en
+
+db:
+  path: ./techcheck.db
+
+# judge、timeouts、checks は省けば既定値 (docs/design.md の §4.1、§7.1)

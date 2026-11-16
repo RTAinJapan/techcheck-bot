@@ -1,0 +1,2 @@
+# 改行コードは LF に固定する (各自の core.autocrlf の設定や OS によって、取り出したファイルの改行が変わらないように)
+* text=auto eol=lf

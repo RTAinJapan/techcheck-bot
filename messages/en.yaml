@@ -1,0 +1,174 @@
+# Messages for streamers (English). Keep the same keys and placeholders ({name}) as ja.yaml (the bot refuses to start otherwise).
+
+start:
+  wrongChannel: "Please run `/techcheck start` in {channel}."
+  alreadyRunning: "Your stream test is in progress: {url}"
+  alreadyQueued: "You are in the waiting list (#{position}). We will let you know when it is your turn."
+  threadCreated: "Your stream test thread is ready. Follow the instructions there: {url}"
+  prepareProblem: "Something went wrong while preparing. The staff will check it. We will let you know when it is your turn again."
+
+queue:
+  joined: "Someone else is testing now. You joined the waiting list (#{position}). We will let you know when it is your turn."
+  paused: "Tests are paused right now. You joined the waiting list (#{position}). We will let you know when they resume."
+  notQueued: "You are not in the waiting list."
+  left: "You left the waiting list."
+  notYourTurn: "It is not your turn yet. We will let you know."
+  removed: "\"Start\" was not pressed twice in a row, so you were removed from the waiting list. Please run `/techcheck start` again."
+  yourTurn: "{user} It is your turn for the stream test. Press \"Start\" within {minutes} minutes."
+  yourTurnDm: "It is your turn for the stream test. Within {minutes} minutes, press \"Start\" on the message linked below (in the stream test channel). You do not need to reply to this DM."
+
+button:
+  expired: "This button is no longer active."
+  notYours: "Only the streamer can press this button."
+  ack: "Got it."
+  claim: "Start"
+  started: "I started streaming"
+  abort: "Stop the test"
+  set: "Done"
+  yes: "Yes"
+  no: "No"
+  stepStart: "Start"
+  cannotMute: "Can't mute the game"
+  retry: "Retry"
+  next: "Continue anyway"
+  voiceSkip: "I don't use a mic"
+  voiceRetry: "Record again"
+  voiceNext: "Looks good"
+  done: "Finish"
+  webcamSkip: "I don't use a webcam"
+
+prepare:
+  preparing: "Preparing your stream test. This takes about a minute."
+
+guide:
+  first: |-
+    **Let's start your stream test.**
+    1. Make sure you are using the OBS settings we provided (**{profile}**). Output: {width}x{height} / {fps} fps / {bitrate} kbps / keyframe interval {keyframe} s.
+    2. In OBS, open Settings > Stream and set the server to this URL:
+    ```
+    {url}
+    ```
+    3. Start streaming in OBS. We will tell you when it arrives.
+    This URL is for the stream test only. At the event, use the URL we send you then.
+    Next we check video, then audio (10-15 minutes in total).
+
+wait:
+  arrived: "Your stream is arriving. Keep streaming for about 2 minutes (moving around in the game makes it easier to check)."
+  remind: "Your stream has not arrived yet. Check that you pasted the URL exactly as given and that no firewall blocks it."
+  opsChecking: "Your stream is arriving, but we are checking our receiving side. Please wait a moment."
+  notYet: "Nothing has arrived yet. We will tell you in this thread when it does."
+  arrivedWebcam: "Your stream has arrived. Keep streaming in OBS."
+
+metadata:
+  noAudio: "no audio"
+  mismatch: "Your stream differs from the instructions ({actual}). Please set the OBS output to {width}x{height} / {fps} fps."
+
+audio:
+  silent: "No audio is arriving. Check the audio settings in OBS (game audio source and mute)."
+
+judge:
+  ok: "Your video is arriving cleanly. Please use a latency of **{latencyUs} μs** at the event too (use the URL we send you at the event, and set its `latency=` to this value)."
+  okRtmp: "Your video is arriving cleanly over RTMP. Please use RTMP for the event."
+
+latency:
+  ask: |-
+    Your video may break up. Please raise the latency to **{latencyUs} μs**.
+    Stop streaming in OBS, change `latency=` in the URL to **{latencyUs}** (you can paste the URL below), and start streaming again. Then press "Done".
+    ```
+    {url}
+    ```
+  remeasure: "Measuring again with latency {latencyUs} μs. Keep streaming."
+  remind: "We are waiting for the latency change. Stop streaming, change the URL, and start streaming again."
+  waitRestart: "Thanks. We continue once you start streaming again."
+
+rtmp:
+  ask: |-
+    SRT is not stable for you, so let's try RTMP. Change the OBS stream settings as follows and start streaming again. Then press "Done".
+    Server: `{url}`
+    Stream key: `{key}`
+    This server and stream key are for the stream test only. At the event, use the ones we send you then.
+  arrived: "Your RTMP stream is arriving. Keep streaming for about a minute."
+  remind: "We are waiting for the switch to RTMP. Change the OBS stream settings and start streaming again."
+  waitArrive: "Thanks. We continue once it arrives."
+  unavailable: "Your video is not stable. The staff will contact you. Let's continue with the audio checks."
+  unstable: "Your video is not stable over RTMP either. The staff will contact you. Let's continue with the audio checks."
+
+checks:
+  intro: "Next we check audio and a few other things. For each step, press \"Start\" and follow the instructions."
+  header: "**Step {n}/{total}**"
+  noImage: "(We could not get a still of your stream. Please check the preview in OBS and answer.)"
+  running: "Keep going for about {seconds} seconds..."
+  cannotMuteRunning: "Understood. Turn the game sound down as far as it goes and keep it like that for about {seconds} seconds... (Staff will check the audio later from the recording.)"
+  cannotMuteResult: "Game cannot be muted"
+  cannotMuteKeep: "(Keep the game sound at the same low volume as before.)"
+  cannotMuteNg: "(It may only be the game sound getting louder. If you cannot think of a cause, press \"Continue anyway\". Staff will check the recording.)"
+  ok: "OK."
+  recorded: "Recorded."
+  ng: "Something looks wrong."
+  done: "All checks are done. Review the results and press \"Finish\"."
+  skipped: "continued anyway"
+
+voice:
+  channel: "Voice channel to join: {channel}"
+  wrongChannel: "Join the voice channel we asked for ({channel}), then press again."
+  waiting: "(Only if you use a microphone) We record your voice as it reaches us through a Discord voice channel, but no voice channel is free right now. Please wait here; we will let you know when one is free. If you don't use a microphone, press \"I don't use a mic\"."
+  freed: "Thank you for waiting. A voice channel is free now."
+  busy: "We are recording someone else right now. Wait a moment and press again."
+  recording: "Recording. Talk in your normal voice for about {seconds} seconds…"
+  recorded: "Recorded ({seconds} seconds of your voice reached us). Staff will listen to it later."
+  retryHint: "To adjust your microphone volume and record again, press \"Record again\". If this is fine, press \"Looks good\"."
+  leave: "Please leave the voice channel."
+  notUsed: "No microphone used"
+  level: "Level of your voice as it reached us: peak {max} dB, average {mean} dB (0 dB is the limit)."
+  waveform: "The image below is the waveform of the recording. The red lines at the top and bottom are the limit; where the wave touches them, your voice clips."
+  clipped: "Your voice clips in places. Try lowering your microphone input volume a little."
+  quiet: "Your voice is on the quiet side. Try raising your microphone input volume a little."
+  skipped: "Skipping the microphone check."
+  failed: "We could not record because of a problem on our side. Staff will look into it. Moving on."
+
+webcam:
+  ask: |-
+    **We check your webcam** (only if you use one). Keep streaming in OBS; do not stop it.
+    1. Open this URL in a browser (Chrome recommended) on the PC you will use at the event.
+    ```
+    {url}
+    ```
+    2. Allow camera access, select the camera you will use at the event, and press the start button.
+    This URL is for the stream test only. At the event, use the URL we send you then.
+    We will tell you when the video arrives. If you don't use a webcam, press "I don't use a webcam".
+  arrived: "Your webcam video has arrived. Leave both the OBS stream and the webcam page running for about 2 minutes (we check that the video stays stable while you send both)."
+  remind: "Your webcam video has not arrived yet. Check that you opened the URL, allowed the camera, and pressed the start button."
+  lost: |-
+    Your webcam video stopped arriving. Reopen the webcam page and start the camera again. When it arrives, we check the video again.
+    ```
+    {url}
+    ```
+  skipped: "We skip the webcam check. Keep streaming for about 2 minutes."
+  failed: "We could not check your webcam because of a problem on our side. Staff will look into it. Close the webcam page and keep streaming for about 2 minutes."
+  micUrl: |-
+    If you closed the webcam page, open this URL again and allow the microphone.
+    ```
+    {url}
+    ```
+  micNotYet: "Your microphone audio has not arrived yet. Open the webcam page, allow the microphone, press the start button, then press this again."
+
+verdict:
+  ok: "OK"
+  ng: "problem"
+  unknown: "recorded"
+
+finish:
+  summaryTitle: "**Stream test results**"
+  abortedTitle: "**The stream test was stopped**"
+  protocol: "Protocol: {protocol}"
+  latency: "Latency for the event: {latencyUs} μs"
+  testUrls: "The URLs we gave you here are for the stream test only. At the event, use the URLs we send you then."
+  bye: "You can stop streaming in OBS now. Thank you!"
+  webcamClose: "Close the webcam page (the browser tab)."
+
+modal:
+  doneTitle: "Finish the stream test"
+  doneLabel: "Anything you noticed? (optional)"
+  abortTitle: "Stop the stream test"
+  abortLabel: "Reason (optional)"
+  received: "Got it."
