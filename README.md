@@ -68,7 +68,7 @@ cp config.example.yaml config.yaml
 ### MediaConnect のフロー
 
 - source は SRT listener にする (配信者が caller)。
-- source の `MinLatency` は、`latency.initialUs` (既定 120000 μs = 120 ms。`MinLatency` は AWS の画面では ms) 以下にする。これより大きいと、配信者が OBS で設定した latency が効かない。
+- source の `MinLatency` は、`latency.initialUs` (既定 100000 μs = 100 ms。配布している OBS の設定の初期値と同じ。`MinLatency` は AWS の画面では ms) 以下にする。これより大きいと、配信者が OBS で設定した latency が効かない。
 - denpachan 向けの SRT の出力を足しておく (ほかの受け手とは別の出力にする)。
 - フローのサムネイル (`SourceMonitoringConfig` の `ThumbnailState`) は、有効にしなくてよい。配信の静止画は denpachan の録画から取る。bot を denpachan と別の PC で動かす (録画のファイルを開けない) ときだけ、予備として有効にする。
 - source に SRT の暗号化を設定しているなら、そのパスワードを `flows[].passphrase` に書く。設定していなければ書かない。

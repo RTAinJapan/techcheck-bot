@@ -84,7 +84,7 @@ export class FakeFlow implements FlowPort {
     status = "STANDBY";
     ingestIp = "203.0.113.10";
     ingestPort = 5000;
-    minLatencyMs = 120;
+    minLatencyMs = 100;
     started = 0;
     stopped = 0;
     /** t (epoch 秒) から 1 秒分のメトリクスを作る。undefined なら CloudWatch にまだ無い */

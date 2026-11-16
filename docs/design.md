@@ -59,7 +59,7 @@ flowchart LR
 
 - **テストの枠は、既定で SRT 1 つ、RTMP 1 つ。** SRT の枠は、設定で増やせる (同時にテストできる人数になる。§5.7)。RTMP の枠は 1 つだけ。どのフロー・どの denpachan のチャンネルを使うかは、**そのとき空いているものを運営が設定し直す** (`/techcheck slot`。イベント中も。§5.6)。
 - **配信者には IP アドレスではなくドメイン名で接続させる。** SRT のフローごとと、ECS の RTMP サーバに、配信用のドメインが設定されている。bot はフローとドメインを**組で**設定に持ち、案内にはドメイン名を使う。
-- **MediaConnect**: SRT の枠には、そのとき空いているフロー (source は SRT listener、配信者が caller) を使う。そのフローには denpachan 向けの **SRT の出力**を足しておく (vMix 向けの出力はそのまま。1 つのフローの出力は複数持てる)。source の `MinLatency` は低い値 (120 ms など) で固定し、bot は変えない。
+- **MediaConnect**: SRT の枠には、そのとき空いているフロー (source は SRT listener、配信者が caller) を使う。そのフローには denpachan 向けの **SRT の出力**を足しておく (vMix 向けの出力はそのまま。1 つのフローの出力は複数持てる)。source の `MinLatency` は低い値 (100 ms 以下) で固定し、bot は変えない。
 - **ECS の RTMP サーバ**: SRT で安定しないときの受け口 (すでに動いているもの)。配信者はそこへ RTMP で送り、denpachan はそこから RTMP pull で受ける (`source.protocol = rtmp`、`mode = pull`)。本番で RTMP の配信者をどう受けるか (vMix が pull する、など) はそのまま。
 - **denpachan**: 本番の受信と同じ denpachan で、そのとき空いているチャンネルを SRT の枠 (MediaConnect のフローの出力を受ける) と RTMP の枠 (ECS の RTMP サーバから pull する) に 1 つずつ使う。録画 (passthrough) を残す。**bot が操作できるのは「配信テスト用」の印を付けたチャンネルだけ**にして、イベント中に本番のチャンネルを触らないようにする (§3.2)。
 - **bot**: denpachan とは別のプログラム (このリポジトリ。Node.js + TypeScript。§4)。AWS の権限 (MediaConnect と CloudWatch の読み取り、フローの開始・停止) を持つ。denpachan と同じ PC で動かすのが簡単 (受信口は loopback)。別の PC でもよい (LAN、トークン必須)。
@@ -274,7 +274,7 @@ bot は denpachan の区間の数字を判定には使わず、記録 (運営の
 | | `google.drive.folderId` | 録画と録音を上げる先の、共有ドライブ (またはその中のフォルダ) の ID (§8.1)。サービスアカウントを、その共有ドライブのメンバーにしておく。**未設定なら上げない** | |
 | 案内 | `guide.obsProfile` | 配布した OBS の設定 (プロファイルとシーンコレクション) の名前 | ◯ |
 | | `guide.expected` | 期待する出力 (`width`、`height`、`fps`、`bitrateKbps`、`keyframeSec`)。`DescribeFlowSourceMetadata` の値と比べる (比べるのは解像度と fps。違えば配信者に伝える)。ビットレートとキーフレーム間隔は、最初の案内で見せるだけで、比べない。既定は、配布している走者配信用の OBS のプロファイルの値 (出力 1536x864 / 60 fps、x264 3000 kbps、キーフレーム 2 秒) | 1536 / 864 / 60 / 3000 / 2 |
-| latency | `latency.initialUs` | 最初に案内する latency。**μs (OBS の URL の `latency=` に入れる値) で書く**。1000 の倍数。フローの `MinLatency` (AWS の画面では ms) はこれ以下にしておく | 120000 |
+| latency | `latency.initialUs` | 最初に案内する latency。**μs (OBS の URL の `latency=` に入れる値) で書く**。1000 の倍数。既定は、走者に配布している OBS の設定の初期値 (100 ms 相当) と同じ。フローの `MinLatency` (AWS の画面では ms) はこれ以下にしておく | 100000 |
 | | `latency.maxUs` | 上げる上限 (μs。1000 の倍数)。これでも直らなければ RTMP へ | 2000000 |
 | | `latency.maxRaises` | 上げる回数の上限 | 4 |
 | 判定 | `judge.windowSec` | 計測の窓 (この秒数溜まってから判定) | 60 |
@@ -344,7 +344,7 @@ guide:
   obsProfile: "RTA 配信用 2026"
   expected: { width: 1536, height: 864, fps: 60, bitrateKbps: 3000, keyframeSec: 2 }
 latency:
-  initialUs: 120000
+  initialUs: 100000
   maxUs: 2000000
 i18n:
   dir: ./messages      # ja.yaml と en.yaml
@@ -624,7 +624,7 @@ web カメラを確かめる設定 (`webcam.links`) なら、先に web カメ�
 
 ## 6. 配信の確認と latency の調整
 
-1. **初期値**: 配信者には OBS の URL に案内値 (たとえば `latency=120000`、µs。bot の設定) を入れてもらう。フローの `MinLatency` はそれ以下に固定してあるので、実際の latency は OBS の値になる。bot は「今の latency = 案内した値」として持つ。
+1. **初期値**: 配信者には OBS の URL に案内値 (既定は `latency=100000`、µs。bot の設定。配布している OBS の設定の初期値と同じ) を入れてもらう。フローの `MinLatency` はそれ以下に固定してあるので、実際の latency は OBS の値になる。bot は「今の latency = 案内した値」として持つ。
 2. **計測**: 繋がってから 5 秒を除き、CloudWatch の値が窓 (`judge.windowSec`、60 秒) の分だけ溜まったら判定する (§3.1 の規則で `verdict` と `headroomMs` を作る)。CloudWatch の値が窓 + 2 分経っても 1 つも取れなければ、運営に知らせて denpachan の受信状態 (fps、デコードエラー) だけで判定する。
    - 計測の間に、denpachan の fps の平均が期待 (`DescribeFlowSourceMetadata` の fps、無ければ `guide.expected.fps`) の 90% 未満、またはデコードエラーが 5 以上増えたら、回線でなく送出側の問題の可能性として RTMP に移す (5)。窓の半分より多くの秒で `SourceJitter` が 500 ms を超えたときも同じ (AWS の目安では切断の原因)。
 3. **上げる**: `tight` か `insufficient` なら、次の値 N = `max(推奨値, 今の値 × 1.5)` を 10 ms 単位に切り上げたもの (上限 2000000 μs) を決め、スレッドで「映像が乱れる可能性があります。latency を **N000 μs** に上げてください。OBS の配信を止め、URL の `latency=` を **N000** にして、始め直してください」と頼む (新しい URL を添え、「設定した」ボタン付き)。頼んだあとに繋ぎ直したこと (§3.1。CloudWatch の `SourceUpTime` が戻った、または denpachan で途切れて戻った・`connectedSec` が戻った) を見て、「設定した」が押されているか、押されなくても繋ぎ直してから 30 秒経ったら、「今の latency = N」としてまた計測 (2 へ)。最大 4 回。上限に達している、または N が今の値より大きくならないときは RTMP へ (5)。

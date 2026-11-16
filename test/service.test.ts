@@ -67,11 +67,11 @@ describe("テストの流れ", () => {
         // 初回の案内は IP でなくドメインの URL
         const texts = w.chat.texts(thread);
         // 配布している OBS の設定の URL と同じ形 (mode=caller は付けない。OBS は書かなければ caller)
-        assert.ok(texts.some((x) => x.includes("srt://srt-a.example.jp:5000?latency=120000&passphrase=pass-a&pbkeylen=16")));
+        assert.ok(texts.some((x) => x.includes("srt://srt-a.example.jp:5000?latency=100000&passphrase=pass-a&pbkeylen=16")));
         assert.ok(!texts.some((x) => x.includes("mode=")));
         assert.ok(!texts.some((x) => x.includes("203.0.113.10")));
         assert.ok(texts.some((x) => x.includes("配信が届きました")));
-        assert.ok(texts.some((x) => x.includes("映像は問題なく届いています") && x.includes("**120000 μs**")));
+        assert.ok(texts.some((x) => x.includes("映像は問題なく届いています") && x.includes("**100000 μs**")));
 
         await passChecks(w, thread);
         assert.match(w.chat.lastPost(thread)!.content, /確認はすべて終わりました/);
@@ -89,7 +89,7 @@ describe("テストの流れ", () => {
         assert.equal(row[2], "U1");
         assert.equal(row[3], "ja");
         assert.equal(row[6], "完了");
-        assert.equal(row[col("確定した latency (μs)")], 120000, "確定した latency は μs (OBS の URL に入れる値) で書く");
+        assert.equal(row[col("確定した latency (μs)")], 100000, "確定した latency は μs (OBS の URL に入れる値) で書く");
         assert.equal(row[col("切れた回数")], 0);
         assert.equal(row[col("映像の判定")], "OK");
         // あとで聞く人が最初に開く 3 つは、I 列から並ぶ
@@ -105,11 +105,11 @@ describe("テストの流れ", () => {
         assert.equal(w.webhook.sent.length, 1);
         const payload = w.webhook.sent[0] as { allowed_mentions: { parse: unknown[] }; embeds: { fields: { name: string; value: string }[] }[] };
         assert.deepEqual(payload.allowed_mentions.parse, []);
-        assert.ok(payload.embeds[0]!.fields.some((f) => f.name === "確定した latency" && f.value === "120000 μs"));
+        assert.ok(payload.embeds[0]!.fields.some((f) => f.name === "確定した latency" && f.value === "100000 μs"));
         assert.ok(w.chat.threads[0]!.closed);
         assert.match(w.chat.texts(thread).at(-1)!, /OBS の配信を止めてください/);
         // 配信者には、OBS の URL に入れる値 (μs) で伝える。ms の数字を見せると、そのまま URL に入れてしまう
-        assert.ok(w.chat.texts(thread).at(-1)!.includes("本番の latency: 120000 μs\n"), w.chat.texts(thread).at(-1));
+        assert.ok(w.chat.texts(thread).at(-1)!.includes("本番の latency: 100000 μs\n"), w.chat.texts(thread).at(-1));
 
         // 後日の音声の判定
         assert.match(await w.service.review("U1", true, "きれい"), /書きました/);
@@ -136,7 +136,7 @@ describe("テストの流れ", () => {
         await w.service.start(U1, "C-test", undefined, "ja");
         await w.flush();
         const texts = w.chat.texts(w.chat.threads[0]!.id);
-        assert.ok(texts.some((x) => x.includes("srt://srt-a.example.jp:5000?latency=120000")));
+        assert.ok(texts.some((x) => x.includes("srt://srt-a.example.jp:5000?latency=100000")));
         assert.ok(!texts.some((x) => x.includes("passphrase") || x.includes("pbkeylen")));
     });
 
@@ -937,8 +937,8 @@ describe("latency の調整と RTMP", () => {
     it("運営にも latency は μs (OBS の URL に入れる値) で見せ、/techcheck latency も μs で受ける", async () => {
         const w = makeWorld();
         const { thread } = await startAndStream(w);
-        assert.ok(w.chat.opsLog.some((l) => l.includes("映像 OK") && l.includes("latency 120000 μs")), w.chat.opsLog.join("\n"));
-        assert.match(await w.service.status("U1"), /latency 120000 μs/);
+        assert.ok(w.chat.opsLog.some((l) => l.includes("映像 OK") && l.includes("latency 100000 μs")), w.chat.opsLog.join("\n"));
+        assert.match(await w.service.status("U1"), /latency 100000 μs/);
         // 運営が 300000 μs (300 ms) を案内する
         assert.equal(await w.service.setLatency("U1", 300_000), "Runner A に latency 300000 μs を案内しました");
         const ask = w.chat.texts(thread).at(-1)!;
@@ -958,9 +958,9 @@ describe("latency の調整と RTMP", () => {
         const t0 = Math.floor(w.clock.t / 1000);
         w.flow.sampleAt = lossy(t0, t0 + 10_000);
         await w.run(80, () => w.rx.live(7));
-        const ask = w.chat.texts(thread).find((x) => x.includes("latency を **180000 μs**"));
-        assert.ok(ask, "180 ms (配信者には 180000 μs) に上げる案内");
-        assert.ok(ask.includes("latency=180000"));
+        const ask = w.chat.texts(thread).find((x) => x.includes("latency を **150000 μs**"));
+        assert.ok(ask, "150 ms (配信者には 150000 μs) に上げる案内");
+        assert.ok(ask.includes("latency=150000"));
 
         // 配信者が設定して始め直す。回線も良くなった
         w.flow.sampleAt = (t) => goodSample(t);
@@ -968,8 +968,8 @@ describe("latency の調整と RTMP", () => {
         await w.run(3, () => w.rx.drop(7));
         await w.run(150, () => w.rx.live(7));
         const texts = w.chat.texts(thread);
-        assert.ok(texts.some((x) => x.includes("latency 180000 μs で計測し直します")));
-        assert.ok(texts.some((x) => x.includes("映像は問題なく届いています") && x.includes("**180000 μs**")));
+        assert.ok(texts.some((x) => x.includes("latency 150000 μs で計測し直します")));
+        assert.ok(texts.some((x) => x.includes("映像は問題なく届いています") && x.includes("**150000 μs**")));
     });
 
     it("上げても直らなければ RTMP に案内し、届いたら SRT の枠を空ける", async () => {

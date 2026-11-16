@@ -140,7 +140,8 @@ export const configSchema = z
         // bot の中の計算は ms なので、読んだあとに ms の値 (initialMs、maxMs) も作っておく
         latency: z
             .object({
-                initialUs: z.number().int().min(20_000).prefault(120_000),
+                // 既定は、走者に配布している OBS の設定の初期値 (100 ms 相当) と同じ
+                initialUs: z.number().int().min(20_000).prefault(100_000),
                 maxUs: z.number().int().prefault(2_000_000),
                 maxRaises: z.number().int().min(0).prefault(4),
             })

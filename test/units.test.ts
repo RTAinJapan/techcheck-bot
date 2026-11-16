@@ -92,8 +92,8 @@ describe("config", () => {
     it("既定値が入る", () => {
         const c = testConfig();
         // latency の設定は μs。bot の中で使う ms の値も作る
-        assert.deepEqual([c.latency.initialUs, c.latency.maxUs], [120_000, 2_000_000]);
-        assert.deepEqual([c.latency.initialMs, c.latency.maxMs], [120, 2000]);
+        assert.deepEqual([c.latency.initialUs, c.latency.maxUs], [100_000, 2_000_000]);
+        assert.deepEqual([c.latency.initialMs, c.latency.maxMs], [100, 2000]);
         assert.equal(c.flows[0]!.pbkeylen, 16);
         assert.equal(c.i18n.fallback, "en");
         assert.equal(c.guide.expected.fps, 60);

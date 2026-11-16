@@ -80,7 +80,8 @@ guide:
 
 latency:
   # μs (OBS の URL の latency= に入れる値) で書く。1000 の倍数にする
-  initialUs: 120000                          # 最初に案内する値。フローの MinLatency (AWS の画面では ms。120000 μs = 120 ms) はこれ以下にしておく
+  initialUs: 100000                          # 最初に案内する値 (配布している OBS の設定の初期値と同じ)。
+                                             # フローの MinLatency (AWS の画面では ms。100000 μs = 100 ms) はこれ以下にしておく
   maxUs: 2000000                             # 上げる上限
   maxRaises: 4
 
