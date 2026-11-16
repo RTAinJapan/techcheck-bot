@@ -376,7 +376,7 @@ describe("denpachan の受信の設定を bot が入れる (denpachan.configure)
     });
 
     it("RTMP に移すとき、RTMP サーバから pull する設定を入れる", async () => {
-        const w = makeWorld("latency: { maxRaises: 0 }\n", configured);
+        const w = makeWorld("latency: { maxRaises: 0, maxUs: 100000 }\n", configured);
         w.rx.channels.get(8)!.source = { protocol: "srt", mode: "listener" };
         await w.service.start(U1, "C-test", undefined, "ja");
         await w.flush();
@@ -984,8 +984,52 @@ describe("latency の調整と RTMP", () => {
         assert.ok(!w.chat.texts(thread).some((x) => x.includes("150000")));
     });
 
-    it("上げても直らなければ RTMP に案内し、届いたら SRT の枠を空ける", async () => {
+    it("RTMP に案内する前に、SRT の上限を 1 回試してもらう。上限で安定すれば SRT のまま進む", async () => {
+        const w = makeWorld("latency: { maxRaises: 1 }\n");
+        await w.service.start(U1, "C-test", undefined, "ja");
+        await w.flush();
+        const thread = w.chat.threads[0]!.id;
+        const t0 = Math.floor(w.clock.t / 1000);
+        const restart = async () => {
+            await press(w, thread, "set");
+            await w.run(3, () => w.rx.drop(7));
+        };
+        // 1 回目: 推奨値 (取りこぼしたので 1.5 倍) に上げる
+        w.flow.sampleAt = lossy(t0, t0 + 10_000);
+        await w.run(80, () => w.rx.live(7));
+        assert.ok(w.chat.texts(thread).some((x) => x.includes("latency を **150000 μs**")));
+        // 上げても取りこぼす。回数 (1 回) は使い切ったが、RTMP ではなく、SRT の上限を案内する
+        await restart();
+        await w.run(80, () => w.rx.live(7));
+        assert.ok(w.chat.texts(thread).some((x) => x.includes("latency を **2000000 μs**")), w.chat.texts(thread).join("\n"));
+        assert.ok(!w.chat.texts(thread).some((x) => x.includes("RTMP で試します")));
+        assert.ok(w.chat.opsLog.some((l) => l.includes("SRT の上限を試します") && l.includes("150000 → 2000000 μs")));
+        // 上限にしたら安定した
+        w.flow.sampleAt = (t) => goodSample(t);
+        await restart();
+        await w.run(150, () => w.rx.live(7));
+        assert.ok(w.chat.texts(thread).some((x) => x.includes("映像は問題なく届いています") && x.includes("**2000000 μs**")));
+        assert.ok(!w.chat.texts(thread).some((x) => x.includes("RTMP で試します")));
+    });
+
+    it("SRT の上限でも安定しなければ、RTMP に案内する", async () => {
         const w = makeWorld("latency: { maxRaises: 0 }\n");
+        await w.service.start(U1, "C-test", undefined, "ja");
+        await w.flush();
+        const thread = w.chat.threads[0]!.id;
+        const t0 = Math.floor(w.clock.t / 1000);
+        w.flow.sampleAt = lossy(t0, t0 + 10_000);
+        await w.run(80, () => w.rx.live(7));
+        assert.ok(w.chat.texts(thread).some((x) => x.includes("latency を **2000000 μs**")));
+        await press(w, thread, "set");
+        await w.run(3, () => w.rx.drop(7));
+        await w.run(80, () => w.rx.live(7));
+        assert.ok(w.chat.texts(thread).some((x) => x.includes("RTMP で試します")));
+        assert.ok(w.chat.opsLog.some((l) => l.includes("RTMP に案内") && l.includes("SRT の上限 2000000 μs でも安定しない")));
+    });
+
+    it("上げても直らなければ RTMP に案内し、届いたら SRT の枠を空ける", async () => {
+        const w = makeWorld("latency: { maxRaises: 0, maxUs: 100000 }\n");
         await w.service.start(U1, "C-test", undefined, "ja");
         await w.flush();
         const thread = w.chat.threads[0]!.id;
@@ -1290,7 +1334,7 @@ describe("チェック", () => {
     });
 
     it("RTMP に移ったテストの静止画も、RTMP の枠のチャンネルの録画から取る", async () => {
-        const w = makeWorld("latency: { maxRaises: 0 }\n");
+        const w = makeWorld("latency: { maxRaises: 0, maxUs: 100000 }\n");
         await w.service.start(U1, "C-test", undefined, "ja");
         await w.flush();
         const thread = w.chat.threads[0]!.id;

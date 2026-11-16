@@ -1285,7 +1285,7 @@ export class TechcheckService {
 
         const jitterBad = w.length > 0 && w.filter((x) => (x.jitterMs ?? 0) > this.cfg.judge.maxJitterMs).length > w.length / 2;
         if (this.senderProblem(s, ch) || jitterBad) {
-            await this.goRtmp(s, jitterBad ? "ジッタが大きい" : "デコードが安定しない");
+            await this.maxOrRtmp(s, jitterBad ? "ジッタが大きい" : "デコードが安定しない");
             return;
         }
         if (advice.verdict === "measuring") return;
@@ -1328,7 +1328,7 @@ export class TechcheckService {
         const last = s.lastAdvice ?? advise([], s.latencyMs, this.cfg.judge.multipliers);
         const advice: Advice = { ...last, verdict: "insufficient", drops, recommendMs: atLeastAfterDrops(last.recommendMs, s.latencyMs) };
         if (!fpsOk || decodeDelta >= kSenderDecodeErrors) {
-            await this.goRtmp(s, "デコードが安定しない");
+            await this.maxOrRtmp(s, "デコードが安定しない");
             return;
         }
         await this.raise(s, advice);
@@ -1357,17 +1357,26 @@ export class TechcheckService {
 
     private async raise(s: Session, advice: Advice): Promise<void> {
         const max = this.cfg.latency.maxMs;
-        if (s.raises >= this.cfg.latency.maxRaises || s.latencyMs >= max) {
-            await this.goRtmp(s, "latency を上げても直らない");
-            return;
-        }
         const target = nextLatency(advice.recommendMs, max);
-        if (target <= s.latencyMs) {
-            await this.goRtmp(s, "latency を上げても直らない");
+        // 上げる回数を使い切った、または推奨値が今より大きくならない: RTMP の前に、SRT の上限を試す (maxOrRtmp)
+        if (s.raises >= this.cfg.latency.maxRaises || target <= s.latencyMs) {
+            await this.maxOrRtmp(s, "latency を上げても直らない");
             return;
         }
         s.prevDrops = advice.drops;
         await this.askLatency(s, target);
+    }
+
+    /**
+     * SRT で安定しないとき: RTMP に案内する前に、まず SRT の latency の上限 (latency.maxUs) を試してもらう。
+     * 上限でも安定しなければ (もう上限にしているなら)、RTMP に案内する。
+     * 上限を試すのは 1 回で、上げる回数 (latency.maxRaises) には数えない
+     */
+    private async maxOrRtmp(s: Session, reason: string): Promise<void> {
+        const max = this.cfg.latency.maxMs;
+        if (s.protocol !== "srt" || s.latencyMs >= max) return this.goRtmp(s, `${reason} (SRT の上限 ${obsLatency(max)} μs でも安定しない)`);
+        await this.ops(`SRT の上限を試します: ${s.displayName} (${reason}。latency ${obsLatency(s.latencyMs)} → ${obsLatency(max)} μs。これでも安定しなければ RTMP に案内します)`);
+        await this.askLatency(s, max);
     }
 
     private async askLatency(s: Session, target: number): Promise<void> {
