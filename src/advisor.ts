@@ -88,10 +88,21 @@ export function verdictFor(effectiveMs: number, recommendMs: number, drops: numb
     return "ok";
 }
 
-/** 次に案内する latency: max(推奨値, 今 × 1.5) を 10 ms 単位に切り上げ、上限で抑える */
-export function nextLatency(currentMs: number, recommendMs: number, maxMs: number): number {
-    const want = Math.ceil(Math.max(recommendMs, currentMs * 1.5) / 10) * 10;
-    return Math.min(want, maxMs);
+/**
+ * 次に案内する latency: 推奨値 (advise の recommendMs) そのもの。10 ms 単位に切り上げ、上限で抑える。
+ * ここでは今の値を何倍かにしない: 回線から出した推奨値に合わせる。今の値より大きくならなければ、呼ぶ側が RTMP に切り替える。
+ * 「今の 1.5 倍以上」になるのは、実際に取りこぼしたときだけ (推奨値の規則。advise と atLeastAfterDrops)
+ */
+export function nextLatency(recommendMs: number, maxMs: number): number {
+    return Math.min(Math.ceil(recommendMs / 10) * 10, maxMs);
+}
+
+/**
+ * 実際に映像が乱れた (回復できなかったパケットがある、など) ときの推奨値: 今の 1.5 倍以上にする (advise の中の規則と同じ)。
+ * 計測のあとの確定の間に乱れたときに使う (計測のときの推奨値は、乱れる前のもの)
+ */
+export function atLeastAfterDrops(recommendMs: number, currentMs: number): number {
+    return Math.ceil(Math.max(recommendMs, currentMs * 1.5) / 10) * 10;
 }
 
 function round1(v: number): number {

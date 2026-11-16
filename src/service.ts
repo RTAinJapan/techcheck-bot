@@ -3,7 +3,7 @@
 // 外とのやりとりは ports.ts の口を通すので、試験では偽物に差し替えられる。
 
 import { randomUUID } from "node:crypto";
-import { type Advice, type SrtSample, advise, kMinLatencyMs, nextLatency, obsLatency } from "./advisor.js";
+import { type Advice, type SrtSample, advise, atLeastAfterDrops, kMinLatencyMs, nextLatency, obsLatency } from "./advisor.js";
 import { evaluateAudioStep } from "./checks.js";
 import type { CheckStep, Config, FlowConfig, Lang } from "./config.js";
 import type { I18n } from "./i18n.js";
@@ -1324,7 +1324,9 @@ export class TechcheckService {
             await this.confirmed(s);
             return;
         }
-        const advice: Advice = { ...(s.lastAdvice ?? advise([], s.latencyMs, this.cfg.judge.multipliers)), verdict: "insufficient", drops };
+        // 確定の間に乱れた: 計測のときの推奨値では足りなかったので、推奨値の規則どおり、今の 1.5 倍以上にする
+        const last = s.lastAdvice ?? advise([], s.latencyMs, this.cfg.judge.multipliers);
+        const advice: Advice = { ...last, verdict: "insufficient", drops, recommendMs: atLeastAfterDrops(last.recommendMs, s.latencyMs) };
         if (!fpsOk || decodeDelta >= kSenderDecodeErrors) {
             await this.goRtmp(s, "デコードが安定しない");
             return;
@@ -1359,7 +1361,7 @@ export class TechcheckService {
             await this.goRtmp(s, "latency を上げても直らない");
             return;
         }
-        const target = nextLatency(s.latencyMs, advice.recommendMs, max);
+        const target = nextLatency(advice.recommendMs, max);
         if (target <= s.latencyMs) {
             await this.goRtmp(s, "latency を上げても直らない");
             return;

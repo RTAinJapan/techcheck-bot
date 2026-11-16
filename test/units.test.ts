@@ -4,7 +4,7 @@ import { join } from "node:path";
 import { describe, it } from "node:test";
 import { parseFrameRate } from "../src/adapters/aws.js";
 import { DiscordWebhook, retryAfterMs } from "../src/adapters/webhook.js";
-import { advise, multiplierFor, nextLatency, verdictFor, type SrtSample } from "../src/advisor.js";
+import { advise, atLeastAfterDrops, multiplierFor, nextLatency, verdictFor, type SrtSample } from "../src/advisor.js";
 import { defaultChecks, evaluateAudioStep, voiceStep } from "../src/checks.js";
 import { ConfigError, expandEnv, parseConfig } from "../src/config.js";
 import { I18n, checkParity, langFromLocale } from "../src/i18n.js";
@@ -58,10 +58,14 @@ describe("advisor (srt_advisor.h と同じ規則)", () => {
         assert.equal(advise(w, 120, table).recommendMs, 20);
     });
 
-    it("次の latency は max(推奨, 今 × 1.5) で、上限で抑える", () => {
-        assert.equal(nextLatency(120, 130, 2000), 180);
-        assert.equal(nextLatency(120, 400, 2000), 400);
-        assert.equal(nextLatency(1500, 0, 2000), 2000);
+    it("次の latency は推奨値そのもの (今の値を何倍かにしない)。上限で抑える", () => {
+        assert.equal(nextLatency(130, 2000), 130);
+        assert.equal(nextLatency(400, 2000), 400);
+        assert.equal(nextLatency(123, 2000), 130);
+        assert.equal(nextLatency(2500, 2000), 2000);
+        // 実際に取りこぼしたときだけ、今の 1.5 倍以上
+        assert.equal(atLeastAfterDrops(60, 100), 150);
+        assert.equal(atLeastAfterDrops(400, 100), 400);
         assert.equal(verdictFor(120, 0, 0), "measuring");
     });
 });

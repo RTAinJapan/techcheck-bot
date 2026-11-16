@@ -972,6 +972,18 @@ describe("latency の調整と RTMP", () => {
         assert.ok(texts.some((x) => x.includes("映像は問題なく届いています") && x.includes("**150000 μs**")));
     });
 
+    it("取りこぼしが無く、推奨値に足りないだけなら、推奨値ちょうどに上げてもらう (今の値を 1.5 倍にしない)", async () => {
+        const w = makeWorld();
+        await w.service.start(U1, "C-test", undefined, "ja");
+        await w.flush();
+        const thread = w.chat.threads[0]!.id;
+        // RTT 40 ms、ロスなし: 推奨値は 40 × 3 = 120 ms。今は 100 ms
+        w.flow.sampleAt = (t) => ({ ...goodSample(t), rttMs: 40 });
+        await w.run(80, () => w.rx.live(7));
+        assert.ok(w.chat.texts(thread).some((x) => x.includes("latency を **120000 μs**")), w.chat.texts(thread).join("\n"));
+        assert.ok(!w.chat.texts(thread).some((x) => x.includes("150000")));
+    });
+
     it("上げても直らなければ RTMP に案内し、届いたら SRT の枠を空ける", async () => {
         const w = makeWorld("latency: { maxRaises: 0 }\n");
         await w.service.start(U1, "C-test", undefined, "ja");
