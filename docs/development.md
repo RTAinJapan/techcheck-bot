@@ -58,7 +58,7 @@ bot の動きは、すべてコンソール (標準出力) に 1 行ずつ出る
 | `flows` (ARN、ドメイン、パスフレーズ) | そのまま効く。`/techcheck` の選択肢も登録し直す | 進行中のテストは、フローを名前で覚えている。ARN とドメインは今の設定ファイルの値に合わせ直す。名前ごと無くなっていたら、そのテストは中断する (`abortOrphans`) |
 | `slots` | 書き換えた枠は、設定ファイルの値になる | 書き換えていない枠は、`/techcheck slot` で変えた値が残る。比べるために、保存したときの設定ファイルの値も保存している (`loadSlots`、`slotConfigSnapshot`) |
 | 枠の「止めている」 | bot が問題を見つけて止めた枠は、受付を再開する | 運営が `/techcheck slot off` で止めた枠は、止めたまま (`stoppedByProblem`) |
-| `latency.initialMs`、`latency.maxMs`、`latency.maxRaises` | 次に始まるテストから効く | 進行中のテストは、案内済みの latency と上げた回数を覚えている |
+| `latency.initialUs`、`latency.maxUs`、`latency.maxRaises` | 次に始まるテストから効く | 進行中のテストは、案内済みの latency と上げた回数を覚えている |
 | `checks` | そのまま効く | 進行中のテストは、何番目の手順かを番号で覚えている。途中で手順を足したり減らしたりすると、ずれる |
 | `db.path` | 別のファイルにすると、進行中のテスト・待ちの列・枠の設定は引き継がれない | |
 | 環境変数 (`${名前}` で読むもの、`TECHCHECK_CONFIG`。アクセスキーを設定に書かないときは `AWS_PROFILE` なども) | bot を起動したシェルの値を使う。`.env` のファイルは読まない | |

@@ -943,7 +943,7 @@ describe("latency の調整と RTMP", () => {
         assert.equal(await w.service.setLatency("U1", 300_000), "Runner A に latency 300000 μs を案内しました");
         const ask = w.chat.texts(thread).at(-1)!;
         assert.ok(ask.includes("latency を **300000 μs**") && ask.includes("latency=300000"), ask);
-        // 上限 (latency.maxMs) を超える値は上限に抑え、抑えた値を返す
+        // 上限 (latency.maxUs) を超える値は上限に抑え、抑えた値を返す
         assert.match(await w.service.setLatency("U1", 9_000_000), /latency 2000000 μs を案内しました/);
         for (const text of [...w.chat.opsLog, await w.service.status("U1")]) {
             assert.doesNotMatch(text, /latency \d+ ms|推奨 \d+ ms/, `運営向けの latency に ms が残っていない: ${text}`);

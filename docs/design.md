@@ -274,8 +274,8 @@ bot は denpachan の区間の数字を判定には使わず、記録 (運営の
 | | `google.drive.folderId` | 録画と録音を上げる先の、共有ドライブ (またはその中のフォルダ) の ID (§8.1)。サービスアカウントを、その共有ドライブのメンバーにしておく。**未設定なら上げない** | |
 | 案内 | `guide.obsProfile` | 配布した OBS の設定 (プロファイルとシーンコレクション) の名前 | ◯ |
 | | `guide.expected` | 期待する出力 (`width`、`height`、`fps`、`bitrateKbps`、`keyframeSec`)。`DescribeFlowSourceMetadata` の値と比べる (比べるのは解像度と fps。違えば配信者に伝える)。ビットレートとキーフレーム間隔は、最初の案内で見せるだけで、比べない。既定は、配布している走者配信用の OBS のプロファイルの値 (出力 1536x864 / 60 fps、x264 3000 kbps、キーフレーム 2 秒) | 1536 / 864 / 60 / 3000 / 2 |
-| latency | `latency.initialMs` | 最初に案内する latency。フローの `MinLatency` はこれ以下にしておく | 120 |
-| | `latency.maxMs` | 上げる上限。これでも直らなければ RTMP へ | 2000 |
+| latency | `latency.initialUs` | 最初に案内する latency。**μs (OBS の URL の `latency=` に入れる値) で書く**。1000 の倍数。フローの `MinLatency` (AWS の画面では ms) はこれ以下にしておく | 120000 |
+| | `latency.maxUs` | 上げる上限 (μs。1000 の倍数)。これでも直らなければ RTMP へ | 2000000 |
 | | `latency.maxRaises` | 上げる回数の上限 | 4 |
 | 判定 | `judge.windowSec` | 計測の窓 (この秒数溜まってから判定) | 60 |
 | | `judge.confirmSec` | 安定の確定のために見る秒数 | 60 |
@@ -344,8 +344,8 @@ guide:
   obsProfile: "RTA 配信用 2026"
   expected: { width: 1536, height: 864, fps: 60, bitrateKbps: 3000, keyframeSec: 2 }
 latency:
-  initialMs: 120
-  maxMs: 2000
+  initialUs: 120000
+  maxUs: 2000000
 i18n:
   dir: ./messages      # ja.yaml と en.yaml
   fallback: en
@@ -482,7 +482,7 @@ sequenceDiagram
 | 5 | 10 分経っても届かない | 一度だけ催促する (URL、パスフレーズ、ファイアウォール)。30 分で中断 |
 | 5 | MediaConnect には 60 秒以上届いているのに denpachan が `live` にならない | 運営側の問題として運営に知らせる。配信者には「運営側で確認しています」 |
 | 5 → 6 | web カメラを確かめる設定 (`webcam.links`) | 配信が届いたら、計測の前に、VDO.ninja の送信用の URL を案内する ([web カメラは使わない])。bot が受信用のページで映像を見つけたら 6 へ。6 の間に web カメラが途切れたら、案内し直して、届いてから 6 をやり直す (§5.9) |
-| 6 | 乱れる (`tight` / `insufficient`) | latency を N にして始め直すよう頼む ([設定した])。繋ぎ直したら N で計測からやり直す。最大 4 回、上限 2000 ms |
+| 6 | 乱れる (`tight` / `insufficient`) | latency を N にして始め直すよう頼む ([設定した])。繋ぎ直したら N で計測からやり直す。最大 4 回、上限 2000000 μs |
 | 6 | 上げても直らない、ジッタが大きい、デコードが安定しない | RTMP の枠が空いていれば、`rtmp://<RTMP サーバのドメイン>/<app>` とキーを案内する ([設定した])。RTMP で安定したら 7 へ。SRT の枠は空けて次の人に知らせる |
 | 6 | RTMP の枠も使えない | 運営に知らせ、「運営から連絡します」と伝えて 7 へ (映像の判定は NG。録画は残る) |
 | 6 | RTMP でも安定しない | 運営に知らせ、「運営から連絡します」と伝えて 7 へ (映像の判定は NG) |
@@ -527,7 +527,8 @@ web カメラを確かめる設定 (`webcam.links`) なら、先に web カメ�
     - 配信者向け: この文、上げてもらう案内、「N000 μs で計測し直します」、最後のまとめの「本番の latency: N000 μs」。
     - 運営向け: 運営への通知 (「映像 OK: … latency N000 μs」)、`/techcheck status`、`/techcheck latency` (入れる値も返事も μs)、webhook の「確定した latency」、シートの「確定した latency (μs)」「推奨値 (μs)」。
     - 配信者が触るのは OBS の SRT の URL の `latency=` だけで、その単位はマイクロ秒 (180 ms なら `latency=180000`)。運営も μs で覚えている。ms の数字を見せると、そのまま URL に入れてしまう。両方を並べても、どちらを入れるのかで迷うだけなので、片方にする (`src/advisor.ts` の `obsLatency`)。
-    - ms のままの所: bot の中の計算、設定ファイル (`latency.initialMs` など)、測った値 (RTT、ジッタ)、denpachan 側の latency (`/techcheck latency-receiver`。denpachan の設定と画面が ms)。
+    - 設定ファイルも μs で書く (`latency.initialUs`、`latency.maxUs`。2026-11-16 に `initialMs`、`maxMs` から変えた。前の名前で書いてあると、起動時に直し方を出して止まる)。
+    - ms のままの所: bot の中の計算、測った値 (RTT、ジッタ)、denpachan 側の latency (`/techcheck latency-receiver`。denpachan の設定と画面が ms)。
 - **できていなさそうなら** §6 の手順に入る (latency を上げてもらう → だめなら RTMP の案内)。直ったら上と同じく伝えて 5.4 へ。最後までだめなら、運営に知らせて「運営から連絡します」と伝え、音声のチェックだけは進める (録画は残る)。
 
 ### 5.4 音声とその他のチェック
@@ -626,7 +627,7 @@ web カメラを確かめる設定 (`webcam.links`) なら、先に web カメ�
 1. **初期値**: 配信者には OBS の URL に案内値 (たとえば `latency=120000`、µs。bot の設定) を入れてもらう。フローの `MinLatency` はそれ以下に固定してあるので、実際の latency は OBS の値になる。bot は「今の latency = 案内した値」として持つ。
 2. **計測**: 繋がってから 5 秒を除き、CloudWatch の値が窓 (`judge.windowSec`、60 秒) の分だけ溜まったら判定する (§3.1 の規則で `verdict` と `headroomMs` を作る)。CloudWatch の値が窓 + 2 分経っても 1 つも取れなければ、運営に知らせて denpachan の受信状態 (fps、デコードエラー) だけで判定する。
    - 計測の間に、denpachan の fps の平均が期待 (`DescribeFlowSourceMetadata` の fps、無ければ `guide.expected.fps`) の 90% 未満、またはデコードエラーが 5 以上増えたら、回線でなく送出側の問題の可能性として RTMP に移す (5)。窓の半分より多くの秒で `SourceJitter` が 500 ms を超えたときも同じ (AWS の目安では切断の原因)。
-3. **上げる**: `tight` か `insufficient` なら、次の値 N = `max(推奨値, 今の値 × 1.5)` を 10 ms 単位に切り上げたもの (上限 2000 ms) を決め、スレッドで「映像が乱れる可能性があります。latency を **N000 μs** に上げてください。OBS の配信を止め、URL の `latency=` を **N000** にして、始め直してください」と頼む (新しい URL を添え、「設定した」ボタン付き)。頼んだあとに繋ぎ直したこと (§3.1。CloudWatch の `SourceUpTime` が戻った、または denpachan で途切れて戻った・`connectedSec` が戻った) を見て、「設定した」が押されているか、押されなくても繋ぎ直してから 30 秒経ったら、「今の latency = N」としてまた計測 (2 へ)。最大 4 回。上限に達している、または N が今の値より大きくならないときは RTMP へ (5)。
+3. **上げる**: `tight` か `insufficient` なら、次の値 N = `max(推奨値, 今の値 × 1.5)` を 10 ms 単位に切り上げたもの (上限 2000000 μs) を決め、スレッドで「映像が乱れる可能性があります。latency を **N000 μs** に上げてください。OBS の配信を止め、URL の `latency=` を **N000** にして、始め直してください」と頼む (新しい URL を添え、「設定した」ボタン付き)。頼んだあとに繋ぎ直したこと (§3.1。CloudWatch の `SourceUpTime` が戻った、または denpachan で途切れて戻った・`connectedSec` が戻った) を見て、「設定した」が押されているか、押されなくても繋ぎ直してから 30 秒経ったら、「今の latency = N」としてまた計測 (2 へ)。最大 4 回。上限に達している、または N が今の値より大きくならないときは RTMP へ (5)。
    - 配信者が始め直さないまま 10 分経ったら、一度だけ催促する。20 分で中断。
 4. **安定の確定**: `ok` か `generous` が出たら、さらに 60 秒 (`judge.confirmSec`) 見て、`SourceNotRecoveredPackets` が 0、`SourceContinuityCounter` と `SourceTSSyncLoss` が増えない、denpachan の `decodeErrors` が増えない、`fps` が 60 秒の平均で期待の 90% 以上であれば **確定** (§5.3 の「正しく配信できていそう」)。CloudWatch は遅れて届くので、この 60 秒の 8 割の値が揃うまで (最大 90 秒) 待つ。`generous` (回線に余裕がある) でも、配信者には「下げてもよい」とは伝えない: 下げるかどうかを委ねると、配信者は結局どうすればよいのか判断がつかない。配信者には、確定した値をそのまま使ってもらう。推奨値はシートに残るので、下げたいときは運営が `/techcheck latency` で案内し直す (bot が計測し直す)。
    - 確定できなかったとき: fps が足りない、またはデコードエラーが 5 以上増えたなら RTMP へ (5)。それ以外 (回復できなかったパケット、TS の壊れ) は 3 と同じく上げる。

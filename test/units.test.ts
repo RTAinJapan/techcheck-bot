@@ -91,8 +91,9 @@ describe("config", () => {
     });
     it("既定値が入る", () => {
         const c = testConfig();
-        assert.equal(c.latency.initialMs, 120);
-        assert.equal(c.latency.maxMs, 2000);
+        // latency の設定は μs。bot の中で使う ms の値も作る
+        assert.deepEqual([c.latency.initialUs, c.latency.maxUs], [120_000, 2_000_000]);
+        assert.deepEqual([c.latency.initialMs, c.latency.maxMs], [120, 2000]);
         assert.equal(c.flows[0]!.pbkeylen, 16);
         assert.equal(c.i18n.fallback, "en");
         assert.equal(c.guide.expected.fps, 60);
@@ -121,6 +122,16 @@ describe("config", () => {
         assert.throws(() => parseConfig(twoSlots + one, {}), /SRT の枠の数 \(2\) 以上/);
         assert.throws(() => parseConfig(baseYaml + one.replace("https://vdo.ninja/?view=a", "vdo.ninja/?view=a"), {}), /https:\/\/ で始まる/);
         assert.throws(() => parseConfig(baseYaml + one.replace("?view=a", "?push=a"), {}), /同じ URL を 2 回/);
+    });
+    it("latency の設定は μs で書く。前の名前 (ms) は、直し方を伝えて断る", () => {
+        const c = parseConfig(`${baseYaml}latency: { initialUs: 180000, maxUs: 1500000 }\n`, {});
+        assert.deepEqual([c.latency.initialMs, c.latency.maxMs], [180, 1500]);
+        assert.throws(() => parseConfig(`${baseYaml}latency: { initialMs: 180 }\n`, {}), /latency\.initialMs: .*latency\.initialUs に変えました.*\(180 → 180000\)/);
+        assert.throws(() => parseConfig(`${baseYaml}latency: { maxMs: 1500 }\n`, {}), /latency\.maxUs に変えました.*\(1500 → 1500000\)/);
+        assert.throws(() => parseConfig(`${baseYaml}latency: { initialUs: 120500 }\n`, {}), /1000 の倍数/);
+        assert.throws(() => parseConfig(`${baseYaml}latency: { initialUs: 300000, maxUs: 200000 }\n`, {}), /maxUs は latency\.initialUs 以上/);
+        // ms のつもりの小さい値を書いたら、断る
+        assert.throws(() => parseConfig(`${baseYaml}latency: { initialUs: 120 }\n`, {}));
     });
     it("webhook の URL は省ける", () => {
         const c = parseConfig(baseYaml.replace(/notify:\n {2}webhookUrl: .*\n/, ""), {});

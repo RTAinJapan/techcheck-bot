@@ -38,7 +38,7 @@ export const kMinSamples = 10;
  * 人に見せる latency の値 (μs)。OBS の SRT の URL に入れる値と同じ (`latency=` はマイクロ秒。180 ms なら 180000)。
  * 配信者にも運営にも、latency はこの値だけで見せる (スレッドの案内、運営への通知、コマンド、webhook、シート)。
  * 配信者が触るのは OBS の URL で、運営も μs で覚えているので、ms の数字を見せると、そのまま URL に入れてしまう。
- * bot の中の計算と設定ファイル (`latency.initialMs` など) は ms のまま
+ * bot の中の計算は ms のまま (設定ファイルの `latency.initialUs`、`latency.maxUs` は μs で書き、読むときに ms にする)
  */
 export function obsLatency(latencyMs: number): number {
     return Math.round(latencyMs * 1000);
