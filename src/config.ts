@@ -136,13 +136,17 @@ export const configSchema = z
                 })
                 .prefault({}),
         }),
+        // latency の設定は μs (OBS の URL の latency= に入れる値) で書く。人が見る latency は、どこでも μs にそろえる。
+        // bot の中の計算は ms なので、読んだあとに ms の値 (initialMs、maxMs) も作っておく
         latency: z
             .object({
-                initialMs: z.number().int().min(20).prefault(120),
-                maxMs: z.number().int().prefault(2000),
+                // 既定は、走者に配布している OBS の設定の初期値 (100 ms 相当) と同じ
+                initialUs: z.number().int().min(20_000).prefault(100_000),
+                maxUs: z.number().int().prefault(2_000_000),
                 maxRaises: z.number().int().min(0).prefault(4),
             })
-            .prefault({}),
+            .prefault({})
+            .transform((v) => ({ ...v, initialMs: v.initialUs / 1000, maxMs: v.maxUs / 1000 })),
         judge: z
             .object({
                 windowSec: z.number().int().min(10).prefault(60),
@@ -202,10 +206,14 @@ export const configSchema = z
                 lostSec: z.number().int().min(1).prefault(10),
                 // true なら、チェックの最後に、VDO.ninja で届くマイクの声の録音の手順を足す (本番のマイクの経路)
                 mic: z.boolean().prefault(true),
+                // true なら、web カメラが届いてからテストが終わるまで、届いた映像と音声を録画する (Google ドライブにも上げる)
+                record: z.boolean().prefault(true),
+                // 録画 (.webm) の置き場所
+                dir: z.string().min(1).prefault("./webcam"),
             })
             // webcam: の下が全部空 (null) でもよい
             .nullish()
-            .transform((v) => v ?? { links: [], browser: { path: "", channel: "chrome" }, lostSec: 10, mic: true }),
+            .transform((v) => v ?? { links: [], browser: { path: "", channel: "chrome" }, lostSec: 10, mic: true, record: true, dir: "./webcam" }),
         // 配信の静止画を、denpachan の録画から取り出すのに使う ffmpeg。既定は PATH の ffmpeg
         ffmpeg: z.object({ path: z.string().min(1).prefault("ffmpeg") }).prefault({}),
         i18n: z.object({ dir: z.string().prefault("./messages"), fallback: lang.prefault("en") }).prefault({}),
@@ -286,8 +294,12 @@ export const configSchema = z
         if (c.notify.webhookUrl && !/^https:\/\//.test(c.notify.webhookUrl)) {
             ctx.addIssue({ code: "custom", path: ["notify", "webhookUrl"], message: "notify.webhookUrl は https:// で始まる URL にしてください" });
         }
-        if (c.latency.maxMs < c.latency.initialMs) {
-            ctx.addIssue({ code: "custom", path: ["latency", "maxMs"], message: "latency.maxMs は latency.initialMs 以上にしてください" });
+        if (c.latency.maxUs < c.latency.initialUs) {
+            ctx.addIssue({ code: "custom", path: ["latency", "maxUs"], message: "latency.maxUs は latency.initialUs 以上にしてください" });
+        }
+        // bot は latency を ms の整数で扱う (MediaConnect の MinLatency も ms)
+        for (const k of ["initialUs", "maxUs"] as const) {
+            if (c.latency[k] % 1000 !== 0) ctx.addIssue({ code: "custom", path: ["latency", k], message: `latency.${k} は 1000 の倍数 (ms の整数にあたる μs) にしてください` });
         }
         const isLoopback = ["127.0.0.1", "localhost", "::1"].includes(c.denpachan.host);
         if (!isLoopback && !c.denpachan.token) {
@@ -341,7 +353,10 @@ export function parseConfig(yamlText: string, env: NodeJS.ProcessEnv = process.e
     const result = configSchema.safeParse(raw);
     // 前の書き方 (いちばん上の sheet / drive) は、google の下に移した。黙って無視せずに、移し方を伝える
     const moved = raw && typeof raw === "object" ? ["sheet", "drive"].filter((k) => k in raw) : [];
-    if (!result.success || moved.length > 0) {
+    // latency の設定は ms から μs に変えた。前の名前のままだと既定値で動いてしまうので、黙って無視せずに、直し方を伝える
+    const rawLatency = raw && typeof raw === "object" ? (raw as { latency?: unknown }).latency : undefined;
+    const oldLatency = rawLatency && typeof rawLatency === "object" ? (["initialMs", "maxMs"] as const).filter((k) => k in rawLatency) : [];
+    if (!result.success || moved.length > 0 || oldLatency.length > 0) {
         const lines = (result.error?.issues ?? []).map((i) => `- ${i.path.join(".") || "(全体)"}: ${i.message}`);
         for (const k of moved) {
             lines.push(
@@ -349,6 +364,12 @@ export function parseConfig(yamlText: string, env: NodeJS.ProcessEnv = process.e
                     ? "- sheet: Google の設定は google の下にまとめました。sheet.credentialsFile は google.credentialsFile へ、sheet.spreadsheetId と sheet.tabName は google.sheet の下へ移してください"
                     : "- drive: Google の設定は google の下にまとめました。drive.folderId は google.drive.folderId へ移してください",
             );
+        }
+        for (const k of oldLatency) {
+            const value = (rawLatency as Record<string, unknown>)[k];
+            const to = k === "initialMs" ? "initialUs" : "maxUs";
+            const example = typeof value === "number" ? ` (${value} → ${value * 1000})` : "";
+            lines.push(`- latency.${k}: μs (OBS の URL の latency= に入れる値) で書く latency.${to} に変えました。値を 1000 倍にして、名前を変えてください${example}`);
         }
         if (missing.length > 0) lines.push(`(設定されていない環境変数: ${[...new Set(missing)].join(", ")})`);
         throw new ConfigError(`設定ファイルが正しくありません:\n${lines.join("\n")}`);

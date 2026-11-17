@@ -6,5 +6,6 @@ dist/
 *.db-shm
 config.yaml
 voice/
+webcam/
 google-service-account*.json
 .env

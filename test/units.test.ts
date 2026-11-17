@@ -4,7 +4,7 @@ import { join } from "node:path";
 import { describe, it } from "node:test";
 import { parseFrameRate } from "../src/adapters/aws.js";
 import { DiscordWebhook, retryAfterMs } from "../src/adapters/webhook.js";
-import { advise, multiplierFor, nextLatency, verdictFor, type SrtSample } from "../src/advisor.js";
+import { advise, atLeastAfterDrops, multiplierFor, nextLatency, verdictFor, type SrtSample } from "../src/advisor.js";
 import { defaultChecks, evaluateAudioStep, voiceStep } from "../src/checks.js";
 import { ConfigError, expandEnv, parseConfig } from "../src/config.js";
 import { I18n, checkParity, langFromLocale } from "../src/i18n.js";
@@ -58,10 +58,14 @@ describe("advisor (srt_advisor.h と同じ規則)", () => {
         assert.equal(advise(w, 120, table).recommendMs, 20);
     });
 
-    it("次の latency は max(推奨, 今 × 1.5) で、上限で抑える", () => {
-        assert.equal(nextLatency(120, 130, 2000), 180);
-        assert.equal(nextLatency(120, 400, 2000), 400);
-        assert.equal(nextLatency(1500, 0, 2000), 2000);
+    it("次の latency は推奨値そのもの (今の値を何倍かにしない)。上限で抑える", () => {
+        assert.equal(nextLatency(130, 2000), 130);
+        assert.equal(nextLatency(400, 2000), 400);
+        assert.equal(nextLatency(123, 2000), 130);
+        assert.equal(nextLatency(2500, 2000), 2000);
+        // 実際に取りこぼしたときだけ、今の 1.5 倍以上
+        assert.equal(atLeastAfterDrops(60, 100), 150);
+        assert.equal(atLeastAfterDrops(400, 100), 400);
         assert.equal(verdictFor(120, 0, 0), "measuring");
     });
 });
@@ -91,8 +95,9 @@ describe("config", () => {
     });
     it("既定値が入る", () => {
         const c = testConfig();
-        assert.equal(c.latency.initialMs, 120);
-        assert.equal(c.latency.maxMs, 2000);
+        // latency の設定は μs。bot の中で使う ms の値も作る
+        assert.deepEqual([c.latency.initialUs, c.latency.maxUs], [100_000, 2_000_000]);
+        assert.deepEqual([c.latency.initialMs, c.latency.maxMs], [100, 2000]);
         assert.equal(c.flows[0]!.pbkeylen, 16);
         assert.equal(c.i18n.fallback, "en");
         assert.equal(c.guide.expected.fps, 60);
@@ -121,6 +126,16 @@ describe("config", () => {
         assert.throws(() => parseConfig(twoSlots + one, {}), /SRT の枠の数 \(2\) 以上/);
         assert.throws(() => parseConfig(baseYaml + one.replace("https://vdo.ninja/?view=a", "vdo.ninja/?view=a"), {}), /https:\/\/ で始まる/);
         assert.throws(() => parseConfig(baseYaml + one.replace("?view=a", "?push=a"), {}), /同じ URL を 2 回/);
+    });
+    it("latency の設定は μs で書く。前の名前 (ms) は、直し方を伝えて断る", () => {
+        const c = parseConfig(`${baseYaml}latency: { initialUs: 180000, maxUs: 1500000 }\n`, {});
+        assert.deepEqual([c.latency.initialMs, c.latency.maxMs], [180, 1500]);
+        assert.throws(() => parseConfig(`${baseYaml}latency: { initialMs: 180 }\n`, {}), /latency\.initialMs: .*latency\.initialUs に変えました.*\(180 → 180000\)/);
+        assert.throws(() => parseConfig(`${baseYaml}latency: { maxMs: 1500 }\n`, {}), /latency\.maxUs に変えました.*\(1500 → 1500000\)/);
+        assert.throws(() => parseConfig(`${baseYaml}latency: { initialUs: 120500 }\n`, {}), /1000 の倍数/);
+        assert.throws(() => parseConfig(`${baseYaml}latency: { initialUs: 300000, maxUs: 200000 }\n`, {}), /maxUs は latency\.initialUs 以上/);
+        // ms のつもりの小さい値を書いたら、断る
+        assert.throws(() => parseConfig(`${baseYaml}latency: { initialUs: 120 }\n`, {}));
     });
     it("webhook の URL は省ける", () => {
         const c = parseConfig(baseYaml.replace(/notify:\n {2}webhookUrl: .*\n/, ""), {});

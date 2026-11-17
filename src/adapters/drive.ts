@@ -18,7 +18,7 @@ const kScope = "https://www.googleapis.com/auth/drive";
 const kChunkBytes = 16 * 1024 * 1024;
 const kChunkRetries = 4;
 
-const kMimeTypes: Record<string, string> = { mkv: "video/x-matroska", mp4: "video/mp4", ts: "video/mp2t", ogg: "audio/ogg", flv: "video/x-flv" };
+const kMimeTypes: Record<string, string> = { mkv: "video/x-matroska", mp4: "video/mp4", ts: "video/mp2t", ogg: "audio/ogg", flv: "video/x-flv", webm: "video/webm" };
 
 export function mimeTypeFor(file: string): string {
     return kMimeTypes[file.split(".").pop()?.toLowerCase() ?? ""] ?? "application/octet-stream";
