@@ -1,7 +1,7 @@
 # 配信テストの bot の設定。config.yaml にコピーして書き換える。
 # 項目の説明は docs/design.md の「設定値の一覧」(§4.1)、トークンに要る権限は README の「トークンと権限」。
 # 秘密 (トークン、パスフレーズ、キー、webhook の URL) は ${環境変数名} で環境変数から読める。
-# 相対パス (google.credentialsFile、i18n.dir、db.path、voice.dir) は、このファイルのあるフォルダから探す。
+# 相対パス (google.credentialsFile、i18n.dir、db.path、voice.dir、webcam.dir) は、このファイルのあるフォルダから探す。
 
 discord:
   token: ${DISCORD_TOKEN}
@@ -108,6 +108,8 @@ latency:
 #     # 部屋 (room) を使う送信用の URL のときは、受信用にも同じ部屋を付けて、&solo にする (部屋を付けないと届かない)
 #     - push: https://vdo.ninja/?room=${WEBCAM_ROOM_A}&push=${WEBCAM_ID_A2}&broadcast&directorsonly&webcam
 #       view: https://vdo.ninja/?view=${WEBCAM_ID_A2}&solo&room=${WEBCAM_ROOM_A}
+#   # record: false                          # web カメラの映像を録画しない (既定は true: 届いてからテストが終わるまで録り、Google ドライブにも上げる)
+#   # dir: ./webcam                          # 録画 (.webm) の置き場所
 #   # mic: false                             # マイクの声の録音を VDO.ninja でしない (既定は true: チェックの最後に録音の手順を足す。
 #   #                                        # voice.enabled とは、どちらか一方)
 #   # 受信用のページを開くブラウザ。既定は、PC に入っている Google Chrome

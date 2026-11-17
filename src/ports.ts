@@ -135,6 +135,10 @@ export interface WebcamStatus {
     freezes?: number;
     /** 音声 (マイク) が届いているか (最近の数秒のうちに、音声のパケットが届いた。無音でも、送っていれば届く) */
     audio?: boolean;
+    /** 録画している (startRecording のあと) */
+    recording?: boolean;
+    /** 録画を書いたファイル。配信者がページを開き直すと、映像が入れ替わるので、ファイルを分ける */
+    recordFiles?: string[];
 }
 
 export interface WebcamPort {
@@ -149,7 +153,13 @@ export interface WebcamPort {
     still(key: string): Promise<Buffer | undefined>;
     /** 届いている音声 (マイク) を seconds 秒録って、file (.webm) に書く。packets は使わない (0) */
     recordAudio(key: string, file: string, seconds: number): Promise<VoiceRecording>;
-    close(key: string): Promise<void>;
+    /**
+     * 届いている映像 (と音声) の録画を始める。閉じるまで録り続ける。ファイルは base に `.webm` を付けた名前
+     * (映像が入れ替わったら `-2.webm`、`-3.webm`…)。開いていなければ何もしない。録っていれば何もしない
+     */
+    startRecording(key: string, base: string): void;
+    /** ページを閉じる。録画していたら、書き終えてから閉じ、書いたファイルを返す */
+    close(key: string): Promise<string[]>;
 }
 
 // ---- Google ドライブ (録画と録音のアップロード) ----

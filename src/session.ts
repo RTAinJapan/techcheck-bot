@@ -131,6 +131,10 @@ export interface WebcamState {
     drops?: number;
     /** 計測を始めたときの、受信の統計 (ここからの差で、判定の間のロスと固まった回数を出す) */
     base?: { packetsReceived?: number; packetsLost?: number; freezes?: number };
+    /** 録画のファイル名のもと (録画を始めたとき。bot を起動し直したら、作り直す) */
+    recordBase?: string;
+    /** 録画を書いたファイル */
+    files?: string[];
     /** 映像の判定が終わったときの値 (シートに書く) */
     width?: number;
     height?: number;

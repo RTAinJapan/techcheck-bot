@@ -1570,6 +1570,71 @@ describe("web カメラ (VDO.ninja)", () => {
         assert.match(w.chat.lastPost(thread)!.content, /web カメラのページ.*を閉じてください/);
     });
 
+    it("web カメラが届いたら録画を始め、終わったらシートに書き、録画と一緒に Google ドライブに上げる", async () => {
+        const w = makeWorld(webcamYaml, driveYaml);
+        const thread = await untilAsked(w);
+        // 届く前は録らない
+        await w.run(3, () => w.rx.live(7));
+        assert.equal(w.webcam.recordBases.size, 0);
+        await w.run(6, () => {
+            w.rx.live(7);
+            w.webcam.play(kView);
+        });
+        const base = [...w.webcam.recordBases.values()][0]!;
+        assert.match(base, /^webcam-dir\/2026-11-01-12-0\d-\d\d Runner_A U1 webcam$/);
+        await w.service.cancel("U1");
+        assert.ok(w.chat.lastPost(thread));
+        assert.equal(w.sheet.rows[0]![col("web カメラの録画")], `${base}.webm`);
+        // 録画を書き終えて (ページを閉じて) から、上げる
+        await w.run(15);
+        await w.flush();
+        assert.deepEqual(
+            w.drive.uploaded.map((u) => u.file),
+            ["rec-ch7.mkv", `${base}.webm`],
+        );
+    });
+
+    it("「web カメラは使わない」の人と、webcam.record: false では録らない", async () => {
+        const w = makeWorld(webcamYaml);
+        const thread = await untilAsked(w);
+        await press(w, thread, "webcam-skip");
+        await w.run(5, () => w.rx.live(7));
+        assert.equal(w.webcam.recordBases.size, 0);
+
+        const w2 = makeWorld(`${webcamYaml}  record: false\n`);
+        await untilAsked(w2);
+        await w2.run(6, () => {
+            w2.rx.live(7);
+            w2.webcam.play(kView);
+        });
+        assert.match(await w2.service.status("U1"), /measuring/);
+        assert.equal(w2.webcam.recordBases.size, 0);
+        await w2.service.cancel("U1");
+        assert.equal(w2.sheet.rows[0]![col("web カメラの録画")], "");
+    });
+
+    it("bot を起動し直したら、録画も別のファイルで録り直し、前のファイルも残す", async () => {
+        const w = makeWorld(webcamYaml);
+        await untilAsked(w);
+        await w.run(6, () => {
+            w.rx.live(7);
+            w.webcam.play(kView);
+        });
+        const first = `${[...w.webcam.recordBases.values()][0]!}.webm`;
+        const w2 = makeWorld(webcamYaml, baseYaml, w.store);
+        w2.clock.t = w.clock.t + 5_000;
+        await w2.run(1, () => w2.rx.live(7));
+        w2.webcam.play(kView);
+        await w2.run(2, () => {
+            w2.rx.live(7);
+            w2.webcam.play(kView);
+        });
+        const second = `${[...w2.webcam.recordBases.values()][0]!}.webm`;
+        assert.notEqual(second, first);
+        await w2.service.cancel("U1");
+        assert.equal(w2.sheet.rows[0]![col("web カメラの録画")], `${first} / ${second}`);
+    });
+
     it("bot を起動し直したら、受信用のページを開き直す", async () => {
         const w = makeWorld(webcamYaml);
         await untilAsked(w);

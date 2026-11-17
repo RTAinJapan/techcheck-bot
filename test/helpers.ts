@@ -383,13 +383,26 @@ export class FakeWebcam implements WebcamPort {
         if (!this.views.get(key)?.status.audio) throw new Error("音声 (マイク) が届いていません");
         return { file, packets: 0, bytes: 1000, audioMs: 0, ...this.nextAudio };
     }
-    async close(key: string): Promise<void> {
-        if (this.views.delete(key)) this.closed.push(key);
+    /** 録画のファイル名のもと (テストの ID → base) */
+    recordBases = new Map<string, string>();
+    startRecording(key: string, base: string): void {
+        const v = this.views.get(key);
+        if (!v || this.recordBases.has(key)) return;
+        this.recordBases.set(key, base);
+        v.status = { ...v.status, recording: true, recordFiles: [`${base}.webm`] };
+    }
+    async close(key: string): Promise<string[]> {
+        const v = this.views.get(key);
+        if (!this.views.delete(key)) return [];
+        this.closed.push(key);
+        const base = this.recordBases.get(key);
+        this.recordBases.delete(key);
+        return base ? [...(v?.status.recordFiles ?? [`${base}.webm`])] : [];
     }
     /** その URL を見ているページに、映像が届いている (届いていない) 状態にする */
     play(viewUrl: string, stats: Partial<WebcamStatus> = {}): void {
         for (const v of this.views.values()) {
-            if (v.url === viewUrl) v.status = { state: "open", playing: true, width: 1280, height: 720, fps: 30, packetsReceived: 1000, packetsLost: 0, freezes: 0, ...stats };
+            if (v.url === viewUrl) v.status = { ...v.status, state: "open", playing: true, width: 1280, height: 720, fps: 30, packetsReceived: 1000, packetsLost: 0, freezes: 0, ...stats };
         }
     }
     stopPlaying(viewUrl: string): void {
@@ -431,6 +444,7 @@ export function makeWorld(extraYaml = "", baseYamlText = baseYaml, existingStore
         still,
         voice: config.voice.enabled ? voice : undefined,
         voiceDir: "voice-dir",
+        webcamDir: "webcam-dir",
         webcam: config.webcam.links.length > 0 ? webcam : undefined,
         drive: config.google.drive.folderId ? drive : undefined,
         dns,

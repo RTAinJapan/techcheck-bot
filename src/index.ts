@@ -1,5 +1,5 @@
 // 起動: node dist/src/index.js [config.yaml]  (または環境変数 TECHCHECK_CONFIG。どちらも無ければ、今いるフォルダの config.yaml)
-// 設定の中の相対パス (i18n.dir、db.path、google.credentialsFile、voice.dir) は、設定ファイルのあるフォルダから探す。
+// 設定の中の相対パス (i18n.dir、db.path、google.credentialsFile、voice.dir、webcam.dir) は、設定ファイルのあるフォルダから探す。
 // ここを変えたら、README の「準備」「動かす」も直す。
 
 import { Client, Events, GatewayIntentBits } from "discord.js";
@@ -41,6 +41,7 @@ async function main(): Promise<void> {
     const voice = config.voice.enabled ? new DiscordVoice(client, config.discord.guildId, config.ffmpeg.path, log) : undefined;
     // web カメラ (VDO.ninja) の受信用のページを開くブラウザ。使うとき (webcam.links があるとき) だけ
     const webcam = config.webcam.links.length > 0 ? new BrowserWebcam(config.webcam.browser, log, config.ffmpeg.path) : undefined;
+    const webcamDir = resolve(baseDir, config.webcam.dir);
     const rx = new WsReceiver(WsReceiver.urlFor(config.denpachan.host, config.denpachan.port, config.denpachan.token), log);
     // AWS の認証: 設定にアクセスキーがあればそれ、無ければ AWS SDK の既定の探し方 (環境変数、AWS_PROFILE のプロファイルなど)
     const awsKey = config.aws.accessKeyId ? { accessKeyId: config.aws.accessKeyId, secretAccessKey: config.aws.secretAccessKey } : undefined;
@@ -55,6 +56,7 @@ async function main(): Promise<void> {
         voice,
         voiceDir,
         webcam,
+        webcamDir,
         // サービスアカウントのキーは、シートと同じもの (google.credentialsFile)
         drive: google.drive.folderId ? new GoogleDrive(google.drive.folderId, credentialsFile) : undefined,
         dns: new NodeDns(),
@@ -86,7 +88,8 @@ async function main(): Promise<void> {
     log(
         `web カメラ (VDO.ninja) の確認: ${
             webcam
-                ? `する (URL の組 ${config.webcam.links.length} つ。ブラウザ: ${config.webcam.browser.path || `PC に入っている ${config.webcam.browser.channel}`})`
+                ? `する (URL の組 ${config.webcam.links.length} つ。ブラウザ: ${config.webcam.browser.path || `PC に入っている ${config.webcam.browser.channel}`}。` +
+                  `録画: ${config.webcam.record ? `する (置き場所 ${webcamDir})` : "しない (webcam.record)"})`
                 : "しない (webcam.links が未設定)"
         }`,
     );

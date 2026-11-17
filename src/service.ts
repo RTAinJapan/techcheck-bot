@@ -44,6 +44,8 @@ export interface Deps {
     voiceDir?: string;
     /** web カメラの受信用のページを開くブラウザ (設定の webcam.links があるときだけ渡す) */
     webcam?: WebcamPort;
+    /** web カメラの録画の置き場所 (webcam.dir を、設定ファイルのフォルダから見た場所にしたもの) */
+    webcamDir?: string;
     /** 録画と録音を上げる Google ドライブ (設定の google.drive.folderId があるときだけ渡す) */
     drive?: DrivePort;
     dns: DnsPort;
@@ -967,6 +969,7 @@ export class TechcheckService {
             // bot を起動し直したあとは、受信用のページを開き直す
             const link = this.cfg.webcam.links[s.webcam!.link];
             if (link && !this.d.webcam!.status(s.id)) this.d.webcam!.open(s.id, link.view);
+            this.keepWebcamRecording(s);
             if (this.webcamActive(s) && (s.phase === "measuring" || s.phase === "confirming") && (await this.watchWebcam(s))) return;
         }
 
@@ -1149,6 +1152,39 @@ export class TechcheckService {
 
     // ---- web カメラ (VDO.ninja。設計書 §5.9) ----
 
+    /**
+     * web カメラの録画 (設定の webcam.record)。届いてからテストが終わるまで録る。毎秒呼ぶ:
+     * ページを開き直した (bot を起動し直した) ら録り直し、書いたファイルを覚える (シートと Google ドライブ)
+     */
+    private keepWebcamRecording(s: Session): void {
+        const cam = s.webcam;
+        if (!cam || !this.cfg.webcam.record || !this.webcamActive(s) || cam.arrivedAt === undefined) return;
+        const st = this.d.webcam!.status(s.id);
+        if (!st || st.state !== "open") return;
+        if (!st.recording) {
+            cam.recordBase = `${this.d.webcamDir ?? "."}/${fileStamp(this.now())} ${safeFileName(s.displayName)} ${s.userId} webcam`;
+            this.d.webcam!.startRecording(s.id, cam.recordBase);
+            this.log(`${s.displayName}: web カメラの録画を始めます (${cam.recordBase}.webm)`);
+        }
+        this.addWebcamFiles(s, st.recordFiles ?? []);
+    }
+
+    private addWebcamFiles(s: Session, files: string[]): void {
+        if (!s.webcam || files.length === 0) return;
+        const known = s.webcam.files ?? [];
+        s.webcam.files = [...known, ...files.filter((f) => !known.includes(f))];
+    }
+
+    /** 受信用のページを閉じる。録画していたら、書き終えたファイルを覚える */
+    private async closeWebcam(s: Session): Promise<void> {
+        if (!this.d.webcam) return;
+        const files = await this.d.webcam.close(s.id).catch((e) => {
+            this.log(`web カメラ: ${errorText(e)}`);
+            return [] as string[];
+        });
+        this.addWebcamFiles(s, files);
+    }
+
     /** このテストで、web カメラの映像を見ているか (使わない人と、bot の側の問題で見られなかったテストは見ない) */
     private webcamActive(s: Session): boolean {
         return this.d.webcam !== undefined && s.webcam !== undefined && !s.webcam.skipped && !s.webcam.failed;
@@ -1235,8 +1271,8 @@ export class TechcheckService {
 
     /** bot の側の問題で web カメラを見られない (ブラウザを開けない、など)。配信者のせいではないので、運営に知らせて、web カメラなしで進める */
     private async webcamFailed(s: Session, error: string): Promise<void> {
+        await this.closeWebcam(s);
         s.webcam = { ...(s.webcam ?? { link: -1 }), failed: true };
-        await this.d.webcam?.close(s.id).catch(() => undefined);
         await this.ops(`web カメラの映像を確認できませんでした: ${s.displayName} (${error})。web カメラなしで進めます`);
         if (s.webcam.messageId) await this.d.chat.clearButtons(s.threadId, s.webcam.messageId).catch(() => undefined);
         await this.post(s, { content: this.t(s.lang, "webcam.failed") });
@@ -1621,8 +1657,8 @@ export class TechcheckService {
         const s0 = this.sessions.find((x) => x.id === sessionId);
         if (!s0) return;
         // 秒まで入れる: 録り直しが同じ分のうちに始まっても、前の録音を上書きしない (分までだと、同じ名前になる)
-        const stamp = `${formatTime(this.now()).replace(/[: ]/g, "-")}-${String(Math.floor(this.now() / 1000) % 60).padStart(2, "0")}`;
-        const safeName = s0.displayName.replace(/[^\p{L}\p{N}_-]+/gu, "_").slice(0, 40);
+        const stamp = fileStamp(this.now());
+        const safeName = safeFileName(s0.displayName);
         // Discord の声は届いた Opus のまま .ogg、VDO.ninja の声はブラウザが録った .webm
         const file = `${this.d.voiceDir ?? "."}/${stamp} ${safeName} ${s0.userId}.${webcam ? "webm" : "ogg"}`;
         let result: VoiceRecording | undefined;
@@ -1860,7 +1896,7 @@ export class TechcheckService {
             case "webcam-skip": {
                 if (s.phase !== "awaitingWebcam" || !s.webcam) return { ephemeral: this.t(s.lang, "button.ack") };
                 s.webcam.skipped = true;
-                await this.d.webcam?.close(s.id).catch(() => undefined);
+                await this.closeWebcam(s);
                 await this.post(s, { content: this.t(s.lang, "webcam.skipped") });
                 this.startMeasuring(s, Math.floor(this.now() / 1000) + kWarmupSec);
                 return {};
@@ -1912,7 +1948,8 @@ export class TechcheckService {
         this.webcamRecording.delete(s.id);
         // 配信者がカメラのページを開いているかもしれないか (使わない人も、マイクの録音の手順で開いたかもしれない)
         const webcamOpen = this.webcamActive(s) || (s.webcam !== undefined && !s.webcam.failed && s.webcam.micAsked === true);
-        if (s.webcam) await this.d.webcam?.close(s.id).catch((e) => this.log(`web カメラ: ${errorText(e)}`));
+        // 録画を書き終えてから閉じる (このあと、録画を Google ドライブに上げる)
+        if (s.webcam) await this.closeWebcam(s);
         this.setPhase(s, "finished");
         if (reason) s.abortReason = reason;
         const ch = this.activeChannel(s);
@@ -1928,7 +1965,7 @@ export class TechcheckService {
         let sheetRange: string | undefined;
         let sheetError: string | undefined;
         // 録画と録音は、このあと裏で Google ドライブに上げる (設定してあれば)。シートには、まず「アップロード待ち」と書いておく
-        const uploadFiles = this.d.drive ? [...s.recordFiles, ...(s.voice?.file ? [s.voice.file] : [])] : [];
+        const uploadFiles = this.d.drive ? [...s.recordFiles, ...(s.voice?.file ? [s.voice.file] : []), ...(s.webcam?.files ?? [])] : [];
         try {
             sheetRange = await this.d.sheet.append(buildRow(s, this.checks, result, threadUrl, uploadFiles.length > 0 ? "アップロード待ち" : ""));
         } catch (e) {
@@ -2197,6 +2234,16 @@ export class TechcheckService {
         this.chain = run.catch(() => undefined);
         return run;
     }
+}
+
+/** ファイル名に入れる日時 (秒まで。同じ分のうちに作り直しても、前のファイルを上書きしない) */
+function fileStamp(ms: number): string {
+    return `${formatTime(ms).replace(/[: ]/g, "-")}-${String(Math.floor(ms / 1000) % 60).padStart(2, "0")}`;
+}
+
+/** ファイル名に入れる表示名 (使えない文字を _ にする) */
+function safeFileName(name: string): string {
+    return name.replace(/[^\p{L}\p{N}_-]+/gu, "_").slice(0, 40);
 }
 
 function sleep(ms: number): Promise<void> {

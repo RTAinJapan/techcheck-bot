@@ -114,6 +114,49 @@ describe("web カメラの受信用のページ (ブラウザ)", { skip: browser
         }
     });
 
+    it("届いた映像と音声を録画して、閉じるときに書き終えたファイルを返す", async () => {
+        const dir = mkdtempSync(join(tmpdir(), "techcheck-webcam-rec-"));
+        try {
+            cam.open("r", url);
+            await until(
+                () => cam.status("r"),
+                (x) => x.playing,
+            );
+            cam.startRecording("r", join(dir, "sub", "cam"));
+            assert.equal(cam.status("r")?.recording, true);
+            // 2 秒ごとのかたまりが、録っている間にファイルへ書かれる
+            await until(
+                () => cam.status("r"),
+                (x) => (x.recordFiles?.length ?? 0) > 0,
+                15_000,
+            );
+            await new Promise((r) => setTimeout(r, 4_000));
+            const files = await cam.close("r");
+            assert.deepEqual(files, [join(dir, "sub", "cam.webm")]);
+            const data = readFileSync(files[0]!);
+            assert.deepEqual([...data.subarray(0, 4)], [0x1a, 0x45, 0xdf, 0xa3]);
+            assert.ok(data.length > 10_000, `${data.length} bytes`);
+            if (spawnSync("ffprobe", ["-version"]).status === 0) {
+                // 詰め直したので、長さが入っている。映像と音声の両方がある
+                const probe = spawnSync("ffprobe", ["-v", "error", "-show_entries", "format=duration:stream=codec_type", "-of", "json", files[0]!], { encoding: "utf8" });
+                const info = JSON.parse(probe.stdout) as { format: { duration?: string }; streams: { codec_type: string }[] };
+                assert.ok(Number(info.format.duration) >= 3, `duration ${info.format.duration}`);
+                assert.deepEqual(info.streams.map((x) => x.codec_type).sort(), ["audio", "video"]);
+            }
+        } finally {
+            rmSync(dir, { recursive: true, force: true });
+        }
+    });
+
+    it("録画していなければ、閉じても何も返さない", async () => {
+        cam.open("n", url);
+        await until(
+            () => cam.status("n"),
+            (x) => x.playing,
+        );
+        assert.deepEqual(await cam.close("n"), []);
+    });
+
     it("映像が無いページは、開けても「届いていない」", async () => {
         cam.open("b", `${url}?stop`);
         const s = await until(

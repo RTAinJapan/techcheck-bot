@@ -206,10 +206,14 @@ export const configSchema = z
                 lostSec: z.number().int().min(1).prefault(10),
                 // true なら、チェックの最後に、VDO.ninja で届くマイクの声の録音の手順を足す (本番のマイクの経路)
                 mic: z.boolean().prefault(true),
+                // true なら、web カメラが届いてからテストが終わるまで、届いた映像と音声を録画する (Google ドライブにも上げる)
+                record: z.boolean().prefault(true),
+                // 録画 (.webm) の置き場所
+                dir: z.string().min(1).prefault("./webcam"),
             })
             // webcam: の下が全部空 (null) でもよい
             .nullish()
-            .transform((v) => v ?? { links: [], browser: { path: "", channel: "chrome" }, lostSec: 10, mic: true }),
+            .transform((v) => v ?? { links: [], browser: { path: "", channel: "chrome" }, lostSec: 10, mic: true, record: true, dir: "./webcam" }),
         // 配信の静止画を、denpachan の録画から取り出すのに使う ffmpeg。既定は PATH の ffmpeg
         ffmpeg: z.object({ path: z.string().min(1).prefault("ffmpeg") }).prefault({}),
         i18n: z.object({ dir: z.string().prefault("./messages"), fallback: lang.prefault("en") }).prefault({}),

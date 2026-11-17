@@ -42,6 +42,7 @@ export const sheetColumns = [
     "配信者のメモ",
     "スレッド",
     "web カメラ",
+    "web カメラの録画",
     // 列を足すときは、後ろに足す (途中に足すと、すでに書いてあるシートの列がずれる。bot は、足りない後ろの見出しだけを書き足す)。
     // 順を変えるときは、使っているシートの列も同じ順に並べ替える
 ] as const;
@@ -192,6 +193,7 @@ export function buildRow(s: Session, checks: CheckStep[], result: "done" | "abor
         "マイクの録音 (VC)": describeVoice(s),
         "Google ドライブ": drive,
         "web カメラ": describeWebcam(s),
+        "web カメラの録画": (s.webcam?.files ?? []).join(" / "),
     };
     return sheetColumns.map((c) => row[c]);
 }
