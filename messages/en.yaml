@@ -160,7 +160,7 @@ steps:
     text: |-
       (Only if you use a microphone)
       We record your voice as it reaches us from VDO.ninja (staff will listen to it later).
-      Check that the microphone you will use at the event is selected and is not muted, press "START", then talk in your normal voice for about {seconds} seconds.
+      Check that the microphone you will use at the event is selected and is not muted, press "Start", then talk in your normal voice for about {seconds} seconds.
       If you don't use a microphone, press "I don't use a mic".
     failHint: "Your voice did not reach us. On the webcam page, check that the right microphone is selected and that it is not muted."
 
