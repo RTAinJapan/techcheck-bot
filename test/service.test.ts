@@ -882,6 +882,100 @@ describe("準備と枠", () => {
         assert.ok(!w.rx.calls.some((c) => c.method === "setRecording" && c.params.enabled === true), "録画を始めない");
     });
 
+    /**
+     * フローの開始の途中 (STARTING) で中止したときの World。StartFlow のあと、フローは STARTING のまま
+     * (ACTIVE にするのは試験が status を書き換えたとき)。2 回目の describe (ACTIVE を待つところ) は gate を開けるまで待つ
+     */
+    async function cancelledWhileStarting(w: World): Promise<void> {
+        const describe = w.flow.describe.bind(w.flow);
+        let release!: () => void;
+        const gate = new Promise<void>((r) => (release = r));
+        let calls = 0;
+        w.flow.describe = async (arn) => {
+            if (++calls === 2) await gate;
+            return describe(arn);
+        };
+        w.flow.start = async () => {
+            w.flow.started++;
+            w.flow.status = "STARTING";
+        };
+        await w.service.start(U1, "C-test", undefined, "ja");
+        await w.flush();
+        await w.service.cancel("U1");
+        release();
+        await w.flush();
+        assert.equal(w.flow.started, 1);
+        assert.equal(w.flow.stopped, 0, "STARTING のうちは止められない");
+    }
+
+    it("フローの開始の途中で中止したら、ACTIVE になってから止める (止められないまま時間がたったら運営に知らせる)", async () => {
+        const w = makeWorld();
+        await cancelledWhileStarting(w);
+        assert.ok(w.logs.some((l) => l.includes("STARTING なので、まだ止められません")));
+        await w.run(30);
+        assert.equal(w.flow.stopped, 0);
+        assert.ok(!w.chat.opsLog.some((l) => l.includes("止められません")));
+        // 10 分たっても止められなければ、運営に知らせる (1 回だけ)
+        await w.run(600);
+        assert.equal(w.chat.opsLog.filter((l) => l.includes("フロー flow-a を止められません")).length, 1);
+        // ACTIVE になったら止める
+        w.flow.status = "ACTIVE";
+        await w.run(11);
+        assert.equal(w.flow.stopped, 1);
+        assert.equal(w.flow.status, "STANDBY");
+        await w.run(30);
+        assert.equal(w.flow.stopped, 1, "止めたら、もうやり直さない");
+    });
+
+    it("止められていないフローは、bot を起動し直しても止める", async () => {
+        const w = makeWorld();
+        await cancelledWhileStarting(w);
+        const w2 = makeWorld("", baseYaml, w.store);
+        w2.flow.status = "ACTIVE";
+        await w2.run(1);
+        assert.equal(w2.flow.stopped, 1);
+    });
+
+    it("止められていないフローは、運営が止めていれば、止めたものとする", async () => {
+        const w = makeWorld();
+        await cancelledWhileStarting(w);
+        w.flow.status = "STANDBY";
+        await w.run(11);
+        assert.ok(w.logs.some((l) => l.includes("フロー flow-a は STANDBY です")));
+        w.flow.status = "ACTIVE";
+        await w.run(30);
+        assert.equal(w.flow.stopped, 0, "もう止めようとしない (運営がほかの用で開始したかもしれない)");
+    });
+
+    it("止められていないフローを次のテストが使い始めたら、そのテストが終わったときに止める", async () => {
+        const w = makeWorld();
+        await cancelledWhileStarting(w);
+        w.flow.status = "ACTIVE";
+        await w.service.start(U2, "C-test", undefined, "ja");
+        await w.flush();
+        assert.equal(w.flow.started, 1, "動いているフローをそのまま使う");
+        assert.ok(w.logs.some((l) => l.includes("前のテストで bot が開始したものです")));
+        await w.run(30);
+        assert.equal(w.flow.stopped, 0, "使っている間は止めない");
+        await w.service.cancel("U2");
+        assert.equal(w.flow.stopped, 1);
+    });
+
+    it("フローが止まる途中 (STOPPING) なら、止まるのを待ってから開始する", async () => {
+        const w = makeWorld();
+        w.flow.status = "STOPPING";
+        const describe = w.flow.describe.bind(w.flow);
+        let calls = 0;
+        w.flow.describe = async (arn) => {
+            if (++calls === 3) w.flow.status = "STANDBY";
+            return describe(arn);
+        };
+        await w.service.start(U1, "C-test", undefined, "ja");
+        await w.flush();
+        assert.equal(w.flow.started, 1);
+        assert.ok(w.chat.texts(w.chat.threads[0]!.id).some((x) => x.includes("配信テストを始めます")));
+    });
+
     it("「配信テスト用」の印の無いチャンネルは枠にできない", async () => {
         const w = makeWorld();
         w.rx.channels.get(7)!.testSlot = false;
