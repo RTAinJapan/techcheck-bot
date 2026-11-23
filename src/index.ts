@@ -1,5 +1,5 @@
 // 起動: node dist/src/index.js [config.yaml]  (または環境変数 TECHCHECK_CONFIG。どちらも無ければ、今いるフォルダの config.yaml)
-// 設定の中の相対パス (i18n.dir、db.path、google.credentialsFile、voice.dir、webcam.dir) は、設定ファイルのあるフォルダから探す。
+// 設定の中の相対パス (i18n.dir、db.path、google.credentialsFile、mic.dir、vdoninja.dir) は、設定ファイルのあるフォルダから探す。
 // ここを変えたら、README の「準備」「動かす」も直す。
 
 import { Client, Events, GatewayIntentBits } from "discord.js";
@@ -31,17 +31,18 @@ async function main(): Promise<void> {
     const store = new SqliteStore(resolve(baseDir, config.db.path));
 
     // Gateway Intent は Guilds だけ (Privileged Intent は使わない)。運営のロールは interaction の member から見る。
-    // マイクの声を録音するとき (voice.enabled) だけ、GuildVoiceStates も使う (だれがどのボイスチャンネルにいるかと、bot が入るのに要る)。
-    // Intent を足したら、README の「トークンと権限」も直す。
-    const intents = config.voice.enabled ? [GatewayIntentBits.Guilds, GatewayIntentBits.GuildVoiceStates] : [GatewayIntentBits.Guilds];
+    // マイクの声を Discord のボイスチャンネルで録るとき (mic.via: discord) だけ、GuildVoiceStates も使う
+    // (だれがどのボイスチャンネルにいるかと、bot が入るのに要る)。Intent を足したら、README の「トークンと権限」も直す。
+    const discordMic = config.mic.via === "discord";
+    const intents = discordMic ? [GatewayIntentBits.Guilds, GatewayIntentBits.GuildVoiceStates] : [GatewayIntentBits.Guilds];
     const client = new Client({ intents });
-    const voiceDir = resolve(baseDir, config.voice.dir);
+    const micDir = resolve(baseDir, config.mic.dir);
     const google = config.google;
     const credentialsFile = resolve(baseDir, google.credentialsFile);
-    const voice = config.voice.enabled ? new DiscordVoice(client, config.discord.guildId, config.ffmpeg.path, log) : undefined;
-    // web カメラ (VDO.ninja) の受信用のページを開くブラウザ。使うとき (webcam.links があるとき) だけ
-    const webcam = config.webcam.links.length > 0 ? new BrowserWebcam(config.webcam.browser, log, config.ffmpeg.path) : undefined;
-    const webcamDir = resolve(baseDir, config.webcam.dir);
+    const voice = discordMic ? new DiscordVoice(client, config.discord.guildId, config.ffmpeg.path, log) : undefined;
+    // VDO.ninja の受信用のページを開くブラウザ。使うとき (vdoninja.links があるとき) だけ
+    const webcam = config.vdoninja.links.length > 0 ? new BrowserWebcam(config.vdoninja.browser, log, config.ffmpeg.path) : undefined;
+    const vdoninjaDir = resolve(baseDir, config.vdoninja.dir);
     const rx = new WsReceiver(WsReceiver.urlFor(config.denpachan.host, config.denpachan.port, config.denpachan.token), log);
     // AWS の認証: 設定にアクセスキーがあればそれ、無ければ AWS SDK の既定の探し方 (環境変数、AWS_PROFILE のプロファイルなど)
     const awsKey = config.aws.accessKeyId ? { accessKeyId: config.aws.accessKeyId, secretAccessKey: config.aws.secretAccessKey } : undefined;
@@ -54,9 +55,9 @@ async function main(): Promise<void> {
         rx,
         still: new FfmpegStill(config.ffmpeg.path),
         voice,
-        voiceDir,
+        micDir,
         webcam,
-        webcamDir,
+        vdoninjaDir,
         // サービスアカウントのキーは、シートと同じもの (google.credentialsFile)
         drive: google.drive.folderId ? new GoogleDrive(google.drive.folderId, credentialsFile) : undefined,
         dns: new NodeDns(),
@@ -81,18 +82,19 @@ async function main(): Promise<void> {
     );
     log(`シート: ${google.sheet.spreadsheetId} / ${google.sheet.tabName}`);
     log(
-        `マイクの声の録音 (ボイスチャンネル): ${
-            config.voice.enabled ? `する (置き場所 ${voiceDir}。案内するボイスチャンネルは、bot が入れる所のうち空いている所)` : "しない (voice.enabled)"
-        }`,
-    );
-    log(
-        `web カメラ (VDO.ninja) の確認: ${
+        `VDO.ninja (web カメラの映像とマイクの声): ${
             webcam
-                ? `する (URL の組 ${config.webcam.links.length} つ。ブラウザ: ${config.webcam.browser.path || `PC に入っている ${config.webcam.browser.channel}`}。` +
-                  `録画: ${config.webcam.record ? `する (置き場所 ${webcamDir})` : "しない (webcam.record)"})`
-                : "しない (webcam.links が未設定)"
+                ? `使う (URL の組 ${config.vdoninja.links.length} つ。ブラウザ: ${config.vdoninja.browser.path || `PC に入っている ${config.vdoninja.browser.channel}`}。` +
+                  `録画: ${config.vdoninja.record ? `する (置き場所 ${vdoninjaDir})` : "しない (vdoninja.record)"})`
+                : "使わない (vdoninja.links が未設定)"
         }`,
     );
+    const micRoute = {
+        vdoninja: "VDO.ninja で届く声を録る",
+        discord: "Discord のボイスチャンネルで録る (案内するボイスチャンネルは、bot が入れる所のうち空いている所)",
+        off: "しない",
+    }[config.mic.via];
+    log(`マイクの声の録音: ${micRoute} (mic.via: ${config.mic.via}${config.mic.via === "off" ? "" : `。置き場所 ${micDir}`})`);
     log(`録画と録音の Google ドライブへのアップロード: ${google.drive.folderId ? `する (フォルダ ${google.drive.folderId})` : "しない (google.drive.folderId が未設定)"}`);
     // 通知は 2 つあり、設定も別。どちらも、未設定なら送らない
     log(`運営への通知 (途中の経過と問題。bot がチャンネルに書く): ${config.discord.opsChannelId ? `チャンネル ${config.discord.opsChannelId} に送る` : "discord.opsChannelId が未設定なので送らない (コンソールにだけ出る)"}`);

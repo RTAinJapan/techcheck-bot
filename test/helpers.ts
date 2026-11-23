@@ -351,9 +351,9 @@ export class FakeVoice implements VoicePort {
     }
 }
 
-/** web カメラの URL の組を 1 つ書いた設定 */
+/** VDO.ninja の URL の組を 1 つ書いた設定 */
 export const webcamYaml = `
-webcam:
+vdoninja:
   links:
     - { push: "https://vdo.ninja/?push=cam1", view: "https://vdo.ninja/?view=cam1" }
 `;
@@ -442,10 +442,10 @@ export function makeWorld(extraYaml = "", baseYamlText = baseYaml, existingStore
         flow,
         rx,
         still,
-        voice: config.voice.enabled ? voice : undefined,
-        voiceDir: "voice-dir",
-        webcamDir: "webcam-dir",
-        webcam: config.webcam.links.length > 0 ? webcam : undefined,
+        voice: config.mic.via === "discord" ? voice : undefined,
+        micDir: "voice-dir",
+        vdoninjaDir: "webcam-dir",
+        webcam: config.vdoninja.links.length > 0 ? webcam : undefined,
         drive: config.google.drive.folderId ? drive : undefined,
         dns,
         chat,

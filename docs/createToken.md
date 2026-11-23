@@ -37,7 +37,7 @@ https://discord.com/oauth2/authorize?client_id=<Application ID>&scope=bot%20appl
 | プライベートスレッドを作成 | `CREATE_PRIVATE_THREADS` | `1 << 36` |
 | Threadsでメッセージを送る | `SEND_MESSAGES_IN_THREADS` | `1 << 38` |
 
-- マイクの声の録音 (`voice.enabled`。[README の「マイクの声を録音する」](../README.md#マイクの声を録音する-ボイスチャンネル)) に要る「接続」(`CONNECT`、`1 << 20`) は、配信テストに使うボイスチャンネルに、チャンネルの権限の設定で付ける (下の「3. チャンネルの権限を確かめる」)。
+- マイクの声を Discord のボイスチャンネルで録るとき (`mic.via: discord`。[README の「マイクの声を録音する」](../README.md#マイクの声を録音する)) に要る「接続」(`CONNECT`、`1 << 20`) は、配信テストに使うボイスチャンネルに、チャンネルの権限の設定で付ける (下の「3. チャンネルの権限を確かめる」)。
 - サーバで管理の操作に二要素認証を必須にしていると、「スレッドを管理」を使うには、bot を作ったアカウントに二要素認証が要る。
 - Developer Portal の `Installation` のページ (`Install Link` を `Discord Provided Link` にし、`Default Install Settings` の `Guild Install` に上のスコープと権限を入れる) でも、同じ内容の招待のリンクを作れる。
 

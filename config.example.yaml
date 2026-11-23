@@ -1,7 +1,7 @@
 # 配信テストの bot の設定。config.yaml にコピーして書き換える。
 # 項目の説明は docs/design.md の「設定値の一覧」(§4.1)、トークンに要る権限は README の「トークンと権限」。
 # 秘密 (トークン、パスフレーズ、キー、webhook の URL) は ${環境変数名} で環境変数から読める。
-# 相対パス (google.credentialsFile、i18n.dir、db.path、voice.dir、webcam.dir) は、このファイルのあるフォルダから探す。
+# 相対パス (google.credentialsFile、i18n.dir、db.path、mic.dir、vdoninja.dir) は、このファイルのあるフォルダから探す。
 
 discord:
   token: ${DISCORD_TOKEN}
@@ -89,33 +89,36 @@ latency:
 # ffmpeg:
 #   path: C:/tools/ffmpeg/bin/ffmpeg.exe
 
-# マイクの声の録音 (Discord のボイスチャンネルで届く声を録って、あとで運営が聞く。README の「マイクの声を録音する」)。
-# 有効にすると、チェックの最後に録音の手順が足される。
-# 入ってもらうボイスチャンネルは、bot に「チャンネルを表示」と「接続」の権限がある所のうち、空いている所を bot が選んで案内する
-# (空いていなければ待ってもらう)。配信テストに使うボイスチャンネルにだけ、チャンネルの権限の設定で bot にその 2 つを付ける
-# voice:
-#   enabled: true
-#   dir: ./voice                             # 録音 (.ogg) の置き場所
-
-# web カメラの確認 (VDO.ninja。README の「web カメラを確かめる」)。書かなければ確かめない。
+# VDO.ninja の接続 (README の「web カメラを確かめる」)。配信者の web カメラの映像とマイクの声が、ここから届く。
+# 書かなければ使わない (web カメラを確かめない)。
 # 配信が届いたあと、配信者に送信用の URL (push) を渡し、bot は受信用の URL (view) をブラウザで開いて、映っているかを見る。
 # そのまま、OBS の配信と web カメラの両方を送っている状態で、映像の判定と latency の調整をする。
 # 組は、同時にテストする人数 (SRT の枠の数) 以上を並べる。push と view は、同じストリーム ID の組にする
-# webcam:
+# vdoninja:
 #   links:
 #     - push: https://vdo.ninja/?push=${WEBCAM_ID_1}
 #       view: https://vdo.ninja/?view=${WEBCAM_ID_1}
 #     # 部屋 (room) を使う送信用の URL のときは、受信用にも同じ部屋を付けて、&solo にする (部屋を付けないと届かない)
 #     - push: https://vdo.ninja/?room=${WEBCAM_ROOM_A}&push=${WEBCAM_ID_A2}&broadcast&directorsonly&webcam
 #       view: https://vdo.ninja/?view=${WEBCAM_ID_A2}&solo&room=${WEBCAM_ROOM_A}
-#   # record: false                          # web カメラの映像を録画しない (既定は true: 届いてからテストが終わるまで録り、Google ドライブにも上げる)
-#   # dir: ./webcam                          # 録画 (.webm) の置き場所
-#   # mic: false                             # マイクの声の録音を VDO.ninja でしない (既定は true: チェックの最後に録音の手順を足す。
-#   #                                        # voice.enabled とは、どちらか一方)
+#   # record: false                          # 届いた映像と音声を録画しない (既定は true: 届いてからテストが終わるまで録り、Google ドライブにも上げる)
+#   # dir: ./vdoninja                        # 録画 (.webm) の置き場所
 #   # 受信用のページを開くブラウザ。既定は、PC に入っている Google Chrome
 #   browser:
 #     channel: msedge                        # Edge を使うとき (既定は chrome)
 #     path: C:/path/to/chrome.exe            # 実行ファイルを直に指すとき (書けば channel より優先)
+
+# マイクの声の録音 (README の「マイクの声を録音する」)。本番のマイクの声が届く経路で録って、あとで運営が聞く。
+# 録るなら、チェックの最後に録音の手順が足される。via で経路を選ぶ:
+# - vdoninja: VDO.ninja のページから届く声を録る (上の vdoninja.links が要る)
+# - discord: Discord のボイスチャンネルで録る。入ってもらうボイスチャンネルは、bot に「チャンネルを表示」と「接続」の権限が
+#   ある所のうち、空いている所を bot が選んで案内する (空いていなければ待ってもらう)。配信テストに使うボイスチャンネルにだけ、
+#   チャンネルの権限の設定で bot にその 2 つを付ける
+# - off: 録らない
+# 書かなければ、vdoninja.links があれば vdoninja、無ければ off
+# mic:
+#   via: vdoninja
+#   dir: ./mic                               # 録音の置き場所 (Discord は .ogg、VDO.ninja は .webm)
 
 i18n:
   dir: ./messages                            # ja.yaml と en.yaml

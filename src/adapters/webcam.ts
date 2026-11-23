@@ -7,7 +7,7 @@
 // - 録画 (startRecording): 届いた映像と音声を、ページの中の MediaRecorder で WebM に録る (ブラウザが符号化し直す)。
 //   2 秒ごとのかたまりを bot に渡して、ファイルに書き足す (長い録画をページの中に溜めない)。
 //   閉じるときに ffmpeg で詰め直して (-c copy)、長さとシークの情報を入れる (MediaRecorder の WebM には入らない)。
-// - ブラウザは、PC に入っている Chrome 系を使う (設定の webcam.browser)。Playwright はブラウザを操作するのに使うだけで、
+// - ブラウザは、PC に入っている Chrome 系を使う (設定の vdoninja.browser)。Playwright はブラウザを操作するのに使うだけで、
 //   ブラウザそのものは持ってこない (playwright-core)。
 
 import { spawn } from "node:child_process";

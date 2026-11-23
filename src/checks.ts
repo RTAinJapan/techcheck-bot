@@ -105,15 +105,15 @@ export const reconnectStep: CheckStep = {
 };
 
 /**
- * マイクの声の録音 (Discord のボイスチャンネル)。設定の voice.enabled が true のとき、既定の手順の最後に足す。
+ * マイクの声の録音 (Discord のボイスチャンネル)。設定の mic.via が discord のとき、既定の手順の最後に足す。
  * 本番のマイクの声は、配信とは別に Discord のボイスチャンネルで届くので、その経路の音を録って、あとで運営が聞く。
  * マイクを使わない配信者は「マイクは使わない」で飛ばす。
  * 入るボイスチャンネルは、bot が空いている所を選び、この文言の下に付けて案内する (service.ts の promptVoice)。
  */
-export const voiceStep: CheckStep = {
+export const micDiscordStep: CheckStep = {
     id: "voice",
     label: { ja: "マイク音", en: "Microphone voice" },
-    kind: "voice",
+    kind: "micRecord",
     seconds: 15,
     text: {
         ja: "(マイクを使う方だけ) Discord のボイスチャンネルで届く声を録音します (あとで運営が聞いて確かめます)。下のボイスチャンネルに入り、「始める」を押してから、普段の声で 15 秒ほど話してください。マイクを使わない方は「マイクは使わない」を押してください。",
@@ -126,14 +126,14 @@ export const voiceStep: CheckStep = {
 };
 
 /**
- * マイクの声の録音 (VDO.ninja)。設定の webcam.links があり、webcam.mic が true (既定) のとき、既定の手順の最後に足す。
+ * マイクの声の録音 (VDO.ninja)。設定の mic.via が vdoninja のとき、既定の手順の最後に足す。
  * 本番のマイクの声は、web カメラと同じ VDO.ninja のページから届くので、その経路の音を bot のブラウザで録って、あとで運営が聞く。
  * 送信用の URL は、この文言の下に付けて案内する (service.ts の promptWebcamVoice)。
  */
-export const webcamVoiceStep: CheckStep = {
+export const micVdoninjaStep: CheckStep = {
     id: "voice",
     label: { ja: "マイク音", en: "Microphone voice" },
-    kind: "webcamVoice",
+    kind: "micRecord",
     seconds: 15,
     text: {
         ja: "(マイクを使う方だけ) web カメラのページ (VDO.ninja) から届くマイクの声を録音します (あとで運営が聞いて確かめます)。カメラのページで本番で使うマイクが選ばれていて、ミュートになっていないことを確かめ、「始める」を押してから、普段の声で 15 秒ほど話してください。マイクを使わない方は「マイクは使わない」を押してください。",
