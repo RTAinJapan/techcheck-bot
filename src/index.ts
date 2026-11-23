@@ -11,7 +11,6 @@ import { GoogleDrive } from "./adapters/drive.js";
 import { WsReceiver } from "./adapters/receiver.js";
 import { GoogleSheet } from "./adapters/sheet.js";
 import { FfmpegStill } from "./adapters/still.js";
-import { DiscordVoice } from "./adapters/voice.js";
 import { BrowserWebcam } from "./adapters/webcam.js";
 import { DiscordWebhook } from "./adapters/webhook.js";
 import { loadConfig } from "./config.js";
@@ -31,15 +30,11 @@ async function main(): Promise<void> {
     const store = new SqliteStore(resolve(baseDir, config.db.path));
 
     // Gateway Intent は Guilds だけ (Privileged Intent は使わない)。運営のロールは interaction の member から見る。
-    // マイクの声を Discord のボイスチャンネルで録るとき (mic.via: discord) だけ、GuildVoiceStates も使う
-    // (だれがどのボイスチャンネルにいるかと、bot が入るのに要る)。Intent を足したら、README の「トークンと権限」も直す。
-    const discordMic = config.mic.via === "discord";
-    const intents = discordMic ? [GatewayIntentBits.Guilds, GatewayIntentBits.GuildVoiceStates] : [GatewayIntentBits.Guilds];
-    const client = new Client({ intents });
+    // Intent を足したら、README の「トークンと権限」も直す。
+    const client = new Client({ intents: [GatewayIntentBits.Guilds] });
     const micDir = resolve(baseDir, config.mic.dir);
     const google = config.google;
     const credentialsFile = resolve(baseDir, google.credentialsFile);
-    const voice = discordMic ? new DiscordVoice(client, config.discord.guildId, config.ffmpeg.path, log) : undefined;
     // VDO.ninja の受信用のページを開くブラウザ。使うとき (vdoninja.links があるとき) だけ
     const webcam = config.vdoninja.links.length > 0 ? new BrowserWebcam(config.vdoninja.browser, log, config.ffmpeg.path) : undefined;
     const vdoninjaDir = resolve(baseDir, config.vdoninja.dir);
@@ -54,7 +49,6 @@ async function main(): Promise<void> {
         flow,
         rx,
         still: new FfmpegStill(config.ffmpeg.path),
-        voice,
         micDir,
         webcam,
         vdoninjaDir,
@@ -89,12 +83,7 @@ async function main(): Promise<void> {
                 : "使わない (vdoninja.links が未設定)"
         }`,
     );
-    const micRoute = {
-        vdoninja: "VDO.ninja で届く声を録る",
-        discord: "Discord のボイスチャンネルで録る (案内するボイスチャンネルは、bot が入れる所のうち空いている所)",
-        off: "しない",
-    }[config.mic.via];
-    log(`マイクの声の録音: ${micRoute} (mic.via: ${config.mic.via}${config.mic.via === "off" ? "" : `。置き場所 ${micDir}`})`);
+    log(`マイクの声の録音: ${webcam ? `VDO.ninja で届く声を録る (マイクを使う、または未定の人だけ。置き場所 ${micDir})` : "しない (vdoninja.links が未設定)"}`);
     log(`録画と録音の Google ドライブへのアップロード: ${google.drive.folderId ? `する (フォルダ ${google.drive.folderId})` : "しない (google.drive.folderId が未設定)"}`);
     // 通知は 2 つあり、設定も別。どちらも、未設定なら送らない
     log(`運営への通知 (途中の経過と問題。bot がチャンネルに書く): ${config.discord.opsChannelId ? `チャンネル ${config.discord.opsChannelId} に送る` : "discord.opsChannelId が未設定なので送らない (コンソールにだけ出る)"}`);
@@ -111,18 +100,6 @@ async function main(): Promise<void> {
         const guild = await c.guilds.fetch(config.discord.guildId);
         await guild.commands.set([buildCommand(config.flows).toJSON()]);
         log("/techcheck を登録しました");
-        if (voice) {
-            // 配信者に案内する候補。bot の権限 (「チャンネルを表示」と「接続」) で決まるので、起動のときに出しておく
-            const list = await voice.channels().catch((e) => {
-                log(`ボイスチャンネルの一覧を取れませんでした: ${errorText(e)}`);
-                return [];
-            });
-            log(
-                list.length > 0
-                    ? `録音に使えるボイスチャンネル (bot が入れる所): ${list.map((c) => `${c.name}${c.members.length > 0 ? ` (使用中 ${c.members.length} 人)` : ""}`).join("、")}`
-                    : "録音に使えるボイスチャンネルがありません。bot に「チャンネルを表示」と「接続」の権限があるボイスチャンネルを用意してください (無いままだと、録音の手順は飛ばされます)",
-            );
-        }
         // AWS の認証と権限を、配信者が来る前に確かめる (キーの間違い、期限切れ、ポリシーの不足は、テストを始めるまで分からない)。
         // 返事を待たずに先へ進む (AWS に届かないときに、起動を止めない)
         for (const f of config.flows) {

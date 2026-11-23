@@ -89,10 +89,12 @@ latency:
 # ffmpeg:
 #   path: C:/tools/ffmpeg/bin/ffmpeg.exe
 
-# VDO.ninja の接続 (README の「web カメラを確かめる」)。配信者の web カメラの映像とマイクの声が、ここから届く。
-# 書かなければ使わない (web カメラを確かめない)。
-# 配信が届いたあと、配信者に送信用の URL (push) を渡し、bot は受信用の URL (view) をブラウザで開いて、映っているかを見る。
-# そのまま、OBS の配信と web カメラの両方を送っている状態で、映像の判定と latency の調整をする。
+# VDO.ninja の接続 (README の「web カメラとマイクを確かめる」)。配信者の web カメラの映像とマイクの声が、ここから届く。
+# 書かなければ使わない (web カメラとマイクを確かめない)。
+# テストを始めたら、本番で web カメラとマイクを使うかを配信者に聞く。どちらかを「使う」か「未定」と答えた人には、
+# 配信が届いたあと、送信用の URL (push) を 1 回だけ渡し、bot は受信用の URL (view) をブラウザで開いて、届いているかを見る。
+# そのまま、OBS の配信と VDO.ninja の両方を送っている状態で、映像の判定と latency の調整をする。
+# マイクを「使う」か「未定」と答えた人には、チェックの最後に、届いた声を録る手順を足す。
 # 組は、同時にテストする人数 (SRT の枠の数) 以上を並べる。push と view は、同じストリーム ID の組にする
 # vdoninja:
 #   links:
@@ -108,17 +110,9 @@ latency:
 #     channel: msedge                        # Edge を使うとき (既定は chrome)
 #     path: C:/path/to/chrome.exe            # 実行ファイルを直に指すとき (書けば channel より優先)
 
-# マイクの声の録音 (README の「マイクの声を録音する」)。本番のマイクの声が届く経路で録って、あとで運営が聞く。
-# 録るなら、チェックの最後に録音の手順が足される。via で経路を選ぶ:
-# - vdoninja: VDO.ninja のページから届く声を録る (上の vdoninja.links が要る)
-# - discord: Discord のボイスチャンネルで録る。入ってもらうボイスチャンネルは、bot に「チャンネルを表示」と「接続」の権限が
-#   ある所のうち、空いている所を bot が選んで案内する (空いていなければ待ってもらう)。配信テストに使うボイスチャンネルにだけ、
-#   チャンネルの権限の設定で bot にその 2 つを付ける
-# - off: 録らない
-# 書かなければ、vdoninja.links があれば vdoninja、無ければ off
+# マイクの声の録音 (README の「マイクの声を録音する」)。VDO.ninja で届いた声を録って、あとで運営が聞く
 # mic:
-#   via: vdoninja
-#   dir: ./mic                               # 録音の置き場所 (Discord は .ogg、VDO.ninja は .webm)
+#   dir: ./mic                               # 録音 (.webm) の置き場所
 
 i18n:
   dir: ./messages                            # ja.yaml と en.yaml (チェックの手順の文言も、ここの steps.<id> にある)

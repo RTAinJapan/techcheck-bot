@@ -243,7 +243,7 @@ export class BrowserWebcam implements WebcamPort {
         const level = await measureLevel(this.ffmpegPath, file).catch(() => undefined);
         const waveform = await waveformImage(this.ffmpegPath, file).catch(() => undefined);
         // WebRTC は無音の間も送るので、長さは録った時間。届いたかどうかは音量で見る
-        return { file, packets: 0, bytes: data.length, audioMs: seconds * 1000, ...level, waveform };
+        return { file, audioMs: seconds * 1000, ...level, waveform };
     }
 
     startRecording(key: string, base: string): void {

@@ -20,8 +20,6 @@ import type {
     ReceiverPort,
     SheetPort,
     StillPort,
-    VoicePort,
-    VoiceChannelInfo,
     VoiceRecording,
     WebcamPort,
     WebcamStatus,
@@ -246,6 +244,13 @@ export class FakeChat implements ChatPort {
     async clearButtons(_t: string, messageId: string): Promise<void> {
         this.cleared.push(messageId);
     }
+    /** 書き換えたメッセージ (id → 最後の中身)。posts の中身も書き換える (最後の状態を見られるように) */
+    edited = new Map<string, OutMessage>();
+    async editMessage(_t: string, messageId: string, msg: OutMessage): Promise<void> {
+        this.edited.set(messageId, msg);
+        const p = this.posts[Number(messageId.slice(1)) - 1];
+        if (p) p.msg = msg;
+    }
     async closeThread(threadId: string): Promise<void> {
         this.threads.find((t) => t.id === threadId)!.closed = true;
     }
@@ -334,31 +339,6 @@ export class FakeStill implements StillPort {
     }
 }
 
-export class FakeVoice implements VoicePort {
-    /** bot が入れるボイスチャンネル (サーバでの並びの順) */
-    rooms: { id: string; name: string }[] = [{ id: "VC-1", name: "vc-1" }];
-    /** だれがどのボイスチャンネルにいるか (ユーザー ID → チャンネル ID) */
-    where: Record<string, string> = {};
-    async channels(): Promise<VoiceChannelInfo[]> {
-        return this.rooms.map((r) => ({ ...r, members: Object.keys(this.where).filter((u) => this.where[u] === r.id) }));
-    }
-    /** 次の録音の結果 (届いた声の長さなど) */
-    next: Partial<VoiceRecording> = { packets: 500, bytes: 60_000, audioMs: 10_000, maxDb: -6, meanDb: -24, clippedPct: 0, waveform: Buffer.from("waveform") };
-    error: string | undefined;
-    calls: { channelId: string; userId: string; file: string; seconds: number }[] = [];
-    /** 設定すると、録音はこれが解決するまで終わらない (録音中の動きを試す) */
-    gate: Promise<void> | undefined;
-    async channelOf(userId: string): Promise<string | undefined> {
-        return this.where[userId];
-    }
-    async record(channelId: string, userId: string, file: string, seconds: number): Promise<VoiceRecording> {
-        this.calls.push({ channelId, userId, file, seconds });
-        if (this.gate) await this.gate;
-        if (this.error) throw new Error(this.error);
-        return { file, packets: 0, bytes: 0, audioMs: 0, ...this.next };
-    }
-}
-
 /** VDO.ninja の URL の組を 1 つ書いた設定 */
 export const webcamYaml = `
 vdoninja:
@@ -389,7 +369,7 @@ export class FakeWebcam implements WebcamPort {
     async recordAudio(key: string, file: string, seconds: number): Promise<VoiceRecording> {
         this.recorded.push({ key, file, seconds });
         if (!this.views.get(key)?.status.audio) throw new Error("音声 (マイク) が届いていません");
-        return { file, packets: 0, bytes: 1000, audioMs: 0, ...this.nextAudio };
+        return { file, audioMs: 0, ...this.nextAudio };
     }
     /** 録画のファイル名のもと (テストの ID → base) */
     recordBases = new Map<string, string>();
@@ -437,7 +417,6 @@ export function makeWorld(extraYaml = "", baseYamlText = baseYaml, existingStore
     const flow = new FakeFlow();
     const rx = new FakeRx();
     const still = new FakeStill();
-    const voice = new FakeVoice();
     const drive = new FakeDrive();
     const webcam = new FakeWebcam();
     const chat = new FakeChat();
@@ -453,7 +432,6 @@ export function makeWorld(extraYaml = "", baseYamlText = baseYaml, existingStore
         flow,
         rx,
         still,
-        voice: config.mic.via === "discord" ? voice : undefined,
         micDir: "voice-dir",
         vdoninjaDir: "webcam-dir",
         webcam: config.vdoninja.links.length > 0 ? webcam : undefined,
@@ -481,7 +459,7 @@ export function makeWorld(extraYaml = "", baseYamlText = baseYaml, existingStore
             await flush();
         }
     };
-    return { config, clock, flow, rx, still, voice, drive, webcam, chat, sheet, webhook, dns, store, service, logs, flush, run };
+    return { config, clock, flow, rx, still, drive, webcam, chat, sheet, webhook, dns, store, service, logs, flush, run };
 }
 
 export type World = ReturnType<typeof makeWorld>;

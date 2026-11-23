@@ -1,4 +1,4 @@
-// 録った声の音量と波形を、ffmpeg で測る。Discord のボイスチャンネルの録音 (voice.ts) と、VDO.ninja の録音 (webcam.ts) で使う。
+// 録った声の音量と波形を、ffmpeg で測る。VDO.ninja で届いたマイクの声の録音 (webcam.ts) で使う。
 
 import { spawn } from "node:child_process";
 

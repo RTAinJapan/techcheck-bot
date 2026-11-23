@@ -2,7 +2,7 @@
 // 参考の判定は 1 秒ごとのピーク (dBFS、左右の大きい方) で行う。最終的な判定は録画を人が聞いて行う。
 // 手順の文言 (名前・指示・直し方) は、ここには書かない。messages/ja.yaml と en.yaml の steps.<id> に書く (stepTextKeys)。
 
-import type { CheckStep, MicVia } from "./config.js";
+import type { CheckStep } from "./config.js";
 
 export const defaultChecks: CheckStep[] = [
     { id: "game-audio", kind: "sound", seconds: 15, thresholdDb: -40, ratio: 0.8 },
@@ -19,27 +19,22 @@ export const defaultChecks: CheckStep[] = [
 export const reconnectStep: CheckStep = { id: "reconnect", kind: "reconnect", seconds: 60 };
 
 /**
- * マイクの声の録音。設定の mic.via が off でなければ、既定の手順の最後に足す。
- * 本番のマイクの声が届く経路 (VDO.ninja のページ、または Discord のボイスチャンネル) で録って、あとで運営が聞く。
- * マイクを使わない配信者は「マイクは使わない」で飛ばす。文言は、経路ごとに steps.voice.<経路> にある。
- * 案内に付けるもの (送信用の URL、入るボイスチャンネル) は、service.ts の promptWebcamVoice / promptVoice が足す。
+ * マイクの声の録音。設定の vdoninja.links があれば、既定の手順の最後に足す。
+ * 本番のマイクの声は web カメラと同じ VDO.ninja のページから届くので、その声を bot のブラウザで録って、あとで運営が聞く。
+ * マイクを「使わない」と答えた配信者には出さない。「未定」の配信者は「マイクは使わない」で飛ばせる。
  */
 export const micStep: CheckStep = { id: "voice", kind: "micRecord", seconds: 15 };
 
-/**
- * 手順の文言の、messages のキー。マイクの録音の手順は、録る経路ごとに分ける。
- * label は省ける (無ければ、結果のまとめに id のまま出す)。text と failHint は要る。
- */
-export function stepTextKeys(step: CheckStep, via: MicVia): { label: string; text: string; failHint: string } {
+/** 手順の文言の、messages のキー。label は省ける (無ければ、結果のまとめに id のまま出す)。text と failHint は要る */
+export function stepTextKeys(step: CheckStep): { label: string; text: string; failHint: string } {
     const base = `steps.${step.id}`;
-    const route = step.kind === "micRecord" && via !== "off" ? `${base}.${via}` : base;
-    return { label: `${base}.label`, text: `${route}.text`, failHint: `${route}.failHint` };
+    return { label: `${base}.label`, text: `${base}.text`, failHint: `${base}.failHint` };
 }
 
 /** 手順の文言が messages にそろっているか。足りないものを返す (起動するときに見る) */
-export function missingStepTexts(steps: CheckStep[], via: MicVia, has: (key: string) => boolean): string[] {
+export function missingStepTexts(steps: CheckStep[], has: (key: string) => boolean): string[] {
     return steps.flatMap((s) => {
-        const k = stepTextKeys(s, via);
+        const k = stepTextKeys(s);
         return [k.text, k.failHint].filter((key) => !has(key));
     });
 }

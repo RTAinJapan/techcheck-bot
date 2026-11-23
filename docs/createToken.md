@@ -37,7 +37,6 @@ https://discord.com/oauth2/authorize?client_id=<Application ID>&scope=bot%20appl
 | プライベートスレッドを作成 | `CREATE_PRIVATE_THREADS` | `1 << 36` |
 | Threadsでメッセージを送る | `SEND_MESSAGES_IN_THREADS` | `1 << 38` |
 
-- マイクの声を Discord のボイスチャンネルで録るとき (`mic.via: discord`。[README の「マイクの声を録音する」](../README.md#マイクの声を録音する)) に要る「接続」(`CONNECT`、`1 << 20`) は、配信テストに使うボイスチャンネルに、チャンネルの権限の設定で付ける (下の「3. チャンネルの権限を確かめる」)。
 - サーバで管理の操作に二要素認証を必須にしていると、「スレッドを管理」を使うには、bot を作ったアカウントに二要素認証が要る。
 - Developer Portal の `Installation` のページ (`Install Link` を `Discord Provided Link` にし、`Default Install Settings` の `Guild Install` に上のスコープと権限を入れる) でも、同じ内容の招待のリンクを作れる。
 
@@ -49,14 +48,6 @@ https://discord.com/oauth2/authorize?client_id=<Application ID>&scope=bot%20appl
 | --- | --- |
 | 配信テストのチャンネル (`discord.techcheckChannelId`) | 上の 7 つ |
 | 運営への通知のチャンネル (`discord.opsChannelId`) | チャンネルを表示、メッセージを送る |
-| 配信テストに使うボイスチャンネル (マイクの声の録音を使うとき) | チャンネルを表示、接続 |
-
-ボイスチャンネルは、bot に「チャンネルを表示」と「接続」の両方がある所が、配信者に案内する候補になる。
-
-- 配信テストに使うボイスチャンネルの設定 →「権限」で、bot (または bot のロール) を足し、「チャンネルを表示」と「接続」を許可する。配信者もそのボイスチャンネルに入れるようにしておく。
-- 同時にテストする人数だけ用意しておくと、待たせずに済む。
-- 候補にしたくないボイスチャンネルで bot に「接続」が付いてしまうとき (bot のロールやほかのロールで付いている) は、そのチャンネルの権限の設定で bot の「接続」を拒否する。
-- bot を起動すると、候補の一覧がコンソールに出る (`録音に使えるボイスチャンネル (bot が入れる所): …`)。
 
 サーバの設定の画面では、権限の名前が Developer Portal と少し違う表示になっていることがある。
 

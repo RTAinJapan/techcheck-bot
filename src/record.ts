@@ -43,6 +43,7 @@ export const sheetColumns = [
     "スレッド",
     "web カメラ",
     "web カメラの録画",
+    "web カメラとマイクの申告",
     // 列を足すときは、後ろに足す (途中に足すと、すでに書いてあるシートの列がずれる。bot は、足りない後ろの見出しだけを書き足す)。
     // 順を変えるときは、使っているシートの列も同じ順に並べ替える
 ] as const;
@@ -126,7 +127,20 @@ export function describeChecks(s: Session, checks: CheckStep[]): string {
         .join(" / ");
 }
 
-/** マイクの声の録音 (Discord のボイスチャンネル) の欄: ファイルと、声の長さ・音量。あとで運営が聞くための手がかり */
+/**
+ * 本番で web カメラとマイクを使うかの答えと、最後の扱い (例: `カメラ: 未定 → 使わない / マイク: 使う`)。
+ * 「未定」は使うものとして確かめたので、運営があとで本人に確かめられるように残す
+ */
+export function describeUsage(s: Session): string {
+    const u = s.usage;
+    if (!u) return "";
+    const ja = { yes: "使う", maybe: "未定", no: "使わない" } as const;
+    const item = (name: string, answer: keyof typeof ja | undefined, droppedLater: boolean) =>
+        `${name}: ${answer ? ja[answer] : "答えていない"}${answer && answer !== "no" && droppedLater ? " → 使わない" : ""}`;
+    return [item("カメラ", u.camera, s.webcam?.skipped === true), item("マイク", u.mic, s.voice?.skipped === true)].join(" / ");
+}
+
+/** マイクの声の録音 (VDO.ninja) の欄: ファイルと、声の長さ・音量。あとで運営が聞くための手がかり */
 export function describeVoice(s: Session): string {
     const v = s.voice;
     if (!v) return "";
@@ -194,6 +208,7 @@ export function buildRow(s: Session, checks: CheckStep[], result: "done" | "abor
         "Google ドライブ": drive,
         "web カメラ": describeWebcam(s),
         "web カメラの録画": (s.webcam?.files ?? []).join(" / "),
+        "web カメラとマイクの申告": describeUsage(s),
     };
     return sheetColumns.map((c) => row[c]);
 }

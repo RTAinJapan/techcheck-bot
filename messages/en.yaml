@@ -36,9 +36,26 @@ button:
   voiceNext: "Looks good"
   done: "Finish"
   webcamSkip: "I don't use a webcam"
+  usageYes: "Yes"
+  usageMaybe: "Not sure yet"
+  usageNo: "No"
 
 prepare:
   preparing: "Preparing your stream test. This takes about a minute."
+
+usage:
+  camera: |-
+    While we prepare, please tell us: will you use a **webcam** at the event?
+    (If you are not sure yet, we check it as if you will.)
+  mic: |-
+    Will you use a **microphone** at the event? (Your voice is sent from the same page as the webcam (VDO.ninja).)
+  chosen: "→ **{answer}**"
+  remind: "{user} Please answer the questions above first (whether you use a webcam and a microphone). We continue once you answer."
+  locked: "We have already sent the VDO.ninja instructions, so this can no longer be changed here. If you don't use it, press the button on the instructions message."
+  answer:
+    yes: "Yes"
+    maybe: "Not sure yet"
+    no: "No"
 
 guide:
   first: |-
@@ -140,23 +157,17 @@ steps:
     failHint: "Your stream did not come back. Check that the stream settings (URL) in OBS were saved."
   voice:
     label: "Microphone voice"
-    vdoninja:
-      text: "(Only if you use a microphone) We record your voice as it reaches us from the webcam page (VDO.ninja) (staff will listen to it later). Check that the microphone you will use at the event is selected on the webcam page and is not muted, press \"Start\", then talk in your normal voice for about {seconds} seconds. If you don't use a microphone, press \"I don't use a mic\"."
-      failHint: "Your voice did not reach us. On the webcam page, check that the right microphone is selected and that it is not muted."
-    discord:
-      text: "(Only if you use a microphone) We record your voice as it reaches us through a Discord voice channel (staff will listen to it later). Join the voice channel below, press \"Start\", then talk in your normal voice for about {seconds} seconds. If you don't use a microphone, press \"I don't use a mic\"."
-      failHint: "Your voice did not reach us. Check that you are not muted in Discord and that the right input device (microphone) is selected."
+    text: |-
+      (Only if you use a microphone)
+      We record your voice as it reaches us from VDO.ninja (staff will listen to it later).
+      Check that the microphone you will use at the event is selected and is not muted, press "Start", then talk in your normal voice for about {seconds} seconds.
+      If you don't use a microphone, press "I don't use a mic".
+    failHint: "Your voice did not reach us. On the webcam page, check that the right microphone is selected and that it is not muted."
 
 voice:
-  channel: "Voice channel to join: {channel}"
-  wrongChannel: "Join the voice channel we asked for ({channel}), then press again."
-  waiting: "(Only if you use a microphone) We record your voice as it reaches us through a Discord voice channel, but no voice channel is free right now. Please wait here; we will let you know when one is free. If you don't use a microphone, press \"I don't use a mic\"."
-  freed: "Thank you for waiting. A voice channel is free now."
-  busy: "We are recording someone else right now. Wait a moment and press again."
   recording: "Recording. Talk in your normal voice for about {seconds} seconds…"
   recorded: "Recorded ({seconds} seconds of your voice reached us). Staff will listen to it later."
   retryHint: "To adjust your microphone volume and record again, press \"Record again\". If this is fine, press \"Looks good\"."
-  leave: "Please leave the voice channel."
   notUsed: "No microphone used"
   level: "Level of your voice as it reached us: peak {max} dB, average {mean} dB (0 dB is the limit)."
   waveform: "The image below is the waveform of the recording. The red lines at the top and bottom are the limit; where the wave touches them, your voice clips."
@@ -167,18 +178,26 @@ voice:
 
 webcam:
   ask: |-
-    **We check your webcam** (only if you use one). Keep streaming in OBS; do not stop it.
+    **We check your webcam and microphone** (VDO.ninja). Keep streaming in OBS; do not stop it.
     1. Open this URL in a browser (Chrome recommended) on the PC you will use at the event.
     ```
     {url}
     ```
-    2. Allow camera access, select the camera you will use at the event, and press the start button.
+    2. {sources}
+    3. Press "START".
     This URL is for the stream test only. At the event, use the URL we send you then.
-    We will tell you when the video arrives. If you don't use a webcam, press "I don't use a webcam".
+    We will tell you when it arrives.
+  sourcesBoth: "Allow camera and microphone access, then select the camera you will use at the event in \"Video Source\" and the microphone in \"Audio Source(s)\"."
+  sourcesCamera: "Allow camera access and select the camera you will use at the event in \"Video Source\". You don't use a microphone, so set \"Audio Source(s)\" to \"No Audio\"."
+  sourcesMic: "Allow microphone access and select the microphone you will use at the event in \"Audio Source(s)\". You don't use a webcam, so set \"Video Source\" to \"Disable Video\"."
+  skipHint: "If it turns out you don't use a webcam, press \"I don't use a webcam\"."
   arrived: "Your webcam video has arrived. Leave both the OBS stream and the webcam page running for about 2 minutes (we check that the video stays stable while you send both)."
-  remind: "Your webcam video has not arrived yet. Check that you opened the URL, allowed the camera, and pressed the start button."
+  arrivedMic: "Your microphone audio has arrived. Leave both the OBS stream and the VDO.ninja page running for about 2 minutes."
+  remind: "Your webcam video has not arrived yet. Check that you opened the URL, allowed the camera, and pressed \"START\"."
+  remindMic: "Your microphone audio has not arrived yet. Check that you opened the URL, allowed the microphone, and pressed \"START\"."
+  skippedMic: "We skip the webcam check and wait for your microphone audio."
   lost: |-
-    Your webcam video stopped arriving. Reopen the webcam page and start the camera again. When it arrives, we check the video again.
+    Your webcam video stopped arriving. Reopen the webcam page and press "START" again. When it arrives, we check the video again.
     ```
     {url}
     ```
@@ -189,7 +208,7 @@ webcam:
     ```
     {url}
     ```
-  micNotYet: "Your microphone audio has not arrived yet. Open the webcam page, allow the microphone, press the start button, then press this again."
+  micNotYet: "Your microphone audio has not arrived yet. Open the VDO.ninja page, allow the microphone, press \"START\", then press this again."
 
 verdict:
   ok: "OK"
