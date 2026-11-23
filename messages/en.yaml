@@ -201,6 +201,11 @@ webcam:
     ```
     {url}
     ```
+  lostMic: |-
+    Your microphone audio from VDO.ninja stopped arriving. Reopen the VDO.ninja page and press "START" again. When it arrives, we check the video again.
+    ```
+    {url}
+    ```
   skipped: "We skip the webcam check. Keep streaming for about 2 minutes."
   failed: "We could not check your webcam because of a problem on our side. Staff will look into it. Close the webcam page and keep streaming for about 2 minutes."
   micUrl: |-

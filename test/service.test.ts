@@ -1348,6 +1348,31 @@ describe("web カメラ (VDO.ninja)", () => {
         assert.match(w.chat.lastPost(thread)!.content, /マイク音: マイクは使わない/);
     });
 
+    it("マイクだけ使う人: 映像の判定の間に音声が途切れたら、待ち直して、届いてから測り直す (両方を送っている状態で測るため)", async () => {
+        const w = makeWorld(webcamYaml);
+        const thread = await untilAsked(w, U1, 7, "no", "yes");
+        const both = () => {
+            w.rx.live(7);
+            w.webcam.play(kView, { playing: false, audio: true });
+        };
+        await w.run(40, both);
+        assert.match(await w.service.status("U1"), /measuring/);
+        // 一瞬 (10 秒未満) の途切れでは、待ち直さない
+        w.webcam.play(kView, { playing: false, audio: false });
+        await w.run(5, () => w.rx.live(7));
+        await w.run(5, both);
+        assert.match(await w.service.status("U1"), /measuring/);
+        // 10 秒続けて届かなければ、案内し直し、運営に知らせる
+        w.webcam.play(kView, { playing: false, audio: false });
+        await w.run(12, () => w.rx.live(7));
+        assert.match(await w.service.status("U1"), /awaitingWebcam/);
+        assert.match(w.chat.lastPost(thread)!.content, /VDO\.ninja のマイクの音声が届かなくなりました[\s\S]*push=cam1/);
+        assert.ok(w.chat.opsLog.some((l) => l.includes("VDO.ninja のマイクの音声が途切れたので、届いてから測り直します: Runner A (1 回目)")));
+        // 届いたら測り直して、判定まで進む
+        await w.run(145, both);
+        assert.ok(w.chat.texts(thread).some((x) => x.includes("映像は問題なく届いています")));
+    });
+
     it("マイクだけ使う人: カメラは「Disable Video」にしてもらい、音声が届いたら計測し、最後にマイクの声を録る", async () => {
         const w = makeWorld(webcamYaml);
         const thread = await untilAsked(w, U1, 7, "no", "yes");
