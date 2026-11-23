@@ -26,7 +26,7 @@ import type {
     WebhookPort,
 } from "./ports.js";
 import { audioVerdictColumn, buildRow, buildWebhookPayload, cellInRow, columnLetter, describeUsage, describeWebcam, driveColumn, formatRecPos, formatTime } from "./record.js";
-import type { FinishedRecord, Phase, QueueOffer, QueueState, Session, SlotState, SrtSlotState, StepRecord, UploadJob, UsageAnswer } from "./session.js";
+import type { FinishedRecord, FlowStop, Phase, QueueOffer, QueueState, Session, SlotState, SrtSlotState, StepRecord, UploadJob, UsageAnswer } from "./session.js";
 import type { KeyValueStore } from "./store.js";
 
 export interface Deps {
@@ -66,6 +66,10 @@ export interface ButtonReply {
 }
 
 const kFlowStartWaitMs = 4 * 60_000;
+/** 止められなかったフロー (開始の途中など) を、もう一度止めてみるまでの間隔 */
+const kFlowStopRetryMs = 10_000;
+/** 止められないフローを運営に知らせるまでの時間 (開始が終わるのを待つ時間より長くする) */
+const kFlowStopWarnMs = 10 * 60_000;
 const kCwPollMs = 10_000;
 const kCwLookbackSec = 240;
 const kCwMissingGraceSec = 120;
@@ -186,6 +190,8 @@ export class TechcheckService {
     /** Google ドライブに上げるのを待っている、終わったテスト (設計書 §8.1)。1 つずつ上げる */
     private uploads: UploadJob[];
     private uploading = false;
+    /** bot が開始したが、まだ止められていないフロー。止められるまで tick でやり直す */
+    private flowStops: FlowStop[];
 
     constructor(private readonly d: Deps) {
         this.cfg = d.config;
@@ -217,6 +223,8 @@ export class TechcheckService {
         this.langPrefs = d.store.get<Record<string, Lang>>("langPrefs") ?? {};
         this.finished = d.store.get<Record<string, FinishedRecord>>("finished") ?? {};
         this.uploads = d.store.get<UploadJob[]>("uploads") ?? [];
+        // 止められていないフローは、起動したらすぐに止めてみる
+        this.flowStops = (d.store.get<FlowStop[]>("flowStops") ?? []).map((f) => ({ ...f, nextTryAt: 0 }));
     }
 
     // ================= 外から呼ぶもの =================
@@ -228,6 +236,7 @@ export class TechcheckService {
         try {
             await this.locked(async () => {
                 await this.abortOrphans();
+                await this.tickFlowStops();
                 await this.tickQueue();
                 for (const s of [...this.sessions]) {
                     try {
@@ -705,6 +714,21 @@ export class TechcheckService {
         try {
             let info = await this.d.flow.describe(flowCfg.arn);
             this.log(`${tag}: フロー ${flowCfg.name} は ${info.status}`);
+            const owner = get();
+            if (owner && this.takeFlowStop(flowCfg.arn)) {
+                // 前のテストで bot が開始し、まだ止められていないフロー。このテストで使い、終わったら止める
+                startedFlow = true;
+                owner.srt.startedFlow = true;
+                this.log(`${tag}: フロー ${flowCfg.name} は前のテストで bot が開始したものです。このテストが終わったら止めます`);
+            }
+            const until = this.now() + kFlowStartWaitMs;
+            // 止めている途中 (前のテストの後片付け) なら、止まるのを待ってから開始する (STOPPING のうちは開始できない)
+            while (info.status === "STOPPING") {
+                if (await cancelled()) return;
+                if (this.now() > until) throw new Error(`フローが止まりきりません (${info.status})`);
+                await (this.d.sleep ?? sleep)(5_000);
+                info = await this.d.flow.describe(flowCfg.arn);
+            }
             if (info.status !== "ACTIVE") {
                 if (info.status !== "STARTING") {
                     this.log(`${tag}: フロー ${flowCfg.name} を開始します (ACTIVE になるまで待ちます)`);
@@ -715,11 +739,10 @@ export class TechcheckService {
                     if (s) s.srt.startedFlow = true;
                     else {
                         // 開始を待つ間に中止された (後片付けはこのフローを知らない)
-                        await this.d.flow.stop(flowCfg.arn).catch((e) => this.log(`StopFlow: ${errorText(e)}`));
+                        await this.locked(() => this.stopStartedFlow(flowCfg.arn, flowCfg.name));
                         return;
                     }
                 }
-                const until = this.now() + kFlowStartWaitMs;
                 while (info.status !== "ACTIVE") {
                     if (await cancelled()) return;
                     if (this.now() > until) throw new Error(`フローが ACTIVE になりません (${info.status})`);
@@ -2085,9 +2108,76 @@ export class TechcheckService {
         const ch = this.d.rx.channel(s.srt.channel);
         if (ch?.record?.file) this.addRecordFile(s, ch.record.file);
         await this.stopChannel(s.srt.channel);
-        if (s.srt.startedFlow) {
-            await this.d.flow.stop(s.srt.flowArn).catch((e) => this.log(`StopFlow: ${errorText(e)}`));
+        if (s.srt.startedFlow) await this.stopStartedFlow(s.srt.flowArn, s.srt.flowName);
+    }
+
+    // ================= bot が開始したフローを止める =================
+
+    /**
+     * bot が開始したフローを止める。今は止められなければ (開始の途中の STARTING は StopFlow が断られる) 覚えておき、
+     * 止められるまで tick でやり直す。ロックの中で呼ぶ
+     */
+    private async stopStartedFlow(arn: string, name: string): Promise<void> {
+        if (!this.flowStops.some((f) => f.arn === arn)) this.flowStops.push({ arn, name, since: this.now(), nextTryAt: 0, warned: false });
+        this.saveFlowStops();
+        await this.tryFlowStop(arn);
+    }
+
+    /** 止めようとしているフローを、テストで使い始めるときに引き取る (そのテストが終わったときに止める)。引き取ったら true */
+    private takeFlowStop(arn: string): boolean {
+        const before = this.flowStops.length;
+        this.flowStops = this.flowStops.filter((f) => f.arn !== arn);
+        if (this.flowStops.length === before) return false;
+        this.saveFlowStops();
+        return true;
+    }
+
+    private async tickFlowStops(): Promise<void> {
+        for (const job of [...this.flowStops]) {
+            if (job.nextTryAt > this.now()) continue;
+            // 進行中のテストが使っているフローは止めない (準備で引き取るので、ふつうは無い)
+            if (this.sessions.some((s) => s.protocol === "srt" && !s.srt.released && s.srt.flowArn === job.arn)) continue;
+            await this.tryFlowStop(job.arn);
         }
+    }
+
+    private async tryFlowStop(arn: string): Promise<void> {
+        const job = this.flowStops.find((f) => f.arn === arn);
+        if (!job) return;
+        job.nextTryAt = this.now() + kFlowStopRetryMs;
+        let stopped = false;
+        let detail = "";
+        try {
+            await this.d.flow.stop(arn);
+            this.log(`フロー ${job.name} を止めました`);
+            stopped = true;
+        } catch (e) {
+            detail = errorText(e);
+            const status = await this.d.flow.describe(arn).then(
+                (i) => i.status,
+                (de) => `状態を読めません: ${errorText(de)}`,
+            );
+            if (status === "STANDBY" || status === "STOPPING") {
+                // もう止まっている (運営が止めた、など)
+                this.log(`フロー ${job.name} は ${status} です (止める必要はありません)`);
+                stopped = true;
+            } else if (job.lastStatus !== status) {
+                job.lastStatus = status;
+                this.log(`フロー ${job.name} は ${status} なので、まだ止められません。止められるまでやり直します (${detail})`);
+            }
+            if (!stopped) detail = `${status}。${detail}`;
+        }
+        if (stopped) {
+            this.flowStops = this.flowStops.filter((f) => f !== job);
+        } else if (!job.warned && this.now() - job.since >= kFlowStopWarnMs) {
+            job.warned = true;
+            await this.ops(`フロー ${job.name} を止められません (${detail})。動いている間は課金されるので、AWS のコンソールで止めてください。bot も止められるまでやり直します`);
+        }
+        this.saveFlowStops();
+    }
+
+    private saveFlowStops(): void {
+        this.d.store.set("flowStops", this.flowStops);
     }
 
     private async stopChannel(channel: number): Promise<void> {

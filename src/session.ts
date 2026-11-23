@@ -227,6 +227,23 @@ export interface UploadJob {
     attempts: number;
 }
 
+/**
+ * bot が開始したが、まだ止められていないフロー。開始の途中 (STARTING) は StopFlow が断られるので、
+ * 止められるようになるまで tick でやり直す。bot を起動し直しても続ける
+ */
+export interface FlowStop {
+    arn: string;
+    name: string;
+    /** 止めようとし始めた時刻 */
+    since: number;
+    /** この時刻を過ぎたら、もう一度止めてみる */
+    nextTryAt: number;
+    /** 止められなかったときに見たフローの状態 (同じ状態のうちは、ログに何度も書かない) */
+    lastStatus?: string;
+    /** 止められないことを運営に知らせたか */
+    warned: boolean;
+}
+
 export interface FinishedRecord {
     sessionId: string;
     sheetRange?: string;

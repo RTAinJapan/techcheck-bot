@@ -119,6 +119,10 @@ export class FakeFlow implements FlowPort {
         this.status = "ACTIVE";
     }
     async stop(): Promise<void> {
+        // MediaConnect と同じく、ACTIVE か UPDATING のときしか止められない (開始の途中の STARTING は断られる)
+        if (this.status !== "ACTIVE" && this.status !== "UPDATING") {
+            throw new Error(`Bad request: Flow must be in ACTIVE or UPDATING in order for STOP to be invoked. (${this.status})`);
+        }
         this.stopped++;
         this.status = "STANDBY";
     }
