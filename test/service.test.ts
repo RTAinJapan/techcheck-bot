@@ -483,7 +483,7 @@ describe("ゲームの音を完全には消せない", () => {
         await w.run(18, () => w.rx.live(7, { peak: -20 }));
         // 「静かにする」手順には、「始める」と「音を消せない」がある
         const prompt = w.chat.lastPost(thread)!;
-        assert.match(prompt.content, /OBS にゲーム音以外が入っていないことを確認するため、まずはゲーム内で静かなシーンや設定によって音が出ない状態にしてください。\nそのまま 10 秒ほど静かにしてください。/);
+        assert.match(prompt.content, /OBS にゲーム音以外が入っていないことを確認します。\nまずはゲーム内の静かなシーンや、ゲーム内設定で音が出ない状態にしてください。[\s\S]*\nそのまま 10 秒ほど静かにしてください。/);
         assert.match(prompt.content, /ゲームの音を完全には消せない場合は「音を消せない」を押してください/);
         assert.deepEqual(prompt.buttons?.map((b) => b.label), ["始める", "音を消せない"]);
         await press(w, thread, "cannot-mute");
@@ -492,7 +492,7 @@ describe("ゲームの音を完全には消せない", () => {
         // ゲームの音が -45 dB で残っている: 無音ではないが、「おかしい」とは言わずに進む
         await w.run(13, () => w.rx.live(7, { peak: -45 }));
         const texts = w.chat.texts(thread);
-        assert.ok(!texts.some((x) => x.includes("何も鳴らしていないのに音が載っています")));
+        assert.ok(!texts.some((x) => x.includes("音が載っているようです")));
         // マイクの手順: 同じ音量のままにしてもらう。ゲームの音と同じ大きさなら OK
         const mic = w.chat.lastPost(thread)!;
         assert.match(mic.content, /手順 3\/5[\s\S]*\(ゲームの音は、さきほどと同じ小さい音量のままにしてください。\)/);
@@ -533,7 +533,7 @@ describe("ゲームの音を完全には消せない", () => {
         await ok.run(18, () => ok.rx.live(7, { peak: -20 }));
         await press(ok, t.thread, "step-start");
         await ok.run(13, () => ok.rx.live(7, { peak: -45 }));
-        assert.match(ok.chat.lastPost(t.thread)!.content, /何も鳴らしていないのに音が載っています/);
+        assert.match(ok.chat.lastPost(t.thread)!.content, /音が載っているようです/);
         // 「やり直す」→「音を消せない」に切り替えられる
         await press(ok, t.thread, "step-retry");
         await press(ok, t.thread, "cannot-mute");
@@ -823,7 +823,7 @@ describe("マイクの声の録音 (ボイスチャンネル)", () => {
         w.voice.where.OTHER = "VC-1";
         await press(w, thread, "yes");
         const waiting = w.chat.lastPost(thread)!;
-        assert.match(waiting.content, /手順 6\/6[\s\S]*いま、空いているボイスチャンネルがありません。空いたらここでお知らせします/);
+        assert.match(waiting.content, /手順 6\/6[\s\S]*いま、空いているボイスチャンネルがありません。\n空いたらここでお知らせします/);
         assert.deepEqual(waiting.buttons?.map((b) => b.label), ["マイクは使わない"]);
         assert.ok(w.chat.opsLog.some((l) => l.includes("空いているボイスチャンネルが無いので、録音の手順で待ってもらっています: Runner A") && l.includes("vc-1")));
         const posts = w.chat.texts(thread).length;
@@ -1201,13 +1201,28 @@ describe("準備と枠", () => {
         assert.ok(!w3.logs.some((l) => l.startsWith("tick ")), "tick のたびにエラーにならない");
     });
 
+    it("MediaConnect には届いているのに denpachan が受けられない (運営側の問題) なら、配信者に催促しない", async () => {
+        const w = makeWorld();
+        await w.service.start(U1, "C-test", undefined, "ja");
+        await w.flush();
+        const thread = w.chat.threads[0]!.id;
+        w.flow.sampleAt = (t) => goodSample(t);
+        await w.run(10 * 60 + 5); // denpachan の ch7 は live にならない
+        const texts = w.chat.texts(thread);
+        assert.ok(texts.some((x) => x.includes("受信側の状況を確認しています")), texts.join("\n"));
+        assert.ok(!texts.some((x) => x.includes("まだ配信が届いていません")), texts.join("\n"));
+    });
+
     it("届かないまま 10 分で催促し、30 分で中断する", async () => {
         const w = makeWorld();
         await w.service.start(U1, "C-test", undefined, "ja");
         await w.flush();
         const thread = w.chat.threads[0]!.id;
         await w.run(10 * 60 + 5);
-        assert.ok(w.chat.texts(thread).some((x) => x.includes("まだ配信が届いていません")));
+        const remind = w.chat.texts(thread).find((x) => x.includes("まだ配信が届いていません"));
+        // OBS は、相手に繋がらなければ配信を始めない。配信中なのに届かないのは、別の場所に送っているとき
+        assert.match(remind ?? "", /OBS の「設定 → 配信」で、サーバが案内した URL と同じになっているか/);
+        assert.doesNotMatch(remind ?? "", /ファイアウォール/);
         await w.run(20 * 60);
         assert.equal(w.sheet.rows[0]![6], "中断");
         assert.match(String(w.sheet.rows[0]![7]), /時間切れ/);

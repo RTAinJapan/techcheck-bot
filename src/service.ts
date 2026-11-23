@@ -1106,7 +1106,9 @@ export class TechcheckService {
             await this.post(s, { content: this.t(s.lang, "wait.opsChecking") });
         }
         const elapsed = now - s.phaseSince;
-        if (!s.reminded && elapsed > this.timeout(this.cfg.timeouts.connectRemindMin)) {
+        // 催促は「OBS は配信中なのに、別の場所に送っている」ときのためのもの。MediaConnect に届いている (運営側の受信の問題) なら、
+        // 配信者に確かめてもらうことは無いので出さない (「運営側の受信を確認しています」と伝えてある)
+        if (!s.reminded && !mcConnected && !s.rx.opsWarned && elapsed > this.timeout(this.cfg.timeouts.connectRemindMin)) {
             s.reminded = true;
             await this.post(s, { content: this.t(s.lang, "wait.remind") });
         }
