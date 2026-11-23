@@ -1201,13 +1201,28 @@ describe("準備と枠", () => {
         assert.ok(!w3.logs.some((l) => l.startsWith("tick ")), "tick のたびにエラーにならない");
     });
 
+    it("MediaConnect には届いているのに denpachan が受けられない (運営側の問題) なら、配信者に催促しない", async () => {
+        const w = makeWorld();
+        await w.service.start(U1, "C-test", undefined, "ja");
+        await w.flush();
+        const thread = w.chat.threads[0]!.id;
+        w.flow.sampleAt = (t) => goodSample(t);
+        await w.run(10 * 60 + 5); // denpachan の ch7 は live にならない
+        const texts = w.chat.texts(thread);
+        assert.ok(texts.some((x) => x.includes("受信側の状況を確認しています")), texts.join("\n"));
+        assert.ok(!texts.some((x) => x.includes("まだ配信が届いていません")), texts.join("\n"));
+    });
+
     it("届かないまま 10 分で催促し、30 分で中断する", async () => {
         const w = makeWorld();
         await w.service.start(U1, "C-test", undefined, "ja");
         await w.flush();
         const thread = w.chat.threads[0]!.id;
         await w.run(10 * 60 + 5);
-        assert.ok(w.chat.texts(thread).some((x) => x.includes("まだ配信が届いていません")));
+        const remind = w.chat.texts(thread).find((x) => x.includes("まだ配信が届いていません"));
+        // OBS は、相手に繋がらなければ配信を始めない。配信中なのに届かないのは、別の場所に送っているとき
+        assert.match(remind ?? "", /OBS の「設定 → 配信」で、サーバが案内した URL と同じになっているか/);
+        assert.doesNotMatch(remind ?? "", /ファイアウォール/);
         await w.run(20 * 60);
         assert.equal(w.sheet.rows[0]![6], "中断");
         assert.match(String(w.sheet.rows[0]![7]), /時間切れ/);
