@@ -116,15 +116,10 @@ describe("config", () => {
         assert.equal(parseConfig(baseYaml + room("https://vdo.ninja/?view=s1&solo&room=r1"), {}).vdoninja.links.length, 1);
         assert.throws(() => parseConfig(baseYaml + room("https://vdo.ninja/?view=s1"), {}), /同じ &room=r1 が要ります/);
         assert.throws(() => parseConfig(baseYaml + room("https://vdo.ninja/?view=s2&solo&room=r1"), {}), /view のストリーム ID \(s2\) が、push \(s1\) と違います/);
-        // マイクの声の録音: mic.via を省くと、VDO.ninja があれば VDO.ninja で録り、その手順が最後に足される
-        assert.deepEqual(c.mic, { via: "vdoninja", dir: "./mic" });
+        // マイクの声の録音: VDO.ninja があれば、その手順が最後に足される (マイクを使わないと答えた人には、テストの中で出さない)
+        assert.deepEqual(c.mic, { dir: "./mic" });
         assert.equal(c.checks.at(-1)!.kind, "micRecord");
-        assert.equal(stepTextKeys(c.checks.at(-1)!, c.mic.via).text, "steps.voice.vdoninja.text");
-        // 録らない、Discord で録る、も選べる (VDO.ninja はカメラのためにそのまま使う)
-        assert.equal(parseConfig(`${baseYaml + one}mic: { via: "off" }\n`, {}).checks.length, defaultChecks.length);
-        const discord = parseConfig(`${baseYaml + one}mic: { via: discord }\n`, {});
-        assert.deepEqual([discord.checks.at(-1)!.kind, discord.vdoninja.links.length], ["micRecord", 1]);
-        assert.equal(stepTextKeys(discord.checks.at(-1)!, discord.mic.via).failHint, "steps.voice.discord.failHint");
+        assert.equal(stepTextKeys(c.checks.at(-1)!).text, "steps.voice.text");
         // 枠が 2 つなのに、組が 1 つ
         const twoSlots = baseYaml.replace("  srt: { flow: flow-a, channel: 7 }\n", "  srt:\n    - { flow: flow-a, channel: 7 }\n    - { channel: 6 }\n");
         assert.throws(() => parseConfig(twoSlots + one, {}), /SRT の枠の数 \(2\) 以上/);
@@ -265,39 +260,38 @@ describe("config", () => {
         // 新しい書き方に、前の drive だけが残っているときも、黙って無視しない
         assert.throws(() => parseConfig(`${baseYaml}drive: { folderId: ROOT }\n`, {}), /drive\.folderId は google\.drive\.folderId へ/);
     });
-    it("マイクの録音の手順は mic.via が要る。録るなら既定の手順の最後に入る", () => {
-        // VDO.ninja も mic も書かなければ録らない
-        assert.equal(testConfig().mic.via, "off");
+    it("マイクの録音の手順は VDO.ninja が要る。VDO.ninja を使うなら既定の手順の最後に入る", () => {
+        // VDO.ninja を書かなければ録らない
+        assert.equal(testConfig().checks.some((c) => c.kind === "micRecord"), false);
         const custom = `checks: ${JSON.stringify([micStep])}\n`;
-        assert.throws(() => parseConfig(baseYaml + custom, {}), /micRecord の手順を使うには、mic\.via を vdoninja か discord に/);
-        assert.equal(parseConfig(`${baseYaml}mic: { via: discord }\n${custom}`, {}).checks.length, 1);
-        const on = parseConfig(`${baseYaml}mic: { via: discord }\n`, {});
+        assert.throws(() => parseConfig(baseYaml + custom, {}), /micRecord の手順 \(マイクの声の録音\) を使うには、vdoninja\.links を書いて/);
+        const one = 'vdoninja:\n  links:\n    - { push: "https://vdo.ninja/?push=a", view: "https://vdo.ninja/?view=a" }\n';
+        assert.equal(parseConfig(`${baseYaml + one}${custom}`, {}).checks.length, 1);
+        const on = parseConfig(baseYaml + one, {});
         assert.deepEqual(on.checks.map((c) => c.id), [...defaultChecks.map((c) => c.id), "voice"]);
-        assert.deepEqual(on.mic, { via: "discord", dir: "./mic" });
+        assert.equal(parseConfig(`${baseYaml + one}mic: { dir: ./rec }\n`, {}).mic.dir, "./rec");
         assert.equal(defaultChecks.some((c) => c.kind === "micRecord"), false, "既定の手順そのものは変えない");
-        // VDO.ninja で録るには、VDO.ninja の URL が要る
-        assert.throws(() => parseConfig(`${baseYaml}mic: { via: vdoninja }\n`, {}), /mic\.via を vdoninja にするには、vdoninja\.links を書いて/);
-        assert.throws(() => parseConfig(`${baseYaml}mic: { via: both }\n`, {}), /mic\.via/);
     });
-    it("前の書き方 (webcam、voice) は、黙って無視せずに移し方を伝える", () => {
+    it("前の書き方 (webcam、voice、mic.via) は、黙って無視せずに移し方を伝える", () => {
         const webcam = 'webcam:\n  links:\n    - { push: "https://vdo.ninja/?push=a", view: "https://vdo.ninja/?view=a" }\n  mic: false\n';
-        assert.throws(() => parseConfig(baseYaml + webcam, {}), /webcam: VDO\.ninja の接続は vdoninja に名前を変えました.*webcam\.mic は mic\.via に/);
-        assert.throws(() => parseConfig(`${baseYaml}voice: { enabled: true }\n`, {}), /voice\.enabled: true は mic\.via: discord に、voice\.dir は mic\.dir に/);
+        assert.throws(() => parseConfig(baseYaml + webcam, {}), /webcam: VDO\.ninja の接続は vdoninja に名前を変えました.*webcam\.mic は消して/);
+        assert.throws(() => parseConfig(`${baseYaml}voice: { enabled: true }\n`, {}), /voice: Discord のボイスチャンネルでの録音はやめました/);
+        // Discord のボイスチャンネルで録る設定は、もう無い
+        assert.throws(() => parseConfig(`${baseYaml}mic: { via: discord }\n`, {}), /mic\.via: マイクの声の録音は VDO\.ninja だけにしました/);
+        assert.throws(() => parseConfig(`${baseYaml}mic: { via: vdoninja }\n`, {}), /mic\.via は消してください/);
         // 手順の文言を checks に書いた前の書き方: 黙って捨てずに、messages の steps へ移すよう伝える
         const oldChecks = `${baseYaml}checks:\n  - { id: my-step, kind: confirm, seconds: 0, text: { ja: a, en: a }, failHint: { ja: b, en: b } }\n`;
         assert.throws(() => parseConfig(oldChecks, {}), /ja\.yaml と en\.yaml の steps\.<id> に書くように.*\(my-step\)/);
     });
-    it("手順の文言は messages の steps.<id> から引く。マイクの録音は経路ごと。足りなければ分かる", () => {
-        assert.deepEqual(stepTextKeys(defaultChecks[1]!, "off"), { label: "steps.silence.label", text: "steps.silence.text", failHint: "steps.silence.failHint" });
-        assert.deepEqual(stepTextKeys(micStep, "discord"), { label: "steps.voice.label", text: "steps.voice.discord.text", failHint: "steps.voice.discord.failHint" });
-        // 既定の手順・繋ぎ直し・マイクの録音 (どちらの経路も) の文言が、messages にそろっている
+    it("手順の文言は messages の steps.<id> から引く。足りなければ分かる", () => {
+        assert.deepEqual(stepTextKeys(defaultChecks[1]!), { label: "steps.silence.label", text: "steps.silence.text", failHint: "steps.silence.failHint" });
+        assert.deepEqual(stepTextKeys(micStep), { label: "steps.voice.label", text: "steps.voice.text", failHint: "steps.voice.failHint" });
+        // 既定の手順・繋ぎ直し・マイクの録音の文言が、messages にそろっている
         const i18n = I18n.load(messagesDir);
-        for (const via of ["vdoninja", "discord"] as const) {
-            assert.deepEqual(missingStepTexts([...defaultChecks, reconnectStep, micStep], via, (k) => i18n.has(k)), []);
-        }
+        assert.deepEqual(missingStepTexts([...defaultChecks, reconnectStep, micStep], (k) => i18n.has(k)), []);
         for (const s of [...defaultChecks, reconnectStep, micStep]) assert.ok(i18n.has(`steps.${s.id}.label`), s.id);
         // 設定の checks に足した手順の文言が無ければ、そのキーを返す
-        assert.deepEqual(missingStepTexts([{ id: "my-step", kind: "confirm", seconds: 0 }], "off", (k) => i18n.has(k)), ["steps.my-step.text", "steps.my-step.failHint"]);
+        assert.deepEqual(missingStepTexts([{ id: "my-step", kind: "confirm", seconds: 0 }], (k) => i18n.has(k)), ["steps.my-step.text", "steps.my-step.failHint"]);
         // 秒数は差し込み: 手順の秒数を変えれば、文言の秒数も変わる
         assert.match(i18n.t("ja", "steps.silence.text", { seconds: 12 }), /^OBS にゲーム音以外が入っていないことを確認します。[\s\S]*\nそのまま 12 秒ほど静かにしてください。/);
     });

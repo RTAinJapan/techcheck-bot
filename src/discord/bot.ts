@@ -113,6 +113,14 @@ export class DiscordChat implements ChatPort {
         await m.edit({ components: [] });
     }
 
+    // 権限: メッセージ履歴を読む (送ったメッセージを取り直す)。自分 (bot) のメッセージなので、書き換えに別の権限は要らない
+    async editMessage(threadId: string, messageId: string, msg: OutMessage): Promise<void> {
+        const t = await this.thread(threadId);
+        const m = await t.messages.fetch(messageId);
+        const { content, components, allowedMentions } = payload(msg);
+        await m.edit({ content, components, allowedMentions });
+    }
+
     // 権限: スレッドを管理 (ロック)
     async closeThread(threadId: string): Promise<void> {
         const t = await this.thread(threadId);

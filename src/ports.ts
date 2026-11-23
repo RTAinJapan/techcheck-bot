@@ -83,14 +83,11 @@ export interface StillPort {
     fromRecording(file: string, atSec: number): Promise<Buffer>;
 }
 
-// ---- Discord のボイスチャンネル (マイクの声の録音) ----
+// ---- マイクの声の録音 (VDO.ninja で届く音声を録ったもの) ----
 
 export interface VoiceRecording {
     file: string;
-    /** 届いた音声のパケットの数。0 なら、声が届いていない (ミュート、入力デバイスの間違いなど) */
-    packets: number;
-    bytes: number;
-    /** 届いた音の長さ (ミリ秒)。Discord は無音の間は送らないので、話していた時間に近い */
+    /** 録った音の長さ (ミリ秒)。WebRTC は無音の間も送るので、声が届いたかは音量で見る */
     audioMs: number;
     /** 音量 (dBFS)。ffmpeg で測れなかったときは無い */
     maxDb?: number;
@@ -101,21 +98,6 @@ export interface VoiceRecording {
     waveform?: Buffer;
 }
 
-export interface VoiceChannelInfo {
-    id: string;
-    name: string;
-    /** 中にいる人のユーザー ID (bot は数えない) */
-    members: string[];
-}
-
-export interface VoicePort {
-    /** bot が入れる VC (「チャンネルを表示」と「接続」の権限がある所) の一覧。サーバでの並びの順 */
-    channels(): Promise<VoiceChannelInfo[]>;
-    /** 配信者が今いる VC の ID (いなければ undefined) */
-    channelOf(userId: string): Promise<string | undefined>;
-    /** VC に入り、userId の声を seconds 秒録って、file (.ogg) に書く */
-    record(channelId: string, userId: string, file: string, seconds: number): Promise<VoiceRecording>;
-}
 
 // ---- web カメラ (VDO.ninja の受信用のページを、bot がブラウザで開いて見る) ----
 
@@ -151,7 +133,7 @@ export interface WebcamPort {
     status(key: string): WebcamStatus | undefined;
     /** いま映っている絵 (JPEG)。映っていなければ undefined */
     still(key: string): Promise<Buffer | undefined>;
-    /** 届いている音声 (マイク) を seconds 秒録って、file (.webm) に書く。packets は使わない (0) */
+    /** 届いている音声 (マイク) を seconds 秒録って、file (.webm) に書く */
     recordAudio(key: string, file: string, seconds: number): Promise<VoiceRecording>;
     /**
      * 届いている映像 (と音声) の録画を始める。閉じるまで録り続ける。ファイルは base に `.webm` を付けた名前
@@ -201,6 +183,8 @@ export interface ChatPort {
     post(threadId: string, msg: OutMessage): Promise<string>;
     /** 送ったメッセージのボタンを外す (押したあと) */
     clearButtons(threadId: string, messageId: string): Promise<void>;
+    /** 送ったメッセージを書き換える (文とボタン。画像は変えない) */
+    editMessage(threadId: string, messageId: string, msg: OutMessage): Promise<void>;
     closeThread(threadId: string): Promise<void>;
     threadUrl(threadId: string): string;
     /**

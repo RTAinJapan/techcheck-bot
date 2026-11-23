@@ -34,6 +34,32 @@ async function press(w: World, thread: string, action: string, user = U1) {
     return w.service.button(user.id, false, w.chat.buttonId(thread, action));
 }
 
+const kView = "https://vdo.ninja/?view=cam1";
+type Usage = "yes" | "maybe" | "no";
+
+/** 本番で web カメラとマイクを使うかに答える (VDO.ninja を使う設定のとき、スレッドを作った直後に聞かれる) */
+async function answerUsage(w: World, thread: string, camera: Usage, mic: Usage, user = U1) {
+    await press(w, thread, `usage-camera-${camera}`, user);
+    await press(w, thread, `usage-mic-${mic}`, user);
+}
+
+/**
+ * VDO.ninja を使う設定で、使うかに答えてから配信を始め、映像の判定が終わるところまで進める。
+ * VDO.ninja からは、使うと答えたものが届く (カメラなら映像、マイクなら音声)
+ */
+async function startWithVdo(w: World, camera: Usage, mic: Usage) {
+    await w.service.start(U1, "C-test", undefined, "ja");
+    await w.flush();
+    const thread = w.chat.threads[0]!.id;
+    await answerUsage(w, thread, camera, mic);
+    w.flow.sampleAt = (t) => goodSample(t);
+    await w.run(150, () => {
+        w.rx.live(7);
+        if (camera !== "no" || mic !== "no") w.webcam.play(kView, { playing: camera !== "no", audio: mic !== "no" });
+    });
+    return thread;
+}
+
 /** 音声とその他のチェック (既定の 5 手順) を全部 OK で通す */
 async function passChecks(w: World, thread: string) {
     const audio = (peak: number) => () => w.rx.live(7, { peak });
@@ -426,8 +452,8 @@ describe("届いた配信の形を、期待する出力と比べる", () => {
 
 describe("結果のまとめ", () => {
     it("配信者には、手順を意味の分かる名前で見せる (内部の名前は出さない)。シートは内部の名前のまま", async () => {
-        const w = makeWorld("mic: { via: discord }\n");
-        const { thread } = await startAndStream(w);
+        const w = makeWorld(webcamYaml);
+        const thread = await startWithVdo(w, "no", "maybe");
         await passChecks(w, thread);
         await press(w, thread, "voice-skip");
         const done = w.chat.lastPost(thread)!.content;
@@ -577,14 +603,14 @@ describe("録画ファイルが途中で切り替わる", () => {
 });
 
 describe("録画と録音を Google ドライブに上げる", () => {
-    const voiceToo = "mic: { via: discord }\n";
-    /** テストを 1 つ最後まで通す (録音が有効なら、録音も)。base を省くと、ドライブに上げる設定 */
+    const voiceToo = webcamYaml;
+    /** テストを 1 つ最後まで通す (VDO.ninja を使う設定なら、マイクだけ使うと答えて、録音も)。base を省くと、ドライブに上げる設定 */
     async function finishedTest(extra = "", base = driveYaml) {
         const w = makeWorld(extra, base);
-        const { thread } = await startAndStream(w);
+        const vdo = w.config.vdoninja.links.length > 0;
+        const thread = vdo ? await startWithVdo(w, "no", "yes") : (await startAndStream(w)).thread;
         await passChecks(w, thread);
-        if (w.config.mic.via === "discord") {
-            w.voice.where.U1 = "VC-1";
+        if (vdo) {
             await press(w, thread, "step-start");
             await w.flush();
             await press(w, thread, "step-next");
@@ -605,7 +631,7 @@ describe("録画と録音を Google ドライブに上げる", () => {
         assert.match(w.drive.folders[0]!.name, /^配信テスト 2026-11-01 \d\d:\d\d Runner A$/);
         assert.deepEqual(w.drive.uploaded.map((u) => u.folderId), ["F1", "F1"]);
         assert.equal(w.drive.uploaded[0]!.file, "rec-ch7.mkv");
-        assert.match(w.drive.uploaded[1]!.file, /^voice-dir\/.* U1\.ogg$/);
+        assert.match(w.drive.uploaded[1]!.file, /^voice-dir\/.* U1\.webm$/);
         assert.deepEqual(lastCell(w), { range: "techcheck!K2", values: ["https://drive.google.com/drive/folders/F1"] });
         assert.ok(w.chat.opsLog.some((l) => l.includes("録画と録音を Google ドライブに上げました: Runner A https://drive.google.com/drive/folders/F1")));
         // 上げ終えたら、もう上げない
@@ -658,285 +684,6 @@ describe("録画と録音を Google ドライブに上げる", () => {
         await again.run(12);
         assert.deepEqual(again.drive.uploaded.map((u) => u.file), ["rec-ch7.mkv"]);
         assert.deepEqual(lastCell(again), { range: "techcheck!K2", values: ["https://drive.google.com/drive/folders/F1"] });
-    });
-});
-
-describe("マイクの声の録音 (ボイスチャンネル)", () => {
-    const voiceOn = "mic: { via: discord }\n";
-    /** 既定の 5 手順を通して、6 つ目 (マイクの録音) が出るところまで進める */
-    async function toVoiceStep(extra = voiceOn) {
-        const w = makeWorld(extra);
-        const { thread } = await startAndStream(w);
-        await passChecks(w, thread);
-        return { w, thread };
-    }
-
-    it("既定では手順に無い。mic.via: discord で、最後の手順として足す", async () => {
-        assert.equal(makeWorld().config.checks.some((c) => c.kind === "micRecord"), false);
-        const { w, thread } = await toVoiceStep();
-        const prompt = w.chat.lastPost(thread)!;
-        assert.match(prompt.content, /手順 6\/6[\s\S]*下のボイスチャンネルに入り[\s\S]*入るボイスチャンネル: <#VC-1>/);
-        assert.deepEqual(prompt.buttons?.map((b) => b.label), ["始める", "マイクは使わない"]);
-    });
-
-    it("案内したボイスチャンネルに入って「始める」を押すと録音し、ファイルと音量をシートに残す", async () => {
-        const { w, thread } = await toVoiceStep();
-        // 入る前に押したら、入るよう促す
-        assert.match((await press(w, thread, "step-start")).ephemeral!, /案内したボイスチャンネル \(<#VC-1>\) に入ってから/);
-        assert.equal(w.voice.calls.length, 0);
-        w.voice.where.U1 = "VC-1";
-        await press(w, thread, "step-start");
-        await w.flush();
-        assert.deepEqual({ ...w.voice.calls[0], file: "" }, { channelId: "VC-1", userId: "U1", file: "", seconds: 15 });
-        assert.match(w.voice.calls[0]!.file, /^voice-dir\/2026-11-01-12-\d\d-\d\d Runner_A U1\.ogg$/);
-        const texts = w.chat.texts(thread);
-        assert.ok(texts.some((x) => x.includes("録音しています。15 秒ほど")));
-        assert.ok(texts.some((x) => x.includes("録音しました (声が 10 秒ぶん届きました)")));
-        // どれくらいの音量で届いたかを、数字と波形の画像で返す
-        const recorded = w.chat.lastPost(thread)!;
-        assert.match(recorded.content, /届いた声の音量: 最大 -6 dB、平均 -24 dB \(0 dB が上限です\)。\n下の画像は、録音した声の波形です/);
-        assert.equal(recorded.image?.name, "voice-waveform.png");
-        assert.equal(recorded.image?.data.toString(), "waveform");
-        // すぐには次へ進まない: 音量を見て、録り直すか、これでよいかを配信者が選ぶ
-        assert.match(recorded.content, /マイクの音量を直して録り直すときは「録り直す」を、これでよければ「これでよい」を押してください/);
-        assert.deepEqual(recorded.buttons?.map((b) => b.label), ["録り直す", "これでよい"]);
-        await press(w, thread, "step-next");
-        assert.ok(w.chat.texts(thread).some((x) => x === "ボイスチャンネルからは退出してください。"));
-        assert.match(w.chat.lastPost(thread)!.content, /確認はすべて終わりました/);
-        assert.ok(!w.chat.lastPost(thread)!.content.includes("そのまま進めた"));
-        await w.service.complete(sessionIdOf(w, thread), "");
-        const row = w.sheet.rows[0]!;
-        assert.match(String(row[sheetColumns.indexOf("マイクの録音 (VC)")]), /^voice-dir\/.*U1\.ogg \(声 10 秒、最大 -6 dB、平均 -24 dB\)$/);
-        assert.match(String(row[kChecks]), /voice: OK \(-24 dB\)$/);
-    });
-
-    it("録音のあと、音量を直して録り直せる。記録に残るのは最後の録音", async () => {
-        const { w, thread } = await toVoiceStep();
-        w.voice.where.U1 = "VC-1";
-        // 1 回目: 声が小さい
-        w.voice.next = { packets: 400, bytes: 30_000, audioMs: 9_000, maxDb: -30, meanDb: -48, clippedPct: 0 };
-        await press(w, thread, "step-start");
-        await w.flush();
-        assert.match(w.chat.lastPost(thread)!.content, /声が小さめです/);
-        await press(w, thread, "step-retry");
-        // 同じボイスチャンネルを、もう一度案内する
-        const again = w.chat.lastPost(thread)!;
-        assert.match(again.content, /手順 6\/6[\s\S]*入るボイスチャンネル: <#VC-1>/);
-        assert.deepEqual(again.buttons?.map((b) => b.label), ["始める", "マイクは使わない"]);
-        // 2 回目: ちょうどよい。同じ分のうちに録り直しても、前の録音を上書きしない (ファイル名に秒まで入れる)
-        w.clock.t += 20_000;
-        w.voice.next = { packets: 500, bytes: 60_000, audioMs: 11_000, maxDb: -5, meanDb: -22, clippedPct: 0 };
-        await press(w, thread, "step-start");
-        await w.flush();
-        assert.ok(!w.chat.lastPost(thread)!.content.includes("声が小さめです"));
-        await press(w, thread, "step-next");
-        assert.equal(w.voice.calls.length, 2);
-        assert.notEqual(w.voice.calls[0]!.file, w.voice.calls[1]!.file, "録り直しは別のファイルに録る");
-        await w.service.complete(sessionIdOf(w, thread), "");
-        const cell = String(w.sheet.rows[0]![sheetColumns.indexOf("マイクの録音 (VC)")]);
-        assert.ok(cell.startsWith(w.voice.calls[1]!.file) && cell.includes("平均 -22 dB"));
-    });
-
-    it("声が届かなければ直し方を出し、やり直せる。音が割れていれば伝える", async () => {
-        const { w, thread } = await toVoiceStep();
-        w.voice.where.U1 = "VC-1";
-        w.voice.next = { packets: 0, bytes: 0, audioMs: 0 };
-        await press(w, thread, "step-start");
-        await w.flush();
-        assert.match(w.chat.lastPost(thread)!.content, /声が届いていません。Discord でミュートになっていないか/);
-        await press(w, thread, "step-retry");
-        w.voice.next = { packets: 400, bytes: 50_000, audioMs: 8_000, maxDb: 0, meanDb: -12, clippedPct: 0.24 };
-        await press(w, thread, "step-start");
-        await w.flush();
-        assert.ok(w.chat.texts(thread).some((x) => x.includes("録音しました") && x.includes("音が割れているところがあります")));
-        assert.equal(w.voice.calls.length, 2);
-    });
-
-    it("マイクを使わない人は飛ばせる", async () => {
-        const { w, thread } = await toVoiceStep();
-        await press(w, thread, "voice-skip");
-        assert.ok(w.chat.texts(thread).some((x) => x.includes("マイクの確認は飛ばします")));
-        assert.match(w.chat.lastPost(thread)!.content, /確認はすべて終わりました/);
-        // 結果のまとめには、選んだとおりに書く (「記録のみ」では、何が記録されたのか分からない)
-        assert.match(w.chat.lastPost(thread)!.content, /- マイク音: マイクは使わない$/m);
-        await w.service.complete(sessionIdOf(w, thread), "");
-        assert.ok(w.chat.texts(thread).some((x) => x.includes("配信テストの結果") && /- マイク音: マイクは使わない$/m.test(x)));
-        assert.equal(w.sheet.rows[0]![sheetColumns.indexOf("マイクの録音 (VC)")], "マイクは使わない");
-        assert.equal(w.voice.calls.length, 0);
-    });
-
-    it("bot の側の問題で録れなかったら、運営に知らせて、そのまま次へ進める", async () => {
-        const { w, thread } = await toVoiceStep();
-        w.voice.where.U1 = "VC-1";
-        w.voice.error = "VC に入れませんでした (bot に、その VC の「チャンネルを表示」と「接続」の権限があるかを確かめてください。状態: signalling)";
-        await press(w, thread, "step-start");
-        await w.flush();
-        assert.ok(w.chat.opsLog.some((l) => l.includes("マイクの声を録音できませんでした: Runner A") && l.includes("「接続」の権限")));
-        assert.ok(w.chat.texts(thread).some((x) => x.includes("こちらの都合で録音できませんでした")));
-        assert.match(w.chat.lastPost(thread)!.content, /確認はすべて終わりました/);
-    });
-
-    /** 5 つ目の手順 (画面) の手前まで進める。録音の手順が出る前に、ボイスチャンネルの様子を作るため */
-    async function beforeVoiceStep(extra = voiceOn) {
-        const w = makeWorld(extra);
-        const { thread } = await startAndStream(w);
-        await press(w, thread, "step-start");
-        await w.run(18, () => w.rx.live(7, { peak: -20 }));
-        for (let i = 0; i < 3; i++) {
-            await press(w, thread, "step-start");
-            await w.run(13, () => w.rx.live(7, { peak: -80 }));
-        }
-        return { w, thread };
-    }
-
-    it("bot が入れるボイスチャンネルのうち、空いている所を案内する。別の所にいたら促す", async () => {
-        const { w, thread } = await beforeVoiceStep();
-        w.voice.rooms = [
-            { id: "VC-1", name: "vc-1" },
-            { id: "VC-2", name: "vc-2" },
-            { id: "VC-3", name: "vc-3" },
-        ];
-        w.voice.where.OTHER = "VC-1"; // ほかの人が使っている
-        await press(w, thread, "yes");
-        assert.match(w.chat.lastPost(thread)!.content, /入るボイスチャンネル: <#VC-2>/);
-        w.voice.where.U1 = "VC-3";
-        assert.match((await press(w, thread, "step-start")).ephemeral!, /案内したボイスチャンネル \(<#VC-2>\) に入ってから/);
-        w.voice.where.U1 = "VC-2";
-        await press(w, thread, "step-start");
-        await w.flush();
-        assert.equal(w.voice.calls[0]!.channelId, "VC-2");
-    });
-
-    it("配信者がもう 1 人で入っている所があれば、そこを案内する", async () => {
-        const { w, thread } = await beforeVoiceStep();
-        w.voice.rooms = [
-            { id: "VC-1", name: "vc-1" },
-            { id: "VC-2", name: "vc-2" },
-        ];
-        w.voice.where.U1 = "VC-2";
-        await press(w, thread, "yes");
-        assert.match(w.chat.lastPost(thread)!.content, /入るボイスチャンネル: <#VC-2>/);
-    });
-
-    it("空いている所が無ければ待たせ、空いたらメンションして案内する。待っている間は時間切れにしない", async () => {
-        const { w, thread } = await beforeVoiceStep();
-        w.voice.where.OTHER = "VC-1";
-        await press(w, thread, "yes");
-        const waiting = w.chat.lastPost(thread)!;
-        assert.match(waiting.content, /手順 6\/6[\s\S]*いま、空いているボイスチャンネルがありません。\n空いたらここでお知らせします/);
-        assert.deepEqual(waiting.buttons?.map((b) => b.label), ["マイクは使わない"]);
-        assert.ok(w.chat.opsLog.some((l) => l.includes("空いているボイスチャンネルが無いので、録音の手順で待ってもらっています: Runner A") && l.includes("vc-1")));
-        const posts = w.chat.texts(thread).length;
-        // 既定の時間切れ (20 分) を超えて待たせても、中断しない。同じ案内も繰り返さない
-        await w.run(25 * 60, () => w.rx.live(7, { peak: -80 }));
-        assert.equal(w.chat.texts(thread).length, posts);
-        assert.equal(w.sheet.rows.length, 0);
-        delete w.voice.where.OTHER;
-        await w.run(2, () => w.rx.live(7, { peak: -80 }));
-        const prompt = w.chat.lastPost(thread)!;
-        assert.match(prompt.content, /^<@U1> お待たせしました。ボイスチャンネルが空きました。\n\*\*手順 6\/6\*\*[\s\S]*入るボイスチャンネル: <#VC-1>/);
-        assert.deepEqual(prompt.buttons?.map((b) => b.label), ["始める", "マイクは使わない"]);
-        // 案内したあとにほかの人が入ってきても、案内は変えない (録るのは配信者の声だけ)
-        w.voice.where.OTHER = "VC-1";
-        w.voice.where.U1 = "VC-1";
-        await press(w, thread, "step-start");
-        await w.flush();
-        assert.equal(w.voice.calls[0]!.channelId, "VC-1");
-    });
-
-    it("待っている間も「マイクは使わない」で飛ばせる", async () => {
-        const { w, thread } = await beforeVoiceStep();
-        w.voice.where.OTHER = "VC-1";
-        await press(w, thread, "yes");
-        await press(w, thread, "voice-skip");
-        assert.match(w.chat.lastPost(thread)!.content, /確認はすべて終わりました/);
-    });
-
-    it("bot が入れるボイスチャンネルが 1 つも無ければ、運営に知らせて、そのまま次へ進める", async () => {
-        const { w, thread } = await beforeVoiceStep();
-        w.voice.rooms = [];
-        await press(w, thread, "yes");
-        assert.ok(w.chat.opsLog.some((l) => l.includes("マイクの声を録音できませんでした: Runner A") && l.includes("bot が入れるボイスチャンネルがありません")));
-        assert.ok(w.chat.texts(thread).some((x) => x.includes("こちらの都合で録音できませんでした")));
-        assert.match(w.chat.lastPost(thread)!.content, /確認はすべて終わりました/);
-    });
-
-    const U2local = { id: "U2", displayName: "Runner B" };
-    const quiet = (w: ReturnType<typeof makeWorld>) => () => {
-        w.rx.live(7, { peak: -80 });
-        w.rx.live(6, { peak: -80 });
-    };
-    /** SRT の枠を 2 つにして、2 人とも録音の手順まで進める (1 人目が先に着く) */
-    async function twoAtVoiceStep(rooms: string[]) {
-        const w = makeWorld(voiceOn, twoSlotsYaml);
-        w.voice.rooms = rooms.map((id) => ({ id, name: id.toLowerCase() }));
-        await w.service.start(U1, "C-test", undefined, "ja");
-        await w.service.start(U2local, "C-test", undefined, "ja");
-        await w.flush();
-        w.flow.sampleAt = (t) => goodSample(t);
-        await w.run(140, () => {
-            w.rx.live(7);
-            w.rx.live(6);
-        });
-        const [t1, t2] = w.chat.threads.map((t) => t.id);
-        // 2 人とも、5 手順を通す (それぞれのチャンネルの音で)
-        for (const [thread, user, ch] of [
-            [t1!, U1, 7],
-            [t2!, U2local, 6],
-        ] as const) {
-            const audio = (peak: number) => () => {
-                w.rx.live(7, { peak: ch === 7 ? peak : -80 });
-                w.rx.live(6, { peak: ch === 6 ? peak : -80 });
-            };
-            await press(w, thread, "step-start", user);
-            await w.run(18, audio(-20));
-            for (let i = 0; i < 3; i++) {
-                await press(w, thread, "step-start", user);
-                await w.run(13, audio(-80));
-            }
-            await press(w, thread, "yes", user);
-        }
-        return { w, t1: t1!, t2: t2! };
-    }
-
-    it("同時にテストしている 2 人には、別々のボイスチャンネルを案内する。録音は同時に 1 人だけ", async () => {
-        const { w, t1, t2 } = await twoAtVoiceStep(["VC-1", "VC-2"]);
-        // 1 人目はまだ入っていないが、案内した所は、ほかの人には案内しない
-        assert.match(w.chat.lastPost(t1)!.content, /入るボイスチャンネル: <#VC-1>/);
-        assert.match(w.chat.lastPost(t2)!.content, /入るボイスチャンネル: <#VC-2>/);
-        w.voice.where.U1 = "VC-1";
-        w.voice.where.U2 = "VC-2";
-        // bot は同時に 1 つのボイスチャンネルにしか入れない
-        let release!: () => void;
-        w.voice.gate = new Promise<void>((r) => (release = r));
-        await press(w, t1, "step-start", U1);
-        assert.match((await press(w, t2, "step-start", U2local)).ephemeral!, /ほかの方の録音中です/);
-        release();
-        await w.flush();
-        w.voice.gate = undefined;
-        await press(w, t2, "step-start", U2local);
-        await w.flush();
-        assert.deepEqual(w.voice.calls.map((c) => [c.userId, c.channelId]), [["U1", "VC-1"], ["U2", "VC-2"]]);
-    });
-
-    it("ボイスチャンネルが 1 つなら、2 人目は、1 人目の録音が終わって退出するまで待つ", async () => {
-        const { w, t1, t2 } = await twoAtVoiceStep(["VC-1"]);
-        assert.match(w.chat.lastPost(t1)!.content, /入るボイスチャンネル: <#VC-1>/);
-        assert.match(w.chat.lastPost(t2)!.content, /いま、空いているボイスチャンネルがありません/);
-        assert.equal((await press(w, t2, "step-start", U2local)).ephemeral, "受け付けました。");
-        w.voice.where.U1 = "VC-1";
-        await press(w, t1, "step-start", U1);
-        await w.flush();
-        // 1 人目の録音は終わったが、録り直すかもしれないので、ボイスチャンネルは 1 人目のもののまま
-        await w.run(2, quiet(w));
-        assert.match(w.chat.lastPost(t2)!.content, /いま、空いているボイスチャンネルがありません/);
-        // 1 人目が「これでよい」で次へ進んだが、まだ中にいる
-        await press(w, t1, "step-next", U1);
-        await w.run(2, quiet(w));
-        assert.match(w.chat.lastPost(t2)!.content, /いま、空いているボイスチャンネルがありません/);
-        delete w.voice.where.U1;
-        await w.run(2, quiet(w));
-        assert.match(w.chat.lastPost(t2)!.content, /^<@U2> お待たせしました[\s\S]*入るボイスチャンネル: <#VC-1>/);
     });
 });
 
@@ -1391,14 +1138,14 @@ describe("チェック", () => {
 });
 
 describe("web カメラ (VDO.ninja)", () => {
-    const kView = "https://vdo.ninja/?view=cam1";
     const kCam = col("web カメラ");
 
-    /** 配信が届いて、web カメラの案内が出るところまで進める */
-    async function untilAsked(w: World, user = U1, ch = 7) {
+    /** 使うかに答え、配信が届いて、VDO.ninja の案内が出るところまで進める */
+    async function untilAsked(w: World, user = U1, ch = 7, camera: Usage = "yes", mic: Usage = "yes") {
         await w.service.start(user, "C-test", undefined, "ja");
         await w.flush();
         const thread = w.chat.threads.find((t) => t.userId === user.id)!.id;
+        await answerUsage(w, thread, camera, mic, user);
         w.flow.sampleAt = (t) => goodSample(t);
         await w.run(3, () => w.rx.live(ch));
         return thread;
@@ -1407,7 +1154,9 @@ describe("web カメラ (VDO.ninja)", () => {
     it("配信が届いたら送信用の URL を渡し、受信用の URL で映像が届いてから計測する。結果はシートに書く", async () => {
         const w = makeWorld(webcamYaml);
         const thread = await untilAsked(w);
-        assert.ok(w.chat.texts(thread).some((x) => x.includes("https://vdo.ninja/?push=cam1")));
+        const ask = w.chat.texts(thread).find((x) => x.includes("https://vdo.ninja/?push=cam1"))!;
+        // カメラとマイクの両方を、同じページから送ってもらう (VDO.ninja の画面の表記のまま案内する)
+        assert.match(ask, /web カメラとマイクの確認をします[\s\S]*「Video Source」で本番で使うカメラを、「Audio Source\(s\)」で本番で使うマイク[\s\S]*「START」を押してください/);
         // 受信用の URL は、bot が開くだけ (配信者には見せない)
         assert.ok(!w.chat.texts(thread).some((x) => x.includes("view=cam1")));
         assert.deepEqual(w.webcam.opened, [kView]);
@@ -1440,16 +1189,33 @@ describe("web カメラ (VDO.ninja)", () => {
         assert.equal(w.sheet.rows[0]![kCam], "1280x720 / 30 fps / ロス 0 % / 固まった 0 回");
     });
 
-    it("「web カメラは使わない」で飛ばすと、そのまま計測する", async () => {
+    it("「web カメラは使わない」で飛ばすと、マイクも使わないなら、ページを閉じてそのまま計測する", async () => {
         const w = makeWorld(webcamYaml);
-        const thread = await untilAsked(w);
+        const thread = await untilAsked(w, U1, 7, "maybe", "no");
         await press(w, thread, "webcam-skip");
         assert.equal(w.webcam.views.size, 0);
         await w.run(140, () => w.rx.live(7));
         assert.ok(w.chat.texts(thread).some((x) => x.includes("映像は問題なく届いています")));
         await w.service.cancel("U1");
         assert.equal(w.sheet.rows[0]![kCam], "使わない");
+        assert.equal(w.sheet.rows[0]![col("web カメラとマイクの申告")], "カメラ: 未定 → 使わない / マイク: 使わない");
         assert.ok(!w.chat.lastPost(thread)!.content.includes("web カメラのページ"));
+    });
+
+    it("「web カメラは使わない」で飛ばしても、マイクを使うなら、ページは開いたまま音声が届くのを待つ", async () => {
+        const w = makeWorld(webcamYaml);
+        const thread = await untilAsked(w, U1, 7, "maybe", "yes");
+        await press(w, thread, "webcam-skip");
+        assert.equal(w.webcam.views.size, 1);
+        assert.match(w.chat.lastPost(thread)!.content, /マイクの音声が届くのを待ちます/);
+        await w.run(5, () => w.rx.live(7));
+        assert.match(await w.service.status("U1"), /awaitingWebcam/);
+        await w.run(140, () => {
+            w.rx.live(7);
+            w.webcam.play(kView, { playing: false, audio: true });
+        });
+        assert.ok(w.chat.texts(thread).some((x) => x.includes("マイクの音声が届きました")));
+        assert.ok(w.chat.texts(thread).some((x) => x.includes("映像は問題なく届いています")));
     });
 
     it("映像の判定の間にカメラが届かなくなったら、待ち直して、届いてから測り直す", async () => {
@@ -1525,17 +1291,16 @@ describe("web カメラ (VDO.ninja)", () => {
     });
 
     /** 映像の判定が終わり、音声のチェックの 5 手順を通して、マイクの声の録音の手順が出るところまで進める */
-    async function untilMicStep(w: World, skipCamera = false) {
-        const thread = await untilAsked(w);
-        if (skipCamera) await press(w, thread, "webcam-skip");
+    async function untilMicStep(w: World, camera: Usage = "yes") {
+        const thread = await untilAsked(w, U1, 7, camera, "yes");
         const both = () => {
             w.rx.live(7);
-            if (!skipCamera) w.webcam.play(kView, { audio: true });
+            w.webcam.play(kView, { playing: camera !== "no", audio: true });
         };
         await w.run(145, both);
         const audio = (peak: number) => () => {
             w.rx.live(7, { peak });
-            if (!skipCamera) w.webcam.play(kView, { audio: true });
+            w.webcam.play(kView, { playing: camera !== "no", audio: true });
         };
         for (const [sec, peak] of [[18, -20], [13, -80], [13, -80], [13, -80]] as const) {
             await press(w, thread, "step-start");
@@ -1548,7 +1313,6 @@ describe("web カメラ (VDO.ninja)", () => {
     it("マイクの声の録音は、VDO.ninja で届く音声を録る (Discord のボイスチャンネルは使わない)", async () => {
         const w = makeWorld(webcamYaml);
         assert.deepEqual(w.config.checks.map((c) => c.kind).slice(-1), ["micRecord"]);
-        assert.equal(w.config.mic.via, "vdoninja");
         const thread = await untilMicStep(w);
         assert.match(w.chat.lastPost(thread)!.content, /手順 6\/6[\s\S]*VDO\.ninja[\s\S]*push=cam1/);
         await press(w, thread, "step-start");
@@ -1584,18 +1348,57 @@ describe("web カメラ (VDO.ninja)", () => {
         assert.match(w.chat.lastPost(thread)!.content, /マイク音: マイクは使わない/);
     });
 
-    it("web カメラを使わない人も、マイクの手順では受信用のページを開き直して録れる", async () => {
+    it("マイクだけ使う人: カメラは「Disable Video」にしてもらい、音声が届いたら計測し、最後にマイクの声を録る", async () => {
         const w = makeWorld(webcamYaml);
-        const thread = await untilMicStep(w, true);
-        assert.deepEqual(w.webcam.opened, [kView, kView]);
-        assert.match(w.chat.lastPost(thread)!.content, /push=cam1/);
-        w.webcam.play(kView, { audio: true });
-        await press(w, thread, "step-start");
+        const thread = await untilAsked(w, U1, 7, "no", "yes");
+        const ask = w.chat.lastPost(thread)!;
+        assert.match(ask.content, /「Audio Source\(s\)」で本番で使うマイクを選んでください。カメラは使わないので、「Video Source」は「Disable Video」にしてください。/);
+        // カメラを使わない人には、「web カメラは使わない」のボタンは出さない
+        assert.deepEqual(ask.buttons?.map((b) => b.label), ["中断する"]);
+        assert.deepEqual(w.webcam.opened, [kView]);
+        // 映像は待たない。音声が届いたら (静止画は付けずに) 計測を始める
+        await w.run(3, () => {
+            w.rx.live(7);
+            w.webcam.play(kView, { playing: false, audio: true });
+        });
+        assert.ok(w.chat.texts(thread).some((x) => x.includes("マイクの音声が届きました")));
+        assert.match(await w.service.status("U1"), /measuring/);
+        const after = await untilMicStepFrom(w, thread);
+        assert.match(w.chat.lastPost(after)!.content, /手順 6\/6/);
+        await press(w, after, "step-start");
         await w.flush();
-        assert.match(w.chat.lastPost(thread)!.content, /録音しました/);
+        assert.match(w.chat.lastPost(after)!.content, /録音しました/);
         await w.service.cancel("U1");
-        assert.match(w.chat.lastPost(thread)!.content, /web カメラのページ.*を閉じてください/);
+        assert.match(w.chat.lastPost(after)!.content, /web カメラのページ.*を閉じてください/);
+        assert.equal(w.sheet.rows[0]![kCam], "使わない");
+        assert.equal(w.sheet.rows[0]![col("web カメラとマイクの申告")], "カメラ: 使わない / マイク: 使う");
     });
+
+    it("カメラだけ使う人: マイクは「No Audio」にしてもらい、マイクの録音の手順は出さない", async () => {
+        const w = makeWorld(webcamYaml);
+        const thread = await untilAsked(w, U1, 7, "yes", "no");
+        assert.match(w.chat.lastPost(thread)!.content, /マイクは使わないので、「Audio Source\(s\)」は「No Audio」にしてください。[\s\S]*「web カメラは使わない」を押してください/);
+        await w.run(145, () => {
+            w.rx.live(7);
+            w.webcam.play(kView);
+        });
+        await untilMicStepFrom(w, thread);
+        // 5 手順で終わる (手順は 5 つと数える)
+        assert.ok(w.chat.texts(thread).some((x) => x.startsWith("**手順 5/5**")));
+        assert.match(w.chat.lastPost(thread)!.content, /確認はすべて終わりました/);
+        assert.ok(!w.chat.lastPost(thread)!.content.includes("マイク音"));
+    });
+
+    /** 映像の判定のあと、音声のチェックの 5 手順を通す (VDO.ninja は届いたまま) */
+    async function untilMicStepFrom(w: World, thread: string) {
+        await w.run(145, () => w.rx.live(7));
+        for (const [sec, peak] of [[18, -20], [13, -80], [13, -80], [13, -80]] as const) {
+            await press(w, thread, "step-start");
+            await w.run(sec, () => w.rx.live(7, { peak }));
+        }
+        await press(w, thread, "yes");
+        return thread;
+    }
 
     it("web カメラが届いたら録画を始め、終わったらシートに書き、録画と一緒に Google ドライブに上げる", async () => {
         const w = makeWorld(webcamYaml, driveYaml);
@@ -1623,7 +1426,7 @@ describe("web カメラ (VDO.ninja)", () => {
 
     it("「web カメラは使わない」の人と、vdoninja.record: false では録らない", async () => {
         const w = makeWorld(webcamYaml);
-        const thread = await untilAsked(w);
+        const thread = await untilAsked(w, U1, 7, "maybe", "no");
         await press(w, thread, "webcam-skip");
         await w.run(5, () => w.rx.live(7));
         assert.equal(w.webcam.recordBases.size, 0);
@@ -1670,5 +1473,98 @@ describe("web カメラ (VDO.ninja)", () => {
         w2.rx.channels.get(7)!.status = "live";
         await w2.run(1, () => w2.rx.live(7));
         assert.deepEqual(w2.webcam.opened, [kView]);
+    });
+});
+
+describe("本番で web カメラとマイクを使うか", () => {
+    const kUsage = col("web カメラとマイクの申告");
+
+    async function started(w: World) {
+        await w.service.start(U1, "C-test", undefined, "ja");
+        await w.flush();
+        return w.chat.threads[0]!.id;
+    }
+    const question = (w: World, thread: string, item: "camera" | "mic") => w.chat.posts.find((p) => p.threadId === thread && p.msg.buttons?.some((b) => b.id.endsWith(`:usage-${item}-yes`)))!.msg;
+
+    it("スレッドを作った直後に、web カメラとマイクのそれぞれを [使う] [未定] [使わない] で聞く。押したものを書き足し、押し直せる", async () => {
+        const w = makeWorld(webcamYaml);
+        const thread = await started(w);
+        const camera = question(w, thread, "camera");
+        assert.match(camera.content, /本番で \*\*web カメラ\*\* を使いますか？[\s\S]*「未定」の場合は、使うものとして確認します/);
+        assert.deepEqual(camera.buttons?.map((b) => b.label), ["使う", "未定", "使わない"]);
+        assert.match(question(w, thread, "mic").content, /本番で \*\*マイク\*\* を使いますか？/);
+        await press(w, thread, "usage-camera-maybe");
+        const chosen = question(w, thread, "camera");
+        assert.match(chosen.content, /→ \*\*未定\*\*$/);
+        assert.deepEqual(chosen.buttons?.map((b) => b.style), ["secondary", "primary", "secondary"]);
+        await press(w, thread, "usage-camera-no");
+        assert.match(question(w, thread, "camera").content, /→ \*\*使わない\*\*$/);
+    });
+
+    it("VDO.ninja を使わない設定なら、聞かない", async () => {
+        const w = makeWorld();
+        const thread = await started(w);
+        assert.ok(!w.chat.posts.some((p) => p.threadId === thread && p.msg.buttons?.some((b) => b.id.includes(":usage-"))));
+    });
+
+    it("配信が届いた時点で答えていなければ、メンションして答えてもらい、答えたら VDO.ninja を案内する。案内のあとは変えられない", async () => {
+        const w = makeWorld(webcamYaml);
+        const thread = await started(w);
+        await press(w, thread, "usage-camera-yes");
+        w.flow.sampleAt = (t) => goodSample(t);
+        await w.run(5, () => w.rx.live(7));
+        assert.match(w.chat.lastPost(thread)!.content, /^<@U1> 先に、上の質問 \(web カメラとマイクを使うか\) に答えてください/);
+        assert.match(await w.service.status("U1"), /awaitingUsage/);
+        assert.equal(w.webcam.opened.length, 0);
+        await w.run(30, () => w.rx.live(7));
+        assert.match(await w.service.status("U1"), /awaitingUsage/, "答えるまでは先に進まない");
+        await press(w, thread, "usage-mic-maybe");
+        assert.match(w.chat.lastPost(thread)!.content, /web カメラとマイクの確認をします/);
+        assert.deepEqual(w.webcam.opened, [kView]);
+        // 案内を出したら、質問のボタンは外し、押されても変えない
+        assert.ok(!w.chat.posts.some((p) => p.msg.buttons?.some((b) => b.id.includes(":usage-"))), "ボタンは外してある");
+        assert.ok(w.chat.texts(thread).some((x) => /本番で \*\*マイク\*\* を使いますか？[\s\S]*→ \*\*未定\*\*$/.test(x)), "答えは残す");
+        const r = await w.service.button("U1", false, `tc:${sessionIdOf(w, thread)}:usage-mic-no`);
+        assert.match(r.ephemeral ?? "", /ここでは変えられません/);
+        await w.service.cancel("U1");
+        assert.equal(w.sheet.rows[0]![kUsage], "カメラ: 使う / マイク: 未定");
+    });
+
+    it("答えないまま 10 分で催促し、20 分で中断する", async () => {
+        const w = makeWorld(webcamYaml);
+        const thread = await started(w);
+        w.flow.sampleAt = (t) => goodSample(t);
+        await w.run(5, () => w.rx.live(7));
+        await w.run(601, () => w.rx.live(7));
+        assert.equal(w.chat.texts(thread).filter((x) => x.includes("先に、上の質問")).length, 2);
+        await w.run(600, () => w.rx.live(7));
+        assert.match(String(w.sheet.rows[0]![col("理由")]), /web カメラとマイクを使うかに答えないまま時間切れ/);
+        assert.equal(w.sheet.rows[0]![kUsage], "カメラ: 答えていない / マイク: 答えていない");
+    });
+
+    it("両方「使わない」なら、VDO.ninja を案内せずに計測し、マイクの録音の手順も出さない", async () => {
+        const w = makeWorld(webcamYaml);
+        const thread = await startWithVdo(w, "no", "no");
+        assert.equal(w.webcam.opened.length, 0);
+        assert.ok(!w.chat.texts(thread).some((x) => x.includes("web カメラとマイクの確認をします")));
+        assert.ok(w.chat.texts(thread).some((x) => x.includes("映像は問題なく届いています")));
+        await passChecks(w, thread);
+        assert.match(w.chat.lastPost(thread)!.content, /確認はすべて終わりました/);
+        assert.ok(!w.chat.lastPost(thread)!.content.includes("マイク音"));
+        await w.service.cancel("U1");
+        assert.equal(w.sheet.rows[0]![kUsage], "カメラ: 使わない / マイク: 使わない");
+        assert.equal(w.sheet.rows[0]![col("web カメラ")], "");
+    });
+
+    it("両方「未定」なら、使うものとして両方を確かめる。録音で「マイクは使わない」を押せば、そう残す", async () => {
+        const w = makeWorld(webcamYaml);
+        const thread = await startWithVdo(w, "maybe", "maybe");
+        assert.ok(w.chat.texts(thread).some((x) => x.includes("「Video Source」で本番で使うカメラを、「Audio Source(s)」で本番で使うマイク")));
+        assert.ok(w.chat.texts(thread).some((x) => x.includes("web カメラの映像が届きました")));
+        await passChecks(w, thread);
+        assert.match(w.chat.lastPost(thread)!.content, /手順 6\/6/);
+        await press(w, thread, "voice-skip");
+        await w.service.cancel("U1");
+        assert.equal(w.sheet.rows[0]![kUsage], "カメラ: 未定 / マイク: 未定 → 使わない");
     });
 });
