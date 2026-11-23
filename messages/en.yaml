@@ -48,7 +48,7 @@ usage:
     While we prepare, please tell us: will you use a **webcam** at the event?
     (If you are not sure yet, we check it as if you will.)
   mic: |-
-    Will you use a **microphone** at the event? (Your voice is sent from the same page as the webcam (VDO.ninja).)
+    Will you use a **microphone** at the event?
   chosen: "→ **{answer}**"
   remind: "{user} Please answer the questions above first (whether you use a webcam and a microphone). We continue once you answer."
   locked: "We have already sent the VDO.ninja instructions, so this can no longer be changed here. If you don't use it, press the button on the instructions message."
