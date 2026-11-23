@@ -1698,16 +1698,18 @@ export class TechcheckService {
     }
 
     /**
-     * マイクの声の録音の手順 (VDO.ninja。設計書 §7.4) を出す。本番と同じく、VDO.ninja のページから届く音声を録る。
-     * ページは計測の前に開いてもらってある。閉じてしまった人が開き直せるように、送信用の URL を添える
+     * マイクの声の録音の手順 (VDO.ninja。設計書 §7.3) を出す。本番と同じく、VDO.ninja のページから届く音声を録る。
+     * ページは計測の前に開いてもらってある。いま音声が届いていない (ページを閉じた、など) ときだけ、開き直す URL を添える
+     * (届いているのに添えると、別のページを開くように見えてしまう)
      */
     private async promptWebcamVoice(s: Session, step: CheckStep): Promise<void> {
         const link = s.webcam ? this.cfg.vdoninja.links[s.webcam.link] : undefined;
         if (!this.d.webcam || !s.webcam || !link || s.webcam.failed) return this.voiceFailed(s, step, "VDO.ninja の受信用のページを開けません");
         if (!this.d.webcam.status(s.id)) this.d.webcam.open(s.id, link.view);
         const header = this.stepHeader(s);
+        const reopen = this.d.webcam.status(s.id)?.audio ? "" : `\n${this.t(s.lang, "webcam.micUrl", { url: link.push })}`;
         await this.post(s, {
-            content: `${header}\n${this.stepText(s.lang, step, "text")}\n${this.t(s.lang, "webcam.micUrl", { url: link.push })}`,
+            content: `${header}\n${this.stepText(s.lang, step, "text")}${reopen}`,
             buttons: [this.btn(s, "step-start", "button.stepStart", "primary"), this.btn(s, "voice-skip", "button.voiceSkip", "secondary")],
         });
     }
@@ -1908,7 +1910,11 @@ export class TechcheckService {
                 if (step.kind === "micRecord") {
                     if (!this.d.webcam || this.webcamRecording.has(s.id)) return { ephemeral: this.t(s.lang, "button.ack") };
                     // マイクの音声が届いているか (ページを開いていない、マイクを許可していない、なら届かない)
-                    if (!this.d.webcam.status(s.id)?.audio) return { ephemeral: this.t(s.lang, "webcam.micNotYet") };
+                    if (!this.d.webcam.status(s.id)?.audio) {
+                        // 開き直す URL を添える (手順を出したときは届いていて、添えなかったかもしれない)
+                        const link = s.webcam ? this.cfg.vdoninja.links[s.webcam.link] : undefined;
+                        return { ephemeral: this.t(s.lang, "webcam.micNotYet", { url: link?.push ?? "" }) };
+                    }
                     s.checkState = "running";
                     s.checkStartedAt = this.now();
                     this.webcamRecording.add(s.id);
