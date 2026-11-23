@@ -4,7 +4,7 @@
 
 import { randomUUID } from "node:crypto";
 import { type Advice, type SrtSample, advise, atLeastAfterDrops, kMinLatencyMs, nextLatency, obsLatency } from "./advisor.js";
-import { evaluateAudioStep } from "./checks.js";
+import { evaluateAudioStep, missingStepTexts, stepTextKeys } from "./checks.js";
 import type { CheckStep, Config, FlowConfig, Lang } from "./config.js";
 import type { I18n } from "./i18n.js";
 import { langFromLocale } from "./i18n.js";
@@ -198,6 +198,11 @@ export class TechcheckService {
     constructor(private readonly d: Deps) {
         this.cfg = d.config;
         this.checks = d.config.checks;
+        // 手順の文言は messages の steps.<id> にある。足りなければ、手順の途中で止まらないように、起動しない
+        const missing = missingStepTexts(this.checks, d.config.mic.via, (k) => d.i18n.has(k));
+        if (missing.length > 0) {
+            throw new Error(`手順の文言が、文言のファイル (ja.yaml と en.yaml) にありません。steps の下に書いてください:\n${missing.map((k) => `- ${k}`).join("\n")}`);
+        }
         this.sessions = d.store.get<Session[]>("sessions") ?? [];
         for (const s of this.sessions) {
             // 枠が 1 つだったときに保存したセッションには、枠の番号が無い
@@ -1557,7 +1562,7 @@ export class TechcheckService {
             const image = await this.still(s);
             const note = image ? "" : `\n${this.t(s.lang, "checks.noImage")}`;
             await this.post(s, {
-                content: `${header}\n${step.text[s.lang]}${note}`,
+                content: `${header}\n${this.stepText(s.lang, step, "text")}${note}`,
                 image: image ? { name: "stream.jpg", data: image } : undefined,
                 buttons: [this.btn(s, "yes", "button.yes", "success"), this.btn(s, "no", "button.no", "danger")],
             });
@@ -1571,7 +1576,7 @@ export class TechcheckService {
         if (step.kind === "silence") buttons.push(this.btn(s, "cannot-mute", "button.cannotMute", "secondary"));
         // 音を消せない人には、このあとの「載らない」手順で、同じ小さい音量のままにしてもらう (その音量を基準に比べる)
         const note = step.kind === "quiet" && s.cannotMute ? `\n${this.t(s.lang, "checks.cannotMuteKeep")}` : "";
-        await this.post(s, { content: `${header}\n${step.text[s.lang]}${note}`, buttons });
+        await this.post(s, { content: `${header}\n${this.stepText(s.lang, step, "text")}${note}`, buttons });
     }
 
     /** マイクの声の録音の手順なら、録る経路 (設定の mic.via)。ほかの手順なら undefined */
@@ -1623,7 +1628,7 @@ export class TechcheckService {
         // 待たせたあとは、気づけるようにメンションする
         const call = wasWaiting ? `<@${s.userId}> ${this.t(s.lang, "voice.freed")}\n` : "";
         await this.post(s, {
-            content: `${call}${header}\n${step.text[s.lang]}\n${this.t(s.lang, "voice.channel", { channel: `<#${pick.id}>` })}`,
+            content: `${call}${header}\n${this.stepText(s.lang, step, "text")}\n${this.t(s.lang, "voice.channel", { channel: `<#${pick.id}>` })}`,
             buttons: [this.btn(s, "step-start", "button.stepStart", "primary"), skip],
         });
     }
@@ -1639,7 +1644,7 @@ export class TechcheckService {
         s.webcam.micAsked = true;
         const header = this.t(s.lang, "checks.header", { n: s.checkIndex + 1, total: this.checks.length });
         await this.post(s, {
-            content: `${header}\n${step.text[s.lang]}\n${this.t(s.lang, "webcam.micUrl", { url: link.push })}`,
+            content: `${header}\n${this.stepText(s.lang, step, "text")}\n${this.t(s.lang, "webcam.micUrl", { url: link.push })}`,
             buttons: [this.btn(s, "step-start", "button.stepStart", "primary"), this.btn(s, "voice-skip", "button.voiceSkip", "secondary")],
         });
     }
@@ -1771,7 +1776,7 @@ export class TechcheckService {
             // 音を消せない人の「載らない」手順は、ゲームの音が大きくなっただけでも「おかしい」になる。そのことを添える
             const note = step.kind === "quiet" && s.cannotMute ? `\n${this.t(s.lang, "checks.cannotMuteNg")}` : "";
             await this.post(s, {
-                content: `${this.t(s.lang, "checks.ng")}\n${step.failHint[s.lang]}${note}`,
+                content: `${this.t(s.lang, "checks.ng")}\n${this.stepText(s.lang, step, "failHint")}${note}`,
                 buttons: [this.btn(s, "step-retry", "button.retry", "primary"), this.btn(s, "step-next", "button.next", "secondary")],
             });
             return;
@@ -1783,10 +1788,11 @@ export class TechcheckService {
 
     /**
      * 配信者に見せる、手順の名前 (何を確かめた手順か)。手順の id (game-audio など) は運営向けの記録に使う名前で、
-     * 配信者には意味が分かりにくい。label の無い手順 (設定の checks に自分で足したもの) は id のまま出す
+     * 配信者には意味が分かりにくい。名前は messages の steps.<id>.label。無い手順は id のまま出す
      */
     private stepLabel(s: Session, id: string): string {
-        return this.checks.find((c) => c.id === id)?.label?.[s.lang] ?? id;
+        const key = `steps.${id}.label`;
+        return this.d.i18n.has(key) ? this.t(s.lang, key) : id;
     }
 
     /**
@@ -2215,6 +2221,11 @@ export class TechcheckService {
 
     private t(lang: Lang, key: string, vars: Record<string, string | number> = {}): string {
         return this.d.i18n.t(lang, key, vars);
+    }
+
+    /** 手順の指示 (text) か直し方 (failHint)。messages の steps.<id> から引き、{seconds} に手順の秒数を入れる */
+    private stepText(lang: Lang, step: CheckStep, field: "text" | "failHint"): string {
+        return this.t(lang, stepTextKeys(step, this.cfg.mic.via)[field], { seconds: step.seconds });
     }
 
     private now(): number {

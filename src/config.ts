@@ -4,7 +4,7 @@
 import { readFileSync } from "node:fs";
 import { parse as parseYaml } from "yaml";
 import { z } from "zod";
-import { defaultChecks, micDiscordStep, micVdoninjaStep } from "./checks.js";
+import { defaultChecks, micStep } from "./checks.js";
 
 const nonEmpty = z.string().min(1);
 /**
@@ -16,20 +16,16 @@ const optionalText = z
     .nullish()
     .transform((v) => v ?? "");
 const lang = z.enum(["ja", "en"]);
-const localized = z.object({ ja: nonEmpty, en: nonEmpty });
 
+// 手順の文言 (名前・指示・直し方) は、ここには書かない。messages/ja.yaml と en.yaml の steps.<id> に書く
 export const checkStepSchema = z.object({
+    // 手順の名前。シートなど運営向けの記録にそのまま出る。文言は messages の steps.<id> から引く
     id: nonEmpty,
-    // 配信者に見せる結果のまとめでの、この手順の名前 (何を確かめた手順か)。省くと id をそのまま出す。
-    // id はシートなど運営向けの記録に使う名前で、配信者には意味が分かりにくい
-    label: localized.optional(),
     // sound: 音が載ることを期待 / silence: 静かにする (ノイズの大きさを測る) / quiet: 載らないことを期待 (基準は silence)
     // confirm: 静止画を見て はい / いいえ / reconnect: 配信を止めて始め直す
     // micRecord: マイクの声を録音する。録る経路は設定の mic.via (vdoninja か discord)
     kind: z.enum(["sound", "silence", "quiet", "confirm", "reconnect", "micRecord"]),
     seconds: z.number().int().min(0).max(600),
-    text: localized,
-    failHint: localized,
     thresholdDb: z.number().optional(), // sound: これ以上の秒を「音が載った」とみなす / silence: これ未満なら静か
     ratio: z.number().min(0).max(1).optional(), // sound: 音が載った秒の割合の下限
     marginDb: z.number().optional(), // quiet: silence で測ったノイズにこれを足した値を超えたら「載った」
@@ -366,7 +362,12 @@ export function parseConfig(yamlText: string, env: NodeJS.ProcessEnv = process.e
     // webcam と voice は、VDO.ninja の接続 (vdoninja) とマイクの声の録音 (mic) に分け直した。前の名前のままだと
     // VDO.ninja もマイクの録音も使わずに動いてしまうので、黙って無視せずに、移し方を伝える
     const oldMedia = raw && typeof raw === "object" ? ["webcam", "voice"].filter((k) => k in raw) : [];
-    if (!result.success || moved.length > 0 || oldLatency.length > 0 || oldMedia.length > 0) {
+    // 手順の文言は messages の steps.<id> に移した。checks に書いたままだと黙って捨てられるので、移し方を伝える
+    const rawChecks = raw && typeof raw === "object" ? (raw as { checks?: unknown }).checks : undefined;
+    const textInChecks = Array.isArray(rawChecks)
+        ? rawChecks.filter((s): s is Record<string, unknown> => Boolean(s) && typeof s === "object" && ["text", "failHint", "label"].some((k) => k in s))
+        : [];
+    if (!result.success || moved.length > 0 || oldLatency.length > 0 || oldMedia.length > 0 || textInChecks.length > 0) {
         const lines = (result.error?.issues ?? []).map((i) => `- ${i.path.join(".") || "(全体)"}: ${i.message}`);
         for (const k of moved) {
             lines.push(
@@ -388,12 +389,16 @@ export function parseConfig(yamlText: string, env: NodeJS.ProcessEnv = process.e
                     : "- voice: マイクの声の録音は mic にまとめました。voice.enabled: true は mic.via: discord に、voice.dir は mic.dir に移してください",
             );
         }
+        if (textInChecks.length > 0) {
+            const ids = textInChecks.map((s) => String(s.id ?? "?")).join(", ");
+            lines.push(`- checks: 手順の文言 (text、failHint、label) は、i18n.dir の ja.yaml と en.yaml の steps.<id> に書くようにしました。checks からは消して、steps の下へ移してください (${ids})`);
+        }
         if (missing.length > 0) lines.push(`(設定されていない環境変数: ${[...new Set(missing)].join(", ")})`);
         throw new ConfigError(`設定ファイルが正しくありません:\n${lines.join("\n")}`);
     }
     // 既定の手順。マイクの声を録るなら、その経路の録音の手順を最後に足す
     const via = micVia(result.data);
-    const defaults = via === "discord" ? [...defaultChecks, micDiscordStep] : via === "vdoninja" ? [...defaultChecks, micVdoninjaStep] : defaultChecks;
+    const defaults = via === "off" ? defaultChecks : [...defaultChecks, micStep];
     return { ...result.data, mic: { via, dir: result.data.mic.dir }, checks: result.data.checks ?? defaults };
 }
 

@@ -1,10 +1,12 @@
 // 試験用の偽物。外の口 (ports.ts) を置き換え、時計を進めながら tick() を回す。
 
+import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { dirname, join } from "node:path";
+import { parse as parseYaml } from "yaml";
 import type { SrtSample } from "../src/advisor.js";
 import { parseConfig, type Config } from "../src/config.js";
-import { I18n } from "../src/i18n.js";
+import { I18n, flatten } from "../src/i18n.js";
 import type {
     ChatPort,
     Clock,
@@ -30,6 +32,12 @@ import { MemoryStore } from "../src/store.js";
 
 export const here = dirname(fileURLToPath(import.meta.url));
 export const messagesDir = join(here, "..", "messages");
+
+/** messages/*.yaml に、キーを足した文言 (設定の checks に足した手順の文言など)。extra は "a.b.c" のキーで、両方の言語に同じ値を入れる */
+export function messagesWith(extra: Record<string, string>): I18n {
+    const read = (l: "ja" | "en") => ({ ...flatten(parseYaml(readFileSync(join(messagesDir, `${l}.yaml`), "utf8"))), ...extra });
+    return new I18n({ ja: read("ja"), en: read("en") });
+}
 
 export const baseYaml = `
 discord:
@@ -419,8 +427,11 @@ export class FakeDns implements DnsPort {
     }
 }
 
-/** existingStore を渡すと、前の世界の保存を引き継ぐ (bot を起動し直したことにする) */
-export function makeWorld(extraYaml = "", baseYamlText = baseYaml, existingStore?: MemoryStore) {
+/**
+ * existingStore を渡すと、前の世界の保存を引き継ぐ (bot を起動し直したことにする)。
+ * i18n を渡すと、messages/*.yaml の代わりにその文言を使う (messagesWith)
+ */
+export function makeWorld(extraYaml = "", baseYamlText = baseYaml, existingStore?: MemoryStore, i18n?: I18n) {
     const config = testConfig(extraYaml, baseYamlText);
     const clock = new FakeClock();
     const flow = new FakeFlow();
@@ -437,7 +448,7 @@ export function makeWorld(extraYaml = "", baseYamlText = baseYaml, existingStore
     const logs: string[] = [];
     const service = new TechcheckService({
         config,
-        i18n: I18n.load(messagesDir),
+        i18n: i18n ?? I18n.load(messagesDir),
         store,
         flow,
         rx,

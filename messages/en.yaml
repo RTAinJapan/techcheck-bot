@@ -108,6 +108,45 @@ checks:
   done: "All checks are done. Review the results and press \"Finish\"."
   skipped: "continued anyway"
 
+# Texts of the check steps, keyed by the step id (config checks; the defaults are in src/checks.ts). See ja.yaml.
+steps:
+  game-audio:
+    label: "Game audio arrives"
+    text: "Play your game with sound. Stay in a scene with music or sound effects for about {seconds} seconds."
+    failHint: "Game audio is not reaching us. Check the game audio source in OBS (capture card or application audio capture) and make sure it is not muted."
+  silence:
+    label: "Silent scene"
+    text: |-
+      To check that nothing but the game audio goes into OBS, first make the game itself silent: move to a quiet scene in the game, or turn the sound off in the game's settings.
+      Then stay quiet for about {seconds} seconds. Do not change anything in OBS (mute or volume). If the game cannot be made completely silent, press "Can't mute the game".
+    failHint: "We hear sound although nothing is playing (possibly noise). Check the capture card volume and your console settings."
+  mic:
+    label: "Microphone is not in the OBS audio"
+    text: |-
+      We check that OBS is set up to send only the game audio.
+      Keep the game silent and talk into your microphone in your normal voice for about {seconds} seconds.
+    failHint: "Your microphone is in the stream. Remove the microphone from the stream audio in OBS (we receive your voice separately)."
+  desktop:
+    label: "No desktop or other non-game audio in OBS"
+    text: "Keep the game silent and play some PC sound (a video in your browser, a Discord notification, etc.) for about {seconds} seconds."
+    failHint: "PC sound is in the stream. Remove desktop audio from the stream audio in OBS."
+  picture:
+    label: "The game picture is as intended"
+    text: "Is the picture in your stream correct (the whole game screen is visible, and there are no other windows)?"
+    failHint: "Fix the scene in OBS, then press \"Retry\"."
+  reconnect:
+    label: "Stream comes back after a restart"
+    text: "Stop streaming in OBS once and start it again (practice for recovering if you drop during the event)."
+    failHint: "Your stream did not come back. Check that the stream settings (URL) in OBS were saved."
+  voice:
+    label: "Microphone voice"
+    vdoninja:
+      text: "(Only if you use a microphone) We record your voice as it reaches us from the webcam page (VDO.ninja) (staff will listen to it later). Check that the microphone you will use at the event is selected on the webcam page and is not muted, press \"Start\", then talk in your normal voice for about {seconds} seconds. If you don't use a microphone, press \"I don't use a mic\"."
+      failHint: "Your voice did not reach us. On the webcam page, check that the right microphone is selected and that it is not muted."
+    discord:
+      text: "(Only if you use a microphone) We record your voice as it reaches us through a Discord voice channel (staff will listen to it later). Join the voice channel below, press \"Start\", then talk in your normal voice for about {seconds} seconds. If you don't use a microphone, press \"I don't use a mic\"."
+      failHint: "Your voice did not reach us. Check that you are not muted in Discord and that the right input device (microphone) is selected."
+
 voice:
   channel: "Voice channel to join: {channel}"
   wrongChannel: "Join the voice channel we asked for ({channel}), then press again."

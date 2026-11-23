@@ -5,7 +5,7 @@ import { describe, it } from "node:test";
 import type { SrtSample } from "../src/advisor.js";
 import { defaultChecks, reconnectStep } from "../src/checks.js";
 import { columnLetter, describeRange, formatRecPos, sheetColumns } from "../src/record.js";
-import { baseYaml, driveYaml, goodSample, makeWorld, twoSlotsYaml, webcamYaml, type World } from "./helpers.js";
+import { baseYaml, driveYaml, goodSample, makeWorld, messagesWith, twoSlotsYaml, webcamYaml, type World } from "./helpers.js";
 
 /** シートの列の番号を、見出しの名前で引く (列の順を変えても、試験が何を見ているかが分かるように) */
 const col = (name: (typeof sheetColumns)[number]) => sheetColumns.indexOf(name);
@@ -456,12 +456,22 @@ describe("結果のまとめ", () => {
         assert.match(en.chat.lastPost(t)!.content, /- Game audio arrives: /);
     });
 
-    it("名前を付けていない手順 (設定の checks に自分で足したもの) は、id のまま出す", async () => {
-        const custom = [{ id: "my-step", kind: "confirm", seconds: 0, text: { ja: "よいですか", en: "OK?" }, failHint: { ja: "直してください", en: "Fix it" } }];
-        const w = makeWorld(`checks: ${JSON.stringify(custom)}\n`);
+    it("設定の checks に足した手順: 文言は messages の steps.<id> から出す。名前 (label) が無ければ id のまま", async () => {
+        const custom = `checks: ${JSON.stringify([{ id: "my-step", kind: "confirm", seconds: 0 }])}\n`;
+        const i18n = messagesWith({ "steps.my-step.text": "よいですか", "steps.my-step.failHint": "直してください" });
+        const w = makeWorld(custom, baseYaml, undefined, i18n);
         const { thread } = await startAndStream(w);
+        assert.match(w.chat.lastPost(thread)!.content, /手順 1\/1\*\*\nよいですか$/);
+        await press(w, thread, "no");
+        assert.match(w.chat.lastPost(thread)!.content, /直してください$/);
+        await press(w, thread, "step-retry");
         await press(w, thread, "yes");
         assert.match(w.chat.lastPost(thread)!.content, /- my-step: OK/);
+    });
+
+    it("手順の文言が messages に無ければ、起動しない (手順の途中で止まらないように)", () => {
+        const custom = `checks: ${JSON.stringify([{ id: "my-step", kind: "confirm", seconds: 0 }])}\n`;
+        assert.throws(() => makeWorld(custom), /手順の文言が、文言のファイル[\s\S]*- steps\.my-step\.text\n- steps\.my-step\.failHint/);
     });
 });
 
@@ -473,6 +483,7 @@ describe("ゲームの音を完全には消せない", () => {
         await w.run(18, () => w.rx.live(7, { peak: -20 }));
         // 「静かにする」手順には、「始める」と「音を消せない」がある
         const prompt = w.chat.lastPost(thread)!;
+        assert.match(prompt.content, /OBS にゲーム音以外が入っていないことを確認するため、まずはゲーム内で静かなシーンや設定によって音が出ない状態にしてください。\nそのまま 10 秒ほど静かにしてください。/);
         assert.match(prompt.content, /ゲームの音を完全には消せない場合は「音を消せない」を押してください/);
         assert.deepEqual(prompt.buttons?.map((b) => b.label), ["始める", "音を消せない"]);
         await press(w, thread, "cannot-mute");
