@@ -111,7 +111,7 @@ export interface Session {
 }
 
 export interface WebcamState {
-    /** 使っている送信用と受信用の URL の組 (設定の webcam.links の位置) */
+    /** 使っている送信用と受信用の URL の組 (設定の vdoninja.links の位置) */
     link: number;
     /** 「web カメラは使わない」 */
     skipped?: boolean;

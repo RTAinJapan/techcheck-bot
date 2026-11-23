@@ -5,7 +5,7 @@ dist/
 *.db-wal
 *.db-shm
 config.yaml
-voice/
-webcam/
+mic/
+vdoninja/
 google-service-account*.json
 .env

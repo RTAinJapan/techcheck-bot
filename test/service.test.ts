@@ -426,7 +426,7 @@ describe("届いた配信の形を、期待する出力と比べる", () => {
 
 describe("結果のまとめ", () => {
     it("配信者には、手順を意味の分かる名前で見せる (内部の名前は出さない)。シートは内部の名前のまま", async () => {
-        const w = makeWorld("voice: { enabled: true }\n");
+        const w = makeWorld("mic: { via: discord }\n");
         const { thread } = await startAndStream(w);
         await passChecks(w, thread);
         await press(w, thread, "voice-skip");
@@ -566,13 +566,13 @@ describe("録画ファイルが途中で切り替わる", () => {
 });
 
 describe("録画と録音を Google ドライブに上げる", () => {
-    const voiceToo = "voice: { enabled: true }\n";
+    const voiceToo = "mic: { via: discord }\n";
     /** テストを 1 つ最後まで通す (録音が有効なら、録音も)。base を省くと、ドライブに上げる設定 */
     async function finishedTest(extra = "", base = driveYaml) {
         const w = makeWorld(extra, base);
         const { thread } = await startAndStream(w);
         await passChecks(w, thread);
-        if (w.config.voice.enabled) {
+        if (w.config.mic.via === "discord") {
             w.voice.where.U1 = "VC-1";
             await press(w, thread, "step-start");
             await w.flush();
@@ -651,7 +651,7 @@ describe("録画と録音を Google ドライブに上げる", () => {
 });
 
 describe("マイクの声の録音 (ボイスチャンネル)", () => {
-    const voiceOn = "voice: { enabled: true }\n";
+    const voiceOn = "mic: { via: discord }\n";
     /** 既定の 5 手順を通して、6 つ目 (マイクの録音) が出るところまで進める */
     async function toVoiceStep(extra = voiceOn) {
         const w = makeWorld(extra);
@@ -660,8 +660,8 @@ describe("マイクの声の録音 (ボイスチャンネル)", () => {
         return { w, thread };
     }
 
-    it("既定では手順に無い。voice.enabled で、最後の手順として足す", async () => {
-        assert.equal(makeWorld().config.checks.some((c) => c.kind === "voice"), false);
+    it("既定では手順に無い。mic.via: discord で、最後の手順として足す", async () => {
+        assert.equal(makeWorld().config.checks.some((c) => c.kind === "micRecord"), false);
         const { w, thread } = await toVoiceStep();
         const prompt = w.chat.lastPost(thread)!;
         assert.match(prompt.content, /手順 6\/6[\s\S]*下のボイスチャンネルに入り[\s\S]*入るボイスチャンネル: <#VC-1>/);
@@ -1521,7 +1521,8 @@ describe("web カメラ (VDO.ninja)", () => {
 
     it("マイクの声の録音は、VDO.ninja で届く音声を録る (Discord のボイスチャンネルは使わない)", async () => {
         const w = makeWorld(webcamYaml);
-        assert.deepEqual(w.config.checks.map((c) => c.kind).slice(-1), ["webcamVoice"]);
+        assert.deepEqual(w.config.checks.map((c) => c.kind).slice(-1), ["micRecord"]);
+        assert.equal(w.config.mic.via, "vdoninja");
         const thread = await untilMicStep(w);
         assert.match(w.chat.lastPost(thread)!.content, /手順 6\/6[\s\S]*VDO\.ninja[\s\S]*push=cam1/);
         await press(w, thread, "step-start");
@@ -1594,7 +1595,7 @@ describe("web カメラ (VDO.ninja)", () => {
         );
     });
 
-    it("「web カメラは使わない」の人と、webcam.record: false では録らない", async () => {
+    it("「web カメラは使わない」の人と、vdoninja.record: false では録らない", async () => {
         const w = makeWorld(webcamYaml);
         const thread = await untilAsked(w);
         await press(w, thread, "webcam-skip");

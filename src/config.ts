@@ -4,7 +4,7 @@
 import { readFileSync } from "node:fs";
 import { parse as parseYaml } from "yaml";
 import { z } from "zod";
-import { defaultChecks, voiceStep, webcamVoiceStep } from "./checks.js";
+import { defaultChecks, micDiscordStep, micVdoninjaStep } from "./checks.js";
 
 const nonEmpty = z.string().min(1);
 /**
@@ -25,9 +25,8 @@ export const checkStepSchema = z.object({
     label: localized.optional(),
     // sound: 音が載ることを期待 / silence: 静かにする (ノイズの大きさを測る) / quiet: 載らないことを期待 (基準は silence)
     // confirm: 静止画を見て はい / いいえ / reconnect: 配信を止めて始め直す
-    // voice: Discord のボイスチャンネルで話してもらい、その声を録音する (voice.enabled が要る)
-    // webcamVoice: VDO.ninja で届くマイクの声を録音する (webcam.links が要る)
-    kind: z.enum(["sound", "silence", "quiet", "confirm", "reconnect", "voice", "webcamVoice"]),
+    // micRecord: マイクの声を録音する。録る経路は設定の mic.via (vdoninja か discord)
+    kind: z.enum(["sound", "silence", "quiet", "confirm", "reconnect", "micRecord"]),
     seconds: z.number().int().min(0).max(600),
     text: localized,
     failHint: localized,
@@ -179,18 +178,10 @@ export const configSchema = z
             })
             .prefault({}),
         checks: z.array(checkStepSchema).min(1).optional(),
-        // マイクの声の録音 (Discord のボイスチャンネル)。enabled が true なら、チェックの最後に録音の手順を足す。
-        // 入ってもらうボイスチャンネルは、bot に「チャンネルを表示」と「接続」の権限がある所のうち、空いている所を bot が選ぶ
-        voice: z
-            .object({
-                enabled: z.boolean().prefault(false),
-                dir: z.string().min(1).prefault("./voice"), // 録音 (.ogg) の置き場所
-            })
-            .prefault({}),
-        // web カメラ (VDO.ninja)。links が空なら使わない。
+        // VDO.ninja の接続。配信者の web カメラの映像とマイクの声が、ここから届く。links が空なら使わない。
         // 配信が届いたあと、配信者に送信用の URL (push) を渡し、bot は受信用の URL (view) をブラウザで開いて、映っているかを見る。
         // そのまま (OBS の配信と WebRTC の両方を送っている状態で) 映像の判定と latency の調整をする
-        webcam: z
+        vdoninja: z
             .object({
                 // 送信用と受信用の URL の組。同時にテストする人数 (SRT の枠の数) だけ並べる (同じ組を 2 人に使わせない)
                 links: z.array(z.object({ push: nonEmpty, view: nonEmpty })).prefault([]),
@@ -204,16 +195,27 @@ export const configSchema = z
                     .prefault({}),
                 // 映像が届かなくなってから、「途切れた」とみなすまで (秒)
                 lostSec: z.number().int().min(1).prefault(10),
-                // true なら、チェックの最後に、VDO.ninja で届くマイクの声の録音の手順を足す (本番のマイクの経路)
-                mic: z.boolean().prefault(true),
                 // true なら、web カメラが届いてからテストが終わるまで、届いた映像と音声を録画する (Google ドライブにも上げる)
                 record: z.boolean().prefault(true),
                 // 録画 (.webm) の置き場所
-                dir: z.string().min(1).prefault("./webcam"),
+                dir: z.string().min(1).prefault("./vdoninja"),
             })
-            // webcam: の下が全部空 (null) でもよい
+            // vdoninja: の下が全部空 (null) でもよい
             .nullish()
-            .transform((v) => v ?? { links: [], browser: { path: "", channel: "chrome" }, lostSec: 10, mic: true, record: true, dir: "./webcam" }),
+            .transform((v) => v ?? { links: [], browser: { path: "", channel: "chrome" }, lostSec: 10, record: true, dir: "./vdoninja" }),
+        // マイクの声の録音。via で、本番のマイクの声が届く経路を選ぶ。off 以外なら、チェックの最後に録音の手順を足す。
+        // - vdoninja: VDO.ninja のページから届く声を、bot のブラウザで録る (vdoninja.links が要る)
+        // - discord: Discord のボイスチャンネルで録る。入ってもらうボイスチャンネルは、bot に「チャンネルを表示」と「接続」の
+        //   権限がある所のうち、空いている所を bot が選ぶ
+        // - off: 録らない
+        // 省くと、vdoninja.links があれば vdoninja、無ければ off
+        mic: z
+            .object({
+                via: z.enum(["vdoninja", "discord", "off"]).optional(),
+                dir: z.string().min(1).prefault("./mic"), // 録音の置き場所 (Discord は .ogg、VDO.ninja は .webm)
+            })
+            .nullish()
+            .transform((v) => v ?? { via: undefined, dir: "./mic" }),
         // 配信の静止画を、denpachan の録画から取り出すのに使う ffmpeg。既定は PATH の ffmpeg
         ffmpeg: z.object({ path: z.string().min(1).prefault("ffmpeg") }).prefault({}),
         i18n: z.object({ dir: z.string().prefault("./messages"), fallback: lang.prefault("en") }).prefault({}),
@@ -259,16 +261,16 @@ export const configSchema = z
                 slotChannels.add(slot.channel);
             }
         });
-        // web カメラの URL の組は、同時にテストする人数だけ要る。同じ URL を 2 つの組に書かない
-        if (c.webcam.links.length > 0) {
-            if (c.webcam.links.length < c.slots.srt.length) {
-                ctx.addIssue({ code: "custom", path: ["webcam", "links"], message: `webcam.links は、SRT の枠の数 (${c.slots.srt.length}) 以上の組を書いてください (同時にテストする人ごとに、別の URL を使います)` });
+        // VDO.ninja の URL の組は、同時にテストする人数だけ要る。同じ URL を 2 つの組に書かない
+        if (c.vdoninja.links.length > 0) {
+            if (c.vdoninja.links.length < c.slots.srt.length) {
+                ctx.addIssue({ code: "custom", path: ["vdoninja", "links"], message: `vdoninja.links は、SRT の枠の数 (${c.slots.srt.length}) 以上の組を書いてください (同時にテストする人ごとに、別の URL を使います)` });
             }
             const urls = new Set<string>();
-            c.webcam.links.forEach((l, i) => {
+            c.vdoninja.links.forEach((l, i) => {
                 for (const k of ["push", "view"] as const) {
-                    if (!/^https:\/\//.test(l[k])) ctx.addIssue({ code: "custom", path: ["webcam", "links", i, k], message: `webcam.links の ${k} は https:// で始まる URL にしてください` });
-                    if (urls.has(l[k])) ctx.addIssue({ code: "custom", path: ["webcam", "links", i, k], message: `webcam.links: 同じ URL を 2 回書いています (${k})` });
+                    if (!/^https:\/\//.test(l[k])) ctx.addIssue({ code: "custom", path: ["vdoninja", "links", i, k], message: `vdoninja.links の ${k} は https:// で始まる URL にしてください` });
+                    if (urls.has(l[k])) ctx.addIssue({ code: "custom", path: ["vdoninja", "links", i, k], message: `vdoninja.links: 同じ URL を 2 回書いています (${k})` });
                     urls.add(l[k]);
                 }
                 // 組の取り違えに気づけるように: 受信用は、送信用と同じストリーム ID (と、部屋を使うなら同じ部屋) を見ること。
@@ -283,11 +285,11 @@ export const configSchema = z
                 const pushId = param(l.push, "push");
                 const viewId = param(l.view, "view");
                 if (pushId && viewId && pushId !== viewId) {
-                    ctx.addIssue({ code: "custom", path: ["webcam", "links", i, "view"], message: `webcam.links: view のストリーム ID (${viewId}) が、push (${pushId}) と違います` });
+                    ctx.addIssue({ code: "custom", path: ["vdoninja", "links", i, "view"], message: `vdoninja.links: view のストリーム ID (${viewId}) が、push (${pushId}) と違います` });
                 }
                 const room = param(l.push, "room");
                 if (room && param(l.view, "room") !== room) {
-                    ctx.addIssue({ code: "custom", path: ["webcam", "links", i, "view"], message: `webcam.links: push が部屋 (room=${room}) を使っているので、view にも同じ &room=${room} が要ります (https://vdo.ninja/?view=<ID>&solo&room=<部屋> の形。部屋を付けないと届きません)` });
+                    ctx.addIssue({ code: "custom", path: ["vdoninja", "links", i, "view"], message: `vdoninja.links: push が部屋 (room=${room}) を使っているので、view にも同じ &room=${room} が要ります (https://vdo.ninja/?view=<ID>&solo&room=<部屋> の形。部屋を付けないと届きません)` });
                 }
             });
         }
@@ -306,15 +308,12 @@ export const configSchema = z
             ctx.addIssue({ code: "custom", path: ["denpachan", "token"], message: "denpachan.host が loopback でないときは denpachan.token が必要です" });
         }
         const checks = c.checks ?? defaultChecks;
-        if (!c.voice.enabled && checks.some((s) => s.kind === "voice")) {
-            ctx.addIssue({ code: "custom", path: ["checks"], message: "checks: voice の手順を使うには、voice.enabled を true にしてください" });
+        const via = micVia(c);
+        if (c.mic.via === "vdoninja" && c.vdoninja.links.length === 0) {
+            ctx.addIssue({ code: "custom", path: ["mic", "via"], message: "mic.via を vdoninja にするには、vdoninja.links を書いてください" });
         }
-        if (c.webcam.links.length === 0 && checks.some((s) => s.kind === "webcamVoice")) {
-            ctx.addIssue({ code: "custom", path: ["checks"], message: "checks: webcamVoice の手順を使うには、webcam.links を書いてください" });
-        }
-        // マイクの声の録音は、本番の経路の 1 つで行う (録音の記録は、テストごとに 1 つ)
-        if (c.voice.enabled && c.webcam.links.length > 0 && c.webcam.mic) {
-            ctx.addIssue({ code: "custom", path: ["voice", "enabled"], message: "マイクの声の録音は、VDO.ninja (webcam.mic。既定で true) か Discord のボイスチャンネル (voice.enabled) の、どちらか一方にしてください" });
+        if (via === "off" && checks.some((s) => s.kind === "micRecord")) {
+            ctx.addIssue({ code: "custom", path: ["checks"], message: "checks: micRecord の手順を使うには、mic.via を vdoninja か discord にしてください" });
         }
         const ids = new Set<string>();
         for (const s of checks) {
@@ -328,7 +327,15 @@ export const configSchema = z
         }
     });
 
-export type Config = z.infer<typeof configSchema> & { checks: CheckStep[] };
+/** マイクの声の録音の経路 (mic.via) */
+export type MicVia = "vdoninja" | "discord" | "off";
+
+/** mic.via。省いたら、VDO.ninja の URL があれば vdoninja (web カメラと同じページで声も届く)、無ければ off */
+function micVia(c: { mic: { via?: MicVia }; vdoninja: { links: unknown[] } }): MicVia {
+    return c.mic.via ?? (c.vdoninja.links.length > 0 ? "vdoninja" : "off");
+}
+
+export type Config = Omit<z.infer<typeof configSchema>, "checks" | "mic"> & { checks: CheckStep[]; mic: { via: MicVia; dir: string } };
 export type Lang = z.infer<typeof lang>;
 
 /** `${NAME}` を環境変数で置き換える。無い変数は空文字にし、名前を返す (必須の項目は検証で引っかかる) */
@@ -356,7 +363,10 @@ export function parseConfig(yamlText: string, env: NodeJS.ProcessEnv = process.e
     // latency の設定は ms から μs に変えた。前の名前のままだと既定値で動いてしまうので、黙って無視せずに、直し方を伝える
     const rawLatency = raw && typeof raw === "object" ? (raw as { latency?: unknown }).latency : undefined;
     const oldLatency = rawLatency && typeof rawLatency === "object" ? (["initialMs", "maxMs"] as const).filter((k) => k in rawLatency) : [];
-    if (!result.success || moved.length > 0 || oldLatency.length > 0) {
+    // webcam と voice は、VDO.ninja の接続 (vdoninja) とマイクの声の録音 (mic) に分け直した。前の名前のままだと
+    // VDO.ninja もマイクの録音も使わずに動いてしまうので、黙って無視せずに、移し方を伝える
+    const oldMedia = raw && typeof raw === "object" ? ["webcam", "voice"].filter((k) => k in raw) : [];
+    if (!result.success || moved.length > 0 || oldLatency.length > 0 || oldMedia.length > 0) {
         const lines = (result.error?.issues ?? []).map((i) => `- ${i.path.join(".") || "(全体)"}: ${i.message}`);
         for (const k of moved) {
             lines.push(
@@ -371,13 +381,20 @@ export function parseConfig(yamlText: string, env: NodeJS.ProcessEnv = process.e
             const example = typeof value === "number" ? ` (${value} → ${value * 1000})` : "";
             lines.push(`- latency.${k}: μs (OBS の URL の latency= に入れる値) で書く latency.${to} に変えました。値を 1000 倍にして、名前を変えてください${example}`);
         }
+        for (const k of oldMedia) {
+            lines.push(
+                k === "webcam"
+                    ? "- webcam: VDO.ninja の接続は vdoninja に名前を変えました (links、browser、lostSec、record、dir はそのまま移す)。webcam.mic は mic.via に変えました (VDO.ninja で録るなら vdoninja、録らないなら off)"
+                    : "- voice: マイクの声の録音は mic にまとめました。voice.enabled: true は mic.via: discord に、voice.dir は mic.dir に移してください",
+            );
+        }
         if (missing.length > 0) lines.push(`(設定されていない環境変数: ${[...new Set(missing)].join(", ")})`);
         throw new ConfigError(`設定ファイルが正しくありません:\n${lines.join("\n")}`);
     }
-    // 既定の手順。マイクの録音を使うなら、最後に足す
-    const webcamMic = result.data.webcam.links.length > 0 && result.data.webcam.mic;
-    const defaults = result.data.voice.enabled ? [...defaultChecks, voiceStep] : webcamMic ? [...defaultChecks, webcamVoiceStep] : defaultChecks;
-    return { ...result.data, checks: result.data.checks ?? defaults };
+    // 既定の手順。マイクの声を録るなら、その経路の録音の手順を最後に足す
+    const via = micVia(result.data);
+    const defaults = via === "discord" ? [...defaultChecks, micDiscordStep] : via === "vdoninja" ? [...defaultChecks, micVdoninjaStep] : defaultChecks;
+    return { ...result.data, mic: { via, dir: result.data.mic.dir }, checks: result.data.checks ?? defaults };
 }
 
 export function loadConfig(path: string, env: NodeJS.ProcessEnv = process.env): Config {

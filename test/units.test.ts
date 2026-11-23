@@ -5,7 +5,7 @@ import { describe, it } from "node:test";
 import { parseFrameRate } from "../src/adapters/aws.js";
 import { DiscordWebhook, retryAfterMs } from "../src/adapters/webhook.js";
 import { advise, atLeastAfterDrops, multiplierFor, nextLatency, verdictFor, type SrtSample } from "../src/advisor.js";
-import { defaultChecks, evaluateAudioStep, voiceStep } from "../src/checks.js";
+import { defaultChecks, evaluateAudioStep, micDiscordStep } from "../src/checks.js";
 import { ConfigError, expandEnv, parseConfig } from "../src/config.js";
 import { I18n, checkParity, langFromLocale } from "../src/i18n.js";
 import { buildRow, columnLetter, formatRecPos, sheetColumns } from "../src/record.js";
@@ -104,23 +104,27 @@ describe("config", () => {
         assert.deepEqual([c.guide.expected.width, c.guide.expected.height, c.guide.expected.bitrateKbps, c.guide.expected.keyframeSec], [1536, 864, 3000, 2]);
         assert.equal(c.checks.length, defaultChecks.length);
     });
-    it("web カメラ: 書かなければ使わない。URL の組は、SRT の枠の数だけ要り、https で、重ならないこと", () => {
-        assert.deepEqual(testConfig().webcam.links, []);
-        assert.deepEqual(parseConfig(`${baseYaml}webcam:\n`, {}).webcam.links, []);
-        const one = 'webcam:\n  links:\n    - { push: "https://vdo.ninja/?push=a", view: "https://vdo.ninja/?view=a" }\n';
+    it("VDO.ninja: 書かなければ使わない。URL の組は、SRT の枠の数だけ要り、https で、重ならないこと", () => {
+        assert.deepEqual(testConfig().vdoninja.links, []);
+        assert.deepEqual(parseConfig(`${baseYaml}vdoninja:\n`, {}).vdoninja.links, []);
+        const one = 'vdoninja:\n  links:\n    - { push: "https://vdo.ninja/?push=a", view: "https://vdo.ninja/?view=a" }\n';
         const c = parseConfig(baseYaml + one, {});
-        assert.equal(c.webcam.links[0]!.push, "https://vdo.ninja/?push=a");
-        assert.deepEqual([c.webcam.browser.channel, c.webcam.browser.path, c.webcam.lostSec], ["chrome", "", 10]);
+        assert.equal(c.vdoninja.links[0]!.push, "https://vdo.ninja/?push=a");
+        assert.deepEqual([c.vdoninja.browser.channel, c.vdoninja.browser.path, c.vdoninja.lostSec, c.vdoninja.record, c.vdoninja.dir], ["chrome", "", 10, true, "./vdoninja"]);
         // 部屋を使う送信用の URL には、同じ部屋とストリーム ID の受信用の URL が要る
-        const room = (view: string) => `webcam:\n  links:\n    - push: "https://vdo.ninja/?room=r1&push=s1&broadcast&directorsonly&webcam"\n      view: "${view}"\n`;
-        assert.equal(parseConfig(baseYaml + room("https://vdo.ninja/?view=s1&solo&room=r1"), {}).webcam.links.length, 1);
+        const room = (view: string) => `vdoninja:\n  links:\n    - push: "https://vdo.ninja/?room=r1&push=s1&broadcast&directorsonly&webcam"\n      view: "${view}"\n`;
+        assert.equal(parseConfig(baseYaml + room("https://vdo.ninja/?view=s1&solo&room=r1"), {}).vdoninja.links.length, 1);
         assert.throws(() => parseConfig(baseYaml + room("https://vdo.ninja/?view=s1"), {}), /同じ &room=r1 が要ります/);
         assert.throws(() => parseConfig(baseYaml + room("https://vdo.ninja/?view=s2&solo&room=r1"), {}), /view のストリーム ID \(s2\) が、push \(s1\) と違います/);
-        // マイクの声の録音は、VDO.ninja の手順が最後に足される。Discord のボイスチャンネルと両方は使えない
-        assert.equal(c.checks.at(-1)!.kind, "webcamVoice");
-        assert.equal(parseConfig(`${baseYaml + one}  mic: false\n`, {}).checks.length, defaultChecks.length);
-        assert.throws(() => parseConfig(`${baseYaml + one}voice: { enabled: true }\n`, {}), /どちらか一方/);
-        assert.equal(parseConfig(`${baseYaml + one}  mic: false\nvoice: { enabled: true }\n`, {}).checks.at(-1)!.kind, "voice");
+        // マイクの声の録音: mic.via を省くと、VDO.ninja があれば VDO.ninja で録り、その手順が最後に足される
+        assert.deepEqual(c.mic, { via: "vdoninja", dir: "./mic" });
+        assert.equal(c.checks.at(-1)!.kind, "micRecord");
+        assert.match(c.checks.at(-1)!.text.ja, /VDO\.ninja/);
+        // 録らない、Discord で録る、も選べる (VDO.ninja はカメラのためにそのまま使う)
+        assert.equal(parseConfig(`${baseYaml + one}mic: { via: "off" }\n`, {}).checks.length, defaultChecks.length);
+        const discord = parseConfig(`${baseYaml + one}mic: { via: discord }\n`, {});
+        assert.deepEqual([discord.checks.at(-1)!.kind, discord.vdoninja.links.length], ["micRecord", 1]);
+        assert.match(discord.checks.at(-1)!.text.ja, /Discord のボイスチャンネル/);
         // 枠が 2 つなのに、組が 1 つ
         const twoSlots = baseYaml.replace("  srt: { flow: flow-a, channel: 7 }\n", "  srt:\n    - { flow: flow-a, channel: 7 }\n    - { channel: 6 }\n");
         assert.throws(() => parseConfig(twoSlots + one, {}), /SRT の枠の数 \(2\) 以上/);
@@ -261,14 +265,24 @@ describe("config", () => {
         // 新しい書き方に、前の drive だけが残っているときも、黙って無視しない
         assert.throws(() => parseConfig(`${baseYaml}drive: { folderId: ROOT }\n`, {}), /drive\.folderId は google\.drive\.folderId へ/);
     });
-    it("voice の手順は voice.enabled が要る。有効なら既定の手順の最後に入る", () => {
-        const custom = `checks: ${JSON.stringify([voiceStep])}\n`;
-        assert.throws(() => parseConfig(baseYaml + custom, {}), /voice の手順を使うには、voice\.enabled を true/);
-        assert.equal(parseConfig(`${baseYaml}voice: { enabled: true }\n${custom}`, {}).checks.length, 1);
-        const on = parseConfig(`${baseYaml}voice: { enabled: true }\n`, {});
+    it("マイクの録音の手順は mic.via が要る。録るなら既定の手順の最後に入る", () => {
+        // VDO.ninja も mic も書かなければ録らない
+        assert.equal(testConfig().mic.via, "off");
+        const custom = `checks: ${JSON.stringify([micDiscordStep])}\n`;
+        assert.throws(() => parseConfig(baseYaml + custom, {}), /micRecord の手順を使うには、mic\.via を vdoninja か discord に/);
+        assert.equal(parseConfig(`${baseYaml}mic: { via: discord }\n${custom}`, {}).checks.length, 1);
+        const on = parseConfig(`${baseYaml}mic: { via: discord }\n`, {});
         assert.deepEqual(on.checks.map((c) => c.id), [...defaultChecks.map((c) => c.id), "voice"]);
-        assert.equal(on.voice.dir, "./voice");
-        assert.equal(defaultChecks.some((c) => c.kind === "voice"), false, "既定の手順そのものは変えない");
+        assert.deepEqual(on.mic, { via: "discord", dir: "./mic" });
+        assert.equal(defaultChecks.some((c) => c.kind === "micRecord"), false, "既定の手順そのものは変えない");
+        // VDO.ninja で録るには、VDO.ninja の URL が要る
+        assert.throws(() => parseConfig(`${baseYaml}mic: { via: vdoninja }\n`, {}), /mic\.via を vdoninja にするには、vdoninja\.links を書いて/);
+        assert.throws(() => parseConfig(`${baseYaml}mic: { via: both }\n`, {}), /mic\.via/);
+    });
+    it("前の書き方 (webcam、voice) は、黙って無視せずに移し方を伝える", () => {
+        const webcam = 'webcam:\n  links:\n    - { push: "https://vdo.ninja/?push=a", view: "https://vdo.ninja/?view=a" }\n  mic: false\n';
+        assert.throws(() => parseConfig(baseYaml + webcam, {}), /webcam: VDO\.ninja の接続は vdoninja に名前を変えました.*webcam\.mic は mic\.via に/);
+        assert.throws(() => parseConfig(`${baseYaml}voice: { enabled: true }\n`, {}), /voice\.enabled: true は mic\.via: discord に、voice\.dir は mic\.dir に/);
     });
     it("quiet の手順の前に silence が要る", () => {
         const yaml = `${baseYaml}checks:\n  - { id: q, kind: quiet, seconds: 5, text: { ja: a, en: a }, failHint: { ja: b, en: b } }\n`;
