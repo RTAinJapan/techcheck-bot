@@ -299,7 +299,7 @@ describe("config", () => {
         // 設定の checks に足した手順の文言が無ければ、そのキーを返す
         assert.deepEqual(missingStepTexts([{ id: "my-step", kind: "confirm", seconds: 0 }], "off", (k) => i18n.has(k)), ["steps.my-step.text", "steps.my-step.failHint"]);
         // 秒数は差し込み: 手順の秒数を変えれば、文言の秒数も変わる
-        assert.match(i18n.t("ja", "steps.silence.text", { seconds: 12 }), /^OBS にゲーム音以外が入っていないことを確認するため[\s\S]*\nそのまま 12 秒ほど静かにしてください。/);
+        assert.match(i18n.t("ja", "steps.silence.text", { seconds: 12 }), /^OBS にゲーム音以外が入っていないことを確認します。[\s\S]*\nそのまま 12 秒ほど静かにしてください。/);
     });
     it("quiet の手順の前に silence が要る", () => {
         const yaml = `${baseYaml}checks:\n  - { id: q, kind: quiet, seconds: 5 }\n`;

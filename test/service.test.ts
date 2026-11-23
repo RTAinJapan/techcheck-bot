@@ -483,7 +483,7 @@ describe("ゲームの音を完全には消せない", () => {
         await w.run(18, () => w.rx.live(7, { peak: -20 }));
         // 「静かにする」手順には、「始める」と「音を消せない」がある
         const prompt = w.chat.lastPost(thread)!;
-        assert.match(prompt.content, /OBS にゲーム音以外が入っていないことを確認するため、まずはゲーム内で静かなシーンや設定によって音が出ない状態にしてください。\nそのまま 10 秒ほど静かにしてください。/);
+        assert.match(prompt.content, /OBS にゲーム音以外が入っていないことを確認します。\nまずはゲーム内の静かなシーンや、ゲーム内設定で音が出ない状態にしてください。[\s\S]*\nそのまま 10 秒ほど静かにしてください。/);
         assert.match(prompt.content, /ゲームの音を完全には消せない場合は「音を消せない」を押してください/);
         assert.deepEqual(prompt.buttons?.map((b) => b.label), ["始める", "音を消せない"]);
         await press(w, thread, "cannot-mute");
@@ -492,7 +492,7 @@ describe("ゲームの音を完全には消せない", () => {
         // ゲームの音が -45 dB で残っている: 無音ではないが、「おかしい」とは言わずに進む
         await w.run(13, () => w.rx.live(7, { peak: -45 }));
         const texts = w.chat.texts(thread);
-        assert.ok(!texts.some((x) => x.includes("何も鳴らしていないのに音が載っています")));
+        assert.ok(!texts.some((x) => x.includes("音が載っているようです")));
         // マイクの手順: 同じ音量のままにしてもらう。ゲームの音と同じ大きさなら OK
         const mic = w.chat.lastPost(thread)!;
         assert.match(mic.content, /手順 3\/5[\s\S]*\(ゲームの音は、さきほどと同じ小さい音量のままにしてください。\)/);
@@ -533,7 +533,7 @@ describe("ゲームの音を完全には消せない", () => {
         await ok.run(18, () => ok.rx.live(7, { peak: -20 }));
         await press(ok, t.thread, "step-start");
         await ok.run(13, () => ok.rx.live(7, { peak: -45 }));
-        assert.match(ok.chat.lastPost(t.thread)!.content, /何も鳴らしていないのに音が載っています/);
+        assert.match(ok.chat.lastPost(t.thread)!.content, /音が載っているようです/);
         // 「やり直す」→「音を消せない」に切り替えられる
         await press(ok, t.thread, "step-retry");
         await press(ok, t.thread, "cannot-mute");
@@ -823,7 +823,7 @@ describe("マイクの声の録音 (ボイスチャンネル)", () => {
         w.voice.where.OTHER = "VC-1";
         await press(w, thread, "yes");
         const waiting = w.chat.lastPost(thread)!;
-        assert.match(waiting.content, /手順 6\/6[\s\S]*いま、空いているボイスチャンネルがありません。空いたらここでお知らせします/);
+        assert.match(waiting.content, /手順 6\/6[\s\S]*いま、空いているボイスチャンネルがありません。\n空いたらここでお知らせします/);
         assert.deepEqual(waiting.buttons?.map((b) => b.label), ["マイクは使わない"]);
         assert.ok(w.chat.opsLog.some((l) => l.includes("空いているボイスチャンネルが無いので、録音の手順で待ってもらっています: Runner A") && l.includes("vc-1")));
         const posts = w.chat.texts(thread).length;
