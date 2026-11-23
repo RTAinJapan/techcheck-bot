@@ -1314,7 +1314,10 @@ describe("web カメラ (VDO.ninja)", () => {
         const w = makeWorld(webcamYaml);
         assert.deepEqual(w.config.checks.map((c) => c.kind).slice(-1), ["micRecord"]);
         const thread = await untilMicStep(w);
-        assert.match(w.chat.lastPost(thread)!.content, /手順 6\/6[\s\S]*VDO\.ninja[\s\S]*push=cam1/);
+        const prompt = w.chat.lastPost(thread)!.content;
+        assert.match(prompt, /手順 6\/6[\s\S]*VDO\.ninja から届くマイクの声を録音します[\s\S]*「始める」を押してから、普段の声で 15 秒ほど話してください/);
+        // 受信できているので、開き直す URL は添えない (別のページを開くように見えてしまう)。マイクの選び方も、VDO.ninja を開いたときに案内済み
+        assert.doesNotMatch(prompt, /push=cam1|マイクが選択されて/);
         await press(w, thread, "step-start");
         await w.flush();
         assert.equal(w.webcam.recorded[0]!.seconds, 15);
@@ -1330,12 +1333,30 @@ describe("web カメラ (VDO.ninja)", () => {
         assert.match(String(w.sheet.rows[0]![col("マイクの録音 (VC)")]), /\.webm \(声 15 秒、最大 -6 dB、平均 -24 dB\)/);
     });
 
+    it("マイクの録音の手順を出すときに音声が届いていなければ、開き直す URL を添える", async () => {
+        const w = makeWorld(webcamYaml);
+        const thread = await untilAsked(w, U1, 7, "yes", "yes");
+        await w.run(145, () => {
+            w.rx.live(7);
+            w.webcam.play(kView, { audio: true });
+        });
+        // 音声のチェックの間に、配信者が VDO.ninja のページを閉じた (映像は届いたまま、音声だけ止まった)
+        w.webcam.play(kView, { audio: false });
+        for (const [sec, peak] of [[18, -20], [13, -80], [13, -80], [13, -80]] as const) {
+            await press(w, thread, "step-start");
+            await w.run(sec, () => w.rx.live(7, { peak }));
+        }
+        await press(w, thread, "yes");
+        assert.match(w.chat.lastPost(thread)!.content, /手順 6\/6[\s\S]*いま、VDO\.ninja からマイクの音声が届いていません[\s\S]*push=cam1/);
+    });
+
     it("マイクの音声が届いていなければ「始める」で録らずに伝え、無音なら直し方を出す", async () => {
         const w = makeWorld(webcamYaml);
         const thread = await untilMicStep(w);
         w.webcam.play(kView, { audio: false });
         const r = await press(w, thread, "step-start");
-        assert.match(r.ephemeral ?? "", /マイクの音声がまだ届いていません/);
+        // 開き直す URL も添える (手順を出したときは届いていて、添えていなかった)
+        assert.match(r.ephemeral ?? "", /マイクの音声がまだ届いていません[\s\S]*push=cam1/);
         assert.equal(w.webcam.recorded.length, 0);
         // 届いてはいるが、無音 (ページでミュート、別のマイク)
         w.webcam.play(kView, { audio: true });

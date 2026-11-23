@@ -160,7 +160,7 @@ steps:
     text: |-
       (Only if you use a microphone)
       We record your voice as it reaches us from VDO.ninja (staff will listen to it later).
-      Check that the microphone you will use at the event is selected and is not muted, press "Start", then talk in your normal voice for about {seconds} seconds.
+      Press "Start", then talk in your normal voice for about {seconds} seconds.
       If you don't use a microphone, press "I don't use a mic".
     failHint: "Your voice did not reach us. On the webcam page, check that the right microphone is selected and that it is not muted."
 
@@ -209,11 +209,15 @@ webcam:
   skipped: "We skip the webcam check. Keep streaming for about 2 minutes."
   failed: "We could not check your webcam because of a problem on our side. Staff will look into it. Close the webcam page and keep streaming for about 2 minutes."
   micUrl: |-
-    If you closed the webcam page, open this URL again and allow the microphone.
+    Your microphone audio from VDO.ninja is not arriving right now. If you closed the VDO.ninja page, open this URL again, allow the microphone, and press "START".
     ```
     {url}
     ```
-  micNotYet: "Your microphone audio has not arrived yet. Open the VDO.ninja page, allow the microphone, press \"START\", then press this again."
+  micNotYet: |-
+    Your microphone audio has not arrived yet. Open the VDO.ninja page, allow the microphone, press "START", then press this again.
+    ```
+    {url}
+    ```
 
 verdict:
   ok: "OK"
