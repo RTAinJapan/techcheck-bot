@@ -968,7 +968,7 @@ export class TechcheckService {
             const link = this.cfg.vdoninja.links[s.webcam!.link];
             if (link && !this.d.webcam!.status(s.id)) this.d.webcam!.open(s.id, link.view);
             this.keepWebcamRecording(s);
-            if (this.webcamActive(s) && (s.phase === "measuring" || s.phase === "confirming") && (await this.watchWebcam(s))) return;
+            if ((s.phase === "measuring" || s.phase === "confirming") && (await this.watchWebcam(s))) return;
         }
 
         switch (s.phase) {
@@ -1229,8 +1229,8 @@ export class TechcheckService {
         if (this.webcamActive(s)) {
             const st = this.d.webcam!.status(s.id);
             s.webcam!.base = { packetsReceived: st?.packetsReceived, packetsLost: st?.packetsLost, freezes: st?.freezes };
-            s.webcam!.lostAt = undefined;
         }
+        if (this.vdoOpen(s)) s.webcam!.lostAt = undefined;
         s.rx.fps = [];
         const ch = this.activeChannel(s);
         s.rx.decodeErrorsBase = ch?.video?.decodeErrors;
@@ -1316,7 +1316,7 @@ export class TechcheckService {
         if (!this.d.webcam!.status(s.id)) this.d.webcam!.open(s.id, link.view);
         const camera = this.cameraWanted(s);
         const sources = this.t(s.lang, camera && this.micWanted(s) ? "webcam.sourcesBoth" : camera ? "webcam.sourcesCamera" : "webcam.sourcesMic");
-        const content = lost ? this.t(s.lang, "webcam.lost", { url: link.push }) : this.t(s.lang, "webcam.ask", { url: link.push, sources }) + (camera ? `\n${this.t(s.lang, "webcam.skipHint")}` : "");
+        const content = lost ? this.t(s.lang, camera ? "webcam.lost" : "webcam.lostMic", { url: link.push }) :this.t(s.lang, "webcam.ask", { url: link.push, sources }) + (camera ? `\n${this.t(s.lang, "webcam.skipHint")}` : "");
         const buttons = [...(camera ? [this.btn(s, "webcam-skip", "button.webcamSkip", "secondary")] : []), this.btn(s, "abort", "button.abort", "danger")];
         s.webcam.messageId = await this.post(s, { content, buttons });
         this.setPhase(s, "awaitingWebcam");
@@ -1353,8 +1353,9 @@ export class TechcheckService {
     }
 
     /**
-     * 映像の判定の間、web カメラが届き続けているかを見る。届かなくなったら (vdoninja.lostSec 秒)、判定をやめて待ち直す:
-     * 判定は、OBS の配信と WebRTC の両方を送っている状態でする。待ち直したら true
+     * 映像の判定の間、VDO.ninja が届き続けているかを見る (web カメラを使うなら映像、マイクだけなら音声)。
+     * 届かなくなったら (vdoninja.lostSec 秒)、判定をやめて待ち直す: 本番と同じく、OBS の配信と VDO.ninja の両方を
+     * 送っている回線の状態で判定するため。待ち直したら true
      */
     private async watchWebcam(s: Session): Promise<boolean> {
         const cam = s.webcam!;
@@ -1363,7 +1364,8 @@ export class TechcheckService {
             await this.webcamFailed(s, st.error ?? "");
             return false;
         }
-        if (st?.playing) {
+        const camera = this.cameraWanted(s);
+        if (camera ? st?.playing : st?.audio) {
             cam.lostAt = undefined;
             return false;
         }
@@ -1371,6 +1373,8 @@ export class TechcheckService {
         cam.lostAt ??= now;
         if (now - cam.lostAt < this.cfg.vdoninja.lostSec * 1000) return false;
         cam.drops = (cam.drops ?? 0) + 1;
+        // web カメラの途切れは、判定が終わったときにまとめて知らせる (summarizeWebcam)。マイクだけの人は、ここで知らせる
+        if (!camera) await this.ops(`VDO.ninja のマイクの音声が途切れたので、届いてから測り直します: ${s.displayName} (${cam.drops} 回目)`);
         await this.askWebcam(s, true);
         return true;
     }
