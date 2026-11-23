@@ -10,7 +10,7 @@ bot を直す人に向けた文書。準備と動かし方、使い方は [READM
 | --- | --- |
 | `src/service.ts` | テストの進行 (受付、待ちの列、枠、案内、映像の判定、latency の調整、RTMP、チェック、終わり)。1 秒ごとの `tick()` で進める |
 | `src/advisor.ts` | latency の推奨値と判定 (denpachan の `src/worker/srt_advisor.h` と同じ規則) |
-| `src/checks.ts` | チェックの既定の手順と、音声のレベルによる参考の判定 |
+| `src/checks.ts` | チェックの既定の手順 (id・種類・秒数・閾値。文言は `messages/*.yaml` の `steps.<id>`)、文言のキー (`stepTextKeys`)、音声のレベルによる参考の判定 |
 | `src/record.ts` | シートの 1 行と webhook の本文 |
 | `src/config.ts` | 設定ファイルの読み込みと検証 |
 | `src/i18n.ts` | 日本語 / 英語の文言 |
@@ -86,8 +86,8 @@ Discord の権限の名前は、README と createToken.md では Developer Porta
 | 「準備」の設定ファイル (`${環境変数名}`、相対パス)、「動かす」の設定ファイルの場所 | `src/config.ts` の `expandEnv`、`src/index.ts` の `main` |
 | 「使い方」のコマンドの表 | `src/discord/commands.ts` (定義)、`src/discord/bot.ts` の `InteractionHandler` (運営のロールの確認) |
 | 「denpachan」の、受信の設定を bot に入れさせる (`denpachan.configure`、`flows[].output`) | `src/service.ts` (`srtSourceFor`、`prepare`、`goRtmp`、`slotMismatches`)、`src/adapters/receiver.ts` (`hello` の `allowConfigure`)、`src/adapters/aws.ts` (フローの出力) |
-| 「マイクの声を録音する」と、「トークンと権限」の Discord のボイスチャンネル | `src/adapters/voice.ts` (ボイスチャンネルに入る、声を受ける、音量を測る)、`src/adapters/ogg.ts`、`src/service.ts` (`promptVoice` が空いているボイスチャンネルを選んで案内する。`recordVoice`、`onButton` の `step-start` と `voice-skip`。経路は `micVia`)、`src/checks.ts` (`micDiscordStep`、`micVdoninjaStep`)、`src/config.ts` (`mic`)、`src/index.ts` (`GuildVoiceStates`) |
-| 「web カメラを確かめる」と、「マイクの声を録音する」の VDO.ninja | `src/adapters/webcam.ts` (playwright-core でブラウザを起動し、`<video>` と WebRTC の統計を読む)、`src/service.ts` (`askWebcam`、`tickAwaitingWebcam`、`watchWebcam`、`summarizeWebcam`、`onButton` の `webcam-skip`。マイクの声の録音は `promptWebcamVoice`、`recordVoice`、`onButton` の `step-start`)、`src/checks.ts` (`micVdoninjaStep`)、`src/adapters/level.ts` (ffmpeg で音量と波形)、`src/config.ts` (`vdoninja`)、`src/record.ts` (`describeWebcam`、「web カメラの録画」の列)。録画は `webcam.ts` の `startRecording` / `close` と、`service.ts` の `keepWebcamRecording` / `closeWebcam` |
+| 「マイクの声を録音する」と、「トークンと権限」の Discord のボイスチャンネル | `src/adapters/voice.ts` (ボイスチャンネルに入る、声を受ける、音量を測る)、`src/adapters/ogg.ts`、`src/service.ts` (`promptVoice` が空いているボイスチャンネルを選んで案内する。`recordVoice`、`onButton` の `step-start` と `voice-skip`。経路は `micVia`)、`src/checks.ts` (`micStep`。文言は `messages/*.yaml` の `steps.voice.discord`)、`src/config.ts` (`mic`)、`src/index.ts` (`GuildVoiceStates`) |
+| 「web カメラを確かめる」と、「マイクの声を録音する」の VDO.ninja | `src/adapters/webcam.ts` (playwright-core でブラウザを起動し、`<video>` と WebRTC の統計を読む)、`src/service.ts` (`askWebcam`、`tickAwaitingWebcam`、`watchWebcam`、`summarizeWebcam`、`onButton` の `webcam-skip`。マイクの声の録音は `promptWebcamVoice`、`recordVoice`、`onButton` の `step-start`)、`src/checks.ts` (`micStep`。文言は `messages/*.yaml` の `steps.voice.vdoninja`)、`src/adapters/level.ts` (ffmpeg で音量と波形)、`src/config.ts` (`vdoninja`)、`src/record.ts` (`describeWebcam`、「web カメラの録画」の列)。録画は `webcam.ts` の `startRecording` / `close` と、`service.ts` の `keepWebcamRecording` / `closeWebcam` |
 | 「同時に複数人をテストする」の A (SRT の枠を並べる) | `src/config.ts` (`slots.srt`)、`src/service.ts` (`loadSlots`、`freeSrtSlots`、`tickQueue`) |
 
 設定の項目を足したり変えたりしたら、`src/config.ts`、`config.example.yaml`、[design.md の「設定値の一覧」](design.md#設定値の一覧) をそろえる。

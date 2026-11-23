@@ -121,10 +121,12 @@ latency:
 #   dir: ./mic                               # 録音の置き場所 (Discord は .ogg、VDO.ninja は .webm)
 
 i18n:
-  dir: ./messages                            # ja.yaml と en.yaml
+  dir: ./messages                            # ja.yaml と en.yaml (チェックの手順の文言も、ここの steps.<id> にある)
   fallback: en
 
 db:
   path: ./techcheck.db
 
-# judge、timeouts、checks は省けば既定値 (docs/design.md の §4.1、§7.1)
+# judge、timeouts、checks は省けば既定値 (docs/design.md の §4.1、§7.1)。
+# checks に書くのは id・kind・seconds・閾値だけ。手順の文言は、i18n.dir の ja.yaml と en.yaml の steps.<id> に書く
+# (手順を足したら、そこにも text と failHint を足す。無ければ起動しない)
