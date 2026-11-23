@@ -67,11 +67,11 @@ describe("テストの流れ", () => {
         // 初回の案内は IP でなくドメインの URL
         const texts = w.chat.texts(thread);
         // 配布している OBS の設定の URL と同じ形 (mode=caller は付けない。OBS は書かなければ caller)
-        assert.ok(texts.some((x) => x.includes("srt://srt-a.example.jp:5000?latency=120000&passphrase=pass-a&pbkeylen=16")));
+        assert.ok(texts.some((x) => x.includes("srt://srt-a.example.jp:5000?latency=100000&passphrase=pass-a&pbkeylen=16")));
         assert.ok(!texts.some((x) => x.includes("mode=")));
         assert.ok(!texts.some((x) => x.includes("203.0.113.10")));
         assert.ok(texts.some((x) => x.includes("配信が届きました")));
-        assert.ok(texts.some((x) => x.includes("映像は問題なく届いています") && x.includes("**120000 μs**")));
+        assert.ok(texts.some((x) => x.includes("映像は問題なく届いています") && x.includes("**100000 μs**")));
 
         await passChecks(w, thread);
         assert.match(w.chat.lastPost(thread)!.content, /確認はすべて終わりました/);
@@ -89,7 +89,7 @@ describe("テストの流れ", () => {
         assert.equal(row[2], "U1");
         assert.equal(row[3], "ja");
         assert.equal(row[6], "完了");
-        assert.equal(row[col("確定した latency (μs)")], 120000, "確定した latency は μs (OBS の URL に入れる値) で書く");
+        assert.equal(row[col("確定した latency (μs)")], 100000, "確定した latency は μs (OBS の URL に入れる値) で書く");
         assert.equal(row[col("切れた回数")], 0);
         assert.equal(row[col("映像の判定")], "OK");
         // あとで聞く人が最初に開く 3 つは、I 列から並ぶ
@@ -105,11 +105,11 @@ describe("テストの流れ", () => {
         assert.equal(w.webhook.sent.length, 1);
         const payload = w.webhook.sent[0] as { allowed_mentions: { parse: unknown[] }; embeds: { fields: { name: string; value: string }[] }[] };
         assert.deepEqual(payload.allowed_mentions.parse, []);
-        assert.ok(payload.embeds[0]!.fields.some((f) => f.name === "確定した latency" && f.value === "120000 μs"));
+        assert.ok(payload.embeds[0]!.fields.some((f) => f.name === "確定した latency" && f.value === "100000 μs"));
         assert.ok(w.chat.threads[0]!.closed);
         assert.match(w.chat.texts(thread).at(-1)!, /OBS の配信を止めてください/);
         // 配信者には、OBS の URL に入れる値 (μs) で伝える。ms の数字を見せると、そのまま URL に入れてしまう
-        assert.ok(w.chat.texts(thread).at(-1)!.includes("本番の latency: 120000 μs\n"), w.chat.texts(thread).at(-1));
+        assert.ok(w.chat.texts(thread).at(-1)!.includes("本番の latency: 100000 μs\n"), w.chat.texts(thread).at(-1));
 
         // 後日の音声の判定
         assert.match(await w.service.review("U1", true, "きれい"), /書きました/);
@@ -136,7 +136,7 @@ describe("テストの流れ", () => {
         await w.service.start(U1, "C-test", undefined, "ja");
         await w.flush();
         const texts = w.chat.texts(w.chat.threads[0]!.id);
-        assert.ok(texts.some((x) => x.includes("srt://srt-a.example.jp:5000?latency=120000")));
+        assert.ok(texts.some((x) => x.includes("srt://srt-a.example.jp:5000?latency=100000")));
         assert.ok(!texts.some((x) => x.includes("passphrase") || x.includes("pbkeylen")));
     });
 
@@ -376,7 +376,7 @@ describe("denpachan の受信の設定を bot が入れる (denpachan.configure)
     });
 
     it("RTMP に移すとき、RTMP サーバから pull する設定を入れる", async () => {
-        const w = makeWorld("latency: { maxRaises: 0 }\n", configured);
+        const w = makeWorld("latency: { maxRaises: 0, maxUs: 100000 }\n", configured);
         w.rx.channels.get(8)!.source = { protocol: "srt", mode: "listener" };
         await w.service.start(U1, "C-test", undefined, "ja");
         await w.flush();
@@ -937,13 +937,13 @@ describe("latency の調整と RTMP", () => {
     it("運営にも latency は μs (OBS の URL に入れる値) で見せ、/techcheck latency も μs で受ける", async () => {
         const w = makeWorld();
         const { thread } = await startAndStream(w);
-        assert.ok(w.chat.opsLog.some((l) => l.includes("映像 OK") && l.includes("latency 120000 μs")), w.chat.opsLog.join("\n"));
-        assert.match(await w.service.status("U1"), /latency 120000 μs/);
+        assert.ok(w.chat.opsLog.some((l) => l.includes("映像 OK") && l.includes("latency 100000 μs")), w.chat.opsLog.join("\n"));
+        assert.match(await w.service.status("U1"), /latency 100000 μs/);
         // 運営が 300000 μs (300 ms) を案内する
         assert.equal(await w.service.setLatency("U1", 300_000), "Runner A に latency 300000 μs を案内しました");
         const ask = w.chat.texts(thread).at(-1)!;
         assert.ok(ask.includes("latency を **300000 μs**") && ask.includes("latency=300000"), ask);
-        // 上限 (latency.maxMs) を超える値は上限に抑え、抑えた値を返す
+        // 上限 (latency.maxUs) を超える値は上限に抑え、抑えた値を返す
         assert.match(await w.service.setLatency("U1", 9_000_000), /latency 2000000 μs を案内しました/);
         for (const text of [...w.chat.opsLog, await w.service.status("U1")]) {
             assert.doesNotMatch(text, /latency \d+ ms|推奨 \d+ ms/, `運営向けの latency に ms が残っていない: ${text}`);
@@ -958,9 +958,9 @@ describe("latency の調整と RTMP", () => {
         const t0 = Math.floor(w.clock.t / 1000);
         w.flow.sampleAt = lossy(t0, t0 + 10_000);
         await w.run(80, () => w.rx.live(7));
-        const ask = w.chat.texts(thread).find((x) => x.includes("latency を **180000 μs**"));
-        assert.ok(ask, "180 ms (配信者には 180000 μs) に上げる案内");
-        assert.ok(ask.includes("latency=180000"));
+        const ask = w.chat.texts(thread).find((x) => x.includes("latency を **150000 μs**"));
+        assert.ok(ask, "150 ms (配信者には 150000 μs) に上げる案内");
+        assert.ok(ask.includes("latency=150000"));
 
         // 配信者が設定して始め直す。回線も良くなった
         w.flow.sampleAt = (t) => goodSample(t);
@@ -968,12 +968,68 @@ describe("latency の調整と RTMP", () => {
         await w.run(3, () => w.rx.drop(7));
         await w.run(150, () => w.rx.live(7));
         const texts = w.chat.texts(thread);
-        assert.ok(texts.some((x) => x.includes("latency 180000 μs で計測し直します")));
-        assert.ok(texts.some((x) => x.includes("映像は問題なく届いています") && x.includes("**180000 μs**")));
+        assert.ok(texts.some((x) => x.includes("latency 150000 μs で計測し直します")));
+        assert.ok(texts.some((x) => x.includes("映像は問題なく届いています") && x.includes("**150000 μs**")));
+    });
+
+    it("取りこぼしが無く、推奨値に足りないだけなら、推奨値ちょうどに上げてもらう (今の値を 1.5 倍にしない)", async () => {
+        const w = makeWorld();
+        await w.service.start(U1, "C-test", undefined, "ja");
+        await w.flush();
+        const thread = w.chat.threads[0]!.id;
+        // RTT 40 ms、ロスなし: 推奨値は 40 × 3 = 120 ms。今は 100 ms
+        w.flow.sampleAt = (t) => ({ ...goodSample(t), rttMs: 40 });
+        await w.run(80, () => w.rx.live(7));
+        assert.ok(w.chat.texts(thread).some((x) => x.includes("latency を **120000 μs**")), w.chat.texts(thread).join("\n"));
+        assert.ok(!w.chat.texts(thread).some((x) => x.includes("150000")));
+    });
+
+    it("RTMP に案内する前に、SRT の上限を 1 回試してもらう。上限で安定すれば SRT のまま進む", async () => {
+        const w = makeWorld("latency: { maxRaises: 1 }\n");
+        await w.service.start(U1, "C-test", undefined, "ja");
+        await w.flush();
+        const thread = w.chat.threads[0]!.id;
+        const t0 = Math.floor(w.clock.t / 1000);
+        const restart = async () => {
+            await press(w, thread, "set");
+            await w.run(3, () => w.rx.drop(7));
+        };
+        // 1 回目: 推奨値 (取りこぼしたので 1.5 倍) に上げる
+        w.flow.sampleAt = lossy(t0, t0 + 10_000);
+        await w.run(80, () => w.rx.live(7));
+        assert.ok(w.chat.texts(thread).some((x) => x.includes("latency を **150000 μs**")));
+        // 上げても取りこぼす。回数 (1 回) は使い切ったが、RTMP ではなく、SRT の上限を案内する
+        await restart();
+        await w.run(80, () => w.rx.live(7));
+        assert.ok(w.chat.texts(thread).some((x) => x.includes("latency を **2000000 μs**")), w.chat.texts(thread).join("\n"));
+        assert.ok(!w.chat.texts(thread).some((x) => x.includes("RTMP で試します")));
+        assert.ok(w.chat.opsLog.some((l) => l.includes("SRT の上限を試します") && l.includes("150000 → 2000000 μs")));
+        // 上限にしたら安定した
+        w.flow.sampleAt = (t) => goodSample(t);
+        await restart();
+        await w.run(150, () => w.rx.live(7));
+        assert.ok(w.chat.texts(thread).some((x) => x.includes("映像は問題なく届いています") && x.includes("**2000000 μs**")));
+        assert.ok(!w.chat.texts(thread).some((x) => x.includes("RTMP で試します")));
+    });
+
+    it("SRT の上限でも安定しなければ、RTMP に案内する", async () => {
+        const w = makeWorld("latency: { maxRaises: 0 }\n");
+        await w.service.start(U1, "C-test", undefined, "ja");
+        await w.flush();
+        const thread = w.chat.threads[0]!.id;
+        const t0 = Math.floor(w.clock.t / 1000);
+        w.flow.sampleAt = lossy(t0, t0 + 10_000);
+        await w.run(80, () => w.rx.live(7));
+        assert.ok(w.chat.texts(thread).some((x) => x.includes("latency を **2000000 μs**")));
+        await press(w, thread, "set");
+        await w.run(3, () => w.rx.drop(7));
+        await w.run(80, () => w.rx.live(7));
+        assert.ok(w.chat.texts(thread).some((x) => x.includes("RTMP で試します")));
+        assert.ok(w.chat.opsLog.some((l) => l.includes("RTMP に案内") && l.includes("SRT の上限 2000000 μs でも安定しない")));
     });
 
     it("上げても直らなければ RTMP に案内し、届いたら SRT の枠を空ける", async () => {
-        const w = makeWorld("latency: { maxRaises: 0 }\n");
+        const w = makeWorld("latency: { maxRaises: 0, maxUs: 100000 }\n");
         await w.service.start(U1, "C-test", undefined, "ja");
         await w.flush();
         const thread = w.chat.threads[0]!.id;
@@ -1278,7 +1334,7 @@ describe("チェック", () => {
     });
 
     it("RTMP に移ったテストの静止画も、RTMP の枠のチャンネルの録画から取る", async () => {
-        const w = makeWorld("latency: { maxRaises: 0 }\n");
+        const w = makeWorld("latency: { maxRaises: 0, maxUs: 100000 }\n");
         await w.service.start(U1, "C-test", undefined, "ja");
         await w.flush();
         const thread = w.chat.threads[0]!.id;
@@ -1512,6 +1568,71 @@ describe("web カメラ (VDO.ninja)", () => {
         assert.match(w.chat.lastPost(thread)!.content, /録音しました/);
         await w.service.cancel("U1");
         assert.match(w.chat.lastPost(thread)!.content, /web カメラのページ.*を閉じてください/);
+    });
+
+    it("web カメラが届いたら録画を始め、終わったらシートに書き、録画と一緒に Google ドライブに上げる", async () => {
+        const w = makeWorld(webcamYaml, driveYaml);
+        const thread = await untilAsked(w);
+        // 届く前は録らない
+        await w.run(3, () => w.rx.live(7));
+        assert.equal(w.webcam.recordBases.size, 0);
+        await w.run(6, () => {
+            w.rx.live(7);
+            w.webcam.play(kView);
+        });
+        const base = [...w.webcam.recordBases.values()][0]!;
+        assert.match(base, /^webcam-dir\/2026-11-01-12-0\d-\d\d Runner_A U1 webcam$/);
+        await w.service.cancel("U1");
+        assert.ok(w.chat.lastPost(thread));
+        assert.equal(w.sheet.rows[0]![col("web カメラの録画")], `${base}.webm`);
+        // 録画を書き終えて (ページを閉じて) から、上げる
+        await w.run(15);
+        await w.flush();
+        assert.deepEqual(
+            w.drive.uploaded.map((u) => u.file),
+            ["rec-ch7.mkv", `${base}.webm`],
+        );
+    });
+
+    it("「web カメラは使わない」の人と、webcam.record: false では録らない", async () => {
+        const w = makeWorld(webcamYaml);
+        const thread = await untilAsked(w);
+        await press(w, thread, "webcam-skip");
+        await w.run(5, () => w.rx.live(7));
+        assert.equal(w.webcam.recordBases.size, 0);
+
+        const w2 = makeWorld(`${webcamYaml}  record: false\n`);
+        await untilAsked(w2);
+        await w2.run(6, () => {
+            w2.rx.live(7);
+            w2.webcam.play(kView);
+        });
+        assert.match(await w2.service.status("U1"), /measuring/);
+        assert.equal(w2.webcam.recordBases.size, 0);
+        await w2.service.cancel("U1");
+        assert.equal(w2.sheet.rows[0]![col("web カメラの録画")], "");
+    });
+
+    it("bot を起動し直したら、録画も別のファイルで録り直し、前のファイルも残す", async () => {
+        const w = makeWorld(webcamYaml);
+        await untilAsked(w);
+        await w.run(6, () => {
+            w.rx.live(7);
+            w.webcam.play(kView);
+        });
+        const first = `${[...w.webcam.recordBases.values()][0]!}.webm`;
+        const w2 = makeWorld(webcamYaml, baseYaml, w.store);
+        w2.clock.t = w.clock.t + 5_000;
+        await w2.run(1, () => w2.rx.live(7));
+        w2.webcam.play(kView);
+        await w2.run(2, () => {
+            w2.rx.live(7);
+            w2.webcam.play(kView);
+        });
+        const second = `${[...w2.webcam.recordBases.values()][0]!}.webm`;
+        assert.notEqual(second, first);
+        await w2.service.cancel("U1");
+        assert.equal(w2.sheet.rows[0]![col("web カメラの録画")], `${first} / ${second}`);
     });
 
     it("bot を起動し直したら、受信用のページを開き直す", async () => {

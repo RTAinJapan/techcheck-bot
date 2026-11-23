@@ -38,7 +38,7 @@ export const kMinSamples = 10;
  * 人に見せる latency の値 (μs)。OBS の SRT の URL に入れる値と同じ (`latency=` はマイクロ秒。180 ms なら 180000)。
  * 配信者にも運営にも、latency はこの値だけで見せる (スレッドの案内、運営への通知、コマンド、webhook、シート)。
  * 配信者が触るのは OBS の URL で、運営も μs で覚えているので、ms の数字を見せると、そのまま URL に入れてしまう。
- * bot の中の計算と設定ファイル (`latency.initialMs` など) は ms のまま
+ * bot の中の計算は ms のまま (設定ファイルの `latency.initialUs`、`latency.maxUs` は μs で書き、読むときに ms にする)
  */
 export function obsLatency(latencyMs: number): number {
     return Math.round(latencyMs * 1000);
@@ -88,10 +88,21 @@ export function verdictFor(effectiveMs: number, recommendMs: number, drops: numb
     return "ok";
 }
 
-/** 次に案内する latency: max(推奨値, 今 × 1.5) を 10 ms 単位に切り上げ、上限で抑える */
-export function nextLatency(currentMs: number, recommendMs: number, maxMs: number): number {
-    const want = Math.ceil(Math.max(recommendMs, currentMs * 1.5) / 10) * 10;
-    return Math.min(want, maxMs);
+/**
+ * 次に案内する latency: 推奨値 (advise の recommendMs) そのもの。10 ms 単位に切り上げ、上限で抑える。
+ * ここでは今の値を何倍かにしない: 回線から出した推奨値に合わせる。今の値より大きくならなければ、呼ぶ側が RTMP に切り替える。
+ * 「今の 1.5 倍以上」になるのは、実際に取りこぼしたときだけ (推奨値の規則。advise と atLeastAfterDrops)
+ */
+export function nextLatency(recommendMs: number, maxMs: number): number {
+    return Math.min(Math.ceil(recommendMs / 10) * 10, maxMs);
+}
+
+/**
+ * 実際に映像が乱れた (回復できなかったパケットがある、など) ときの推奨値: 今の 1.5 倍以上にする (advise の中の規則と同じ)。
+ * 計測のあとの確定の間に乱れたときに使う (計測のときの推奨値は、乱れる前のもの)
+ */
+export function atLeastAfterDrops(recommendMs: number, currentMs: number): number {
+    return Math.ceil(Math.max(recommendMs, currentMs * 1.5) / 10) * 10;
 }
 
 function round1(v: number): number {

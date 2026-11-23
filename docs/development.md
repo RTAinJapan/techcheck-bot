@@ -58,7 +58,7 @@ bot の動きは、すべてコンソール (標準出力) に 1 行ずつ出る
 | `flows` (ARN、ドメイン、パスフレーズ) | そのまま効く。`/techcheck` の選択肢も登録し直す | 進行中のテストは、フローを名前で覚えている。ARN とドメインは今の設定ファイルの値に合わせ直す。名前ごと無くなっていたら、そのテストは中断する (`abortOrphans`) |
 | `slots` | 書き換えた枠は、設定ファイルの値になる | 書き換えていない枠は、`/techcheck slot` で変えた値が残る。比べるために、保存したときの設定ファイルの値も保存している (`loadSlots`、`slotConfigSnapshot`) |
 | 枠の「止めている」 | bot が問題を見つけて止めた枠は、受付を再開する | 運営が `/techcheck slot off` で止めた枠は、止めたまま (`stoppedByProblem`) |
-| `latency.initialMs`、`latency.maxMs`、`latency.maxRaises` | 次に始まるテストから効く | 進行中のテストは、案内済みの latency と上げた回数を覚えている |
+| `latency.initialUs`、`latency.maxUs`、`latency.maxRaises` | 次に始まるテストから効く | 進行中のテストは、案内済みの latency と上げた回数を覚えている |
 | `checks` | そのまま効く | 進行中のテストは、何番目の手順かを番号で覚えている。途中で手順を足したり減らしたりすると、ずれる |
 | `db.path` | 別のファイルにすると、進行中のテスト・待ちの列・枠の設定は引き継がれない | |
 | 環境変数 (`${名前}` で読むもの、`TECHCHECK_CONFIG`。アクセスキーを設定に書かないときは `AWS_PROFILE` なども) | bot を起動したシェルの値を使う。`.env` のファイルは読まない | |
@@ -87,7 +87,7 @@ Discord の権限の名前は、README と createToken.md では Developer Porta
 | 「使い方」のコマンドの表 | `src/discord/commands.ts` (定義)、`src/discord/bot.ts` の `InteractionHandler` (運営のロールの確認) |
 | 「denpachan」の、受信の設定を bot に入れさせる (`denpachan.configure`、`flows[].output`) | `src/service.ts` (`srtSourceFor`、`prepare`、`goRtmp`、`slotMismatches`)、`src/adapters/receiver.ts` (`hello` の `allowConfigure`)、`src/adapters/aws.ts` (フローの出力) |
 | 「マイクの声を録音する」と、「トークンと権限」の Discord のボイスチャンネル | `src/adapters/voice.ts` (ボイスチャンネルに入る、声を受ける、音量を測る)、`src/adapters/ogg.ts`、`src/service.ts` (`promptVoice` が空いているボイスチャンネルを選んで案内する。`recordVoice`、`onButton` の `step-start` と `voice-skip`)、`src/checks.ts` (`voiceStep`)、`src/index.ts` (`GuildVoiceStates`) |
-| 「web カメラを確かめる」 | `src/adapters/webcam.ts` (playwright-core でブラウザを起動し、`<video>` と WebRTC の統計を読む)、`src/service.ts` (`askWebcam`、`tickAwaitingWebcam`、`watchWebcam`、`summarizeWebcam`、`onButton` の `webcam-skip`。マイクの声の録音は `promptWebcamVoice`、`recordVoice`、`onButton` の `step-start`)、`src/checks.ts` (`webcamVoiceStep`)、`src/adapters/level.ts` (ffmpeg で音量と波形)、`src/config.ts` (`webcam`)、`src/record.ts` (`describeWebcam`) |
+| 「web カメラを確かめる」 | `src/adapters/webcam.ts` (playwright-core でブラウザを起動し、`<video>` と WebRTC の統計を読む)、`src/service.ts` (`askWebcam`、`tickAwaitingWebcam`、`watchWebcam`、`summarizeWebcam`、`onButton` の `webcam-skip`。マイクの声の録音は `promptWebcamVoice`、`recordVoice`、`onButton` の `step-start`)、`src/checks.ts` (`webcamVoiceStep`)、`src/adapters/level.ts` (ffmpeg で音量と波形)、`src/config.ts` (`webcam`)、`src/record.ts` (`describeWebcam`、「web カメラの録画」の列)。録画は `webcam.ts` の `startRecording` / `close` と、`service.ts` の `keepWebcamRecording` / `closeWebcam` |
 | 「同時に複数人をテストする」の A (SRT の枠を並べる) | `src/config.ts` (`slots.srt`)、`src/service.ts` (`loadSlots`、`freeSrtSlots`、`tickQueue`) |
 
 設定の項目を足したり変えたりしたら、`src/config.ts`、`config.example.yaml`、[design.md の「設定値の一覧」](design.md#設定値の一覧) をそろえる。
@@ -110,6 +110,7 @@ Discord の権限の名前は、README と createToken.md では Developer Porta
 - web カメラの確認 ([design.md の §5.9](design.md#59-web-カメラ-vdoninja))。
   - 実際の vdo.ninja で、偽のカメラ (Chrome の試験用のカメラ) を同じ PC のブラウザから送り、bot のブラウザ (画面なしの Chromium) で受けて、映像の検出・統計・静止画と、マイクの音声の録音・音量の計測ができることは確かめた (2026-11-15)。
   - bot の PC に音声の出力デバイスが無いときに、音声を録れるかは、Linux のコンテナでしか見ていない (録れた)。Windows では実機で一度確かめる。
+  - web カメラの録画は、試験のページ (同じページの中の WebRTC) で、映像と音声の入った WebM が書け、ffmpeg で詰め直すと長さが入ることを確かめた。実際の vdo.ninja の映像での録画も確かめた (2026-11-17)。15 分録ったときのファイルの大きさと、bot の PC の CPU の負荷 (ブラウザが VP8 に符号化し直す) は、実機で見る。
   - 配信者の実際のカメラと回線 (別の PC、NAT 越し) では、通していない。PC に入っている Chrome / Edge を `webcam.browser.channel` で起動する動作 (Windows) も、実機で一度確かめる。
   - OBS の配信と同時に送ったときの、判定への影響の大きさは見ていない。
 - マイクの声の録音 ([design.md の §7.3](design.md#73-マイクの声の録音-discord-のボイスチャンネル))。

@@ -4,10 +4,14 @@
 //   (OBS の配信と WebRTC の両方を送っている状態を作るのは、このページ)。
 // - 映像が届いているかは、ページの中の <video> のフレームが進んでいるかで見る。VDO.ninja の中の作りには頼らない。
 // - 受信の統計 (ロス、固まった回数) は、ページが作る RTCPeerConnection を覚えておいて、getStats() で読む。
+// - 録画 (startRecording): 届いた映像と音声を、ページの中の MediaRecorder で WebM に録る (ブラウザが符号化し直す)。
+//   2 秒ごとのかたまりを bot に渡して、ファイルに書き足す (長い録画をページの中に溜めない)。
+//   閉じるときに ffmpeg で詰め直して (-c copy)、長さとシークの情報を入れる (MediaRecorder の WebM には入らない)。
 // - ブラウザは、PC に入っている Chrome 系を使う (設定の webcam.browser)。Playwright はブラウザを操作するのに使うだけで、
 //   ブラウザそのものは持ってこない (playwright-core)。
 
-import { mkdirSync, writeFileSync } from "node:fs";
+import { spawn } from "node:child_process";
+import { appendFileSync, mkdirSync, renameSync, rmSync, writeFileSync } from "node:fs";
 import { dirname } from "node:path";
 import { type Browser, type Page, chromium } from "playwright-core";
 import type { VoiceRecording, WebcamPort, WebcamStatus } from "../ports.js";
@@ -17,6 +21,10 @@ const kPollMs = 1_000;
 /** 新しいフレームがこれだけ届かなければ、再生が止まっているとみなす (ミリ秒) */
 const kPlayingMs = 3_000;
 const kOpenTimeoutMs = 30_000;
+/** 録画の映像のビットレート (VDO.ninja の既定の送り方と同じくらい) */
+const kRecordVideoBps = 2_500_000;
+/** 録画を書き終えるのを待つ上限 (閉じるとき) */
+const kRecordStopTimeoutMs = 15_000;
 
 /** ページの中で測ったもの */
 interface Probe {
@@ -40,6 +48,10 @@ interface View {
     lastAdvanceAt?: number;
     lastAudioPackets?: number;
     lastAudioAt?: number;
+    /** 録画のファイル名のもと (startRecording)。undefined なら録らない */
+    recordBase?: string;
+    /** 録画を書いたファイル (かたまりが届いた順) */
+    recordFiles: string[];
 }
 
 /** ページが作る RTCPeerConnection を覚えておく (ページのスクリプトより先に入れる) */
@@ -56,6 +68,63 @@ const kInitScript = `(() => {
     });
     window.RTCPeerConnection = Wrapped;
     if (window.webkitRTCPeerConnection) window.webkitRTCPeerConnection = Wrapped;
+})();
+// 録画。いちばん大きく映っている <video> の映像と、届いている音声を、MediaRecorder で録る。
+// かたまりは window.__tcCamChunk(区切りの番号, base64) で bot に渡す (順番どおりに渡すため、1 つずつ待つ)
+window.__tcCam = (() => {
+    let rec, videoTrack, seg = 0, queue = Promise.resolve();
+    const pick = () => {
+        let best;
+        for (const v of document.querySelectorAll("video")) {
+            if (v.videoWidth > 0 && v.srcObject && (!best || v.videoWidth * v.videoHeight > best.videoWidth * best.videoHeight)) best = v;
+        }
+        const live = (t) => t && t.readyState === "live";
+        const vt = best ? best.srcObject.getVideoTracks().find(live) : undefined;
+        let at = best ? best.srcObject.getAudioTracks().find(live) : undefined;
+        if (!at) {
+            for (const pc of window.__techcheckPeers || []) {
+                if (pc.connectionState === "closed") continue;
+                for (const r of pc.getReceivers()) if (!at && r.track && r.track.kind === "audio" && live(r.track) && !r.track.muted) at = r.track;
+            }
+        }
+        return { vt, at };
+    };
+    const send = (id, blob) => {
+        queue = queue.then(async () => {
+            const bytes = new Uint8Array(await blob.arrayBuffer());
+            let binary = "";
+            for (let i = 0; i < bytes.length; i += 0x8000) binary += String.fromCharCode.apply(null, bytes.subarray(i, i + 0x8000));
+            await window.__tcCamChunk(id, btoa(binary));
+        }).catch(() => undefined);
+    };
+    const start = (vt, at, bps) => {
+        const id = ++seg;
+        const mimeType = ["video/webm;codecs=vp8,opus", "video/webm"].find((t) => MediaRecorder.isTypeSupported(t));
+        rec = new MediaRecorder(new MediaStream(at ? [vt, at] : [vt]), { mimeType, videoBitsPerSecond: bps, audioBitsPerSecond: 128000 });
+        videoTrack = vt;
+        rec.ondataavailable = (e) => { if (e.data.size > 0) send(id, e.data); };
+        rec.start(2000);
+    };
+    return {
+        // 毎秒呼ぶ。録っていなければ始める。録っている映像が終わった・入れ替わった (配信者がページを開き直した) なら、区切って録り直す
+        ensure(bps) {
+            const { vt, at } = pick();
+            const running = rec && rec.state !== "inactive";
+            if (running && videoTrack.readyState === "live" && (!vt || vt === videoTrack)) return seg;
+            if (running) rec.stop();
+            if (vt) start(vt, at, bps);
+            return seg;
+        },
+        // 止めて、最後のかたまりまで渡し終えるのを待つ
+        async stop() {
+            if (rec && rec.state !== "inactive") {
+                const stopped = new Promise((r) => rec.addEventListener("stop", r, { once: true }));
+                rec.stop();
+                await stopped;
+            }
+            await queue;
+        },
+    };
 })();`;
 
 /** いちばん大きく映っている <video> と、受信の統計を読む。文字列で渡す (ページの中で動くので、bot の側の型は使えない) */
@@ -146,7 +215,7 @@ export class BrowserWebcam implements WebcamPort {
 
     open(key: string, viewUrl: string): void {
         if (this.views.has(key)) return;
-        const view: View = { status: { state: "opening", playing: false }, closed: false };
+        const view: View = { status: { state: "opening", playing: false }, closed: false, recordFiles: [] };
         this.views.set(key, view);
         void this.watch(view, viewUrl);
     }
@@ -177,17 +246,66 @@ export class BrowserWebcam implements WebcamPort {
         return { file, packets: 0, bytes: data.length, audioMs: seconds * 1000, ...level, waveform };
     }
 
-    async close(key: string): Promise<void> {
+    startRecording(key: string, base: string): void {
         const view = this.views.get(key);
-        if (!view) return;
+        if (!view || view.recordBase !== undefined) return;
+        view.recordBase = base;
+        view.status = { ...view.status, recording: true };
+    }
+
+    async close(key: string): Promise<string[]> {
+        const view = this.views.get(key);
+        if (!view) return [];
         view.closed = true;
         this.views.delete(key);
+        // 録画を書き終えてから閉じる (閉じると、ページの中に残ったかたまりが失われる)
+        if (view.recordBase !== undefined && view.page) {
+            const stop = view.page.evaluate("window.__tcCam && window.__tcCam.stop()").catch(() => undefined);
+            await Promise.race([stop, new Promise((r) => setTimeout(r, kRecordStopTimeoutMs))]);
+        }
         await view.page
             ?.context()
             .close()
             .catch(() => undefined);
         // 見ているページが無くなったら、ブラウザも閉じる (テストの無い間は、動かしておかない)
         if (this.views.size === 0) await this.closeBrowser();
+        for (const file of view.recordFiles) await this.finalize(file);
+        return [...view.recordFiles];
+    }
+
+    /** MediaRecorder の WebM を ffmpeg で詰め直し、長さとシークの情報を入れる。できなければ、そのまま残す */
+    private async finalize(file: string): Promise<void> {
+        const tmp = `${file}.tmp.webm`;
+        const ok = await new Promise<boolean>((resolve) => {
+            const child = spawn(this.ffmpegPath, ["-hide_banner", "-loglevel", "error", "-y", "-i", file, "-c", "copy", tmp], { stdio: "ignore", windowsHide: true });
+            const timer = setTimeout(() => child.kill(), 120_000);
+            child.on("error", () => resolve(false));
+            child.on("close", (code) => {
+                clearTimeout(timer);
+                resolve(code === 0);
+            });
+        });
+        try {
+            if (ok) renameSync(tmp, file);
+            else rmSync(tmp, { force: true });
+        } catch (e) {
+            this.log(`web カメラ: 録画を詰め直せませんでした (そのまま残します): ${e instanceof Error ? e.message : String(e)}`);
+        }
+    }
+
+    /** ページから届いた録画のかたまりを、区切りごとのファイルに書き足す */
+    private appendChunk(view: View, seg: number, base64: string): void {
+        if (view.recordBase === undefined) return;
+        const file = seg > 1 ? `${view.recordBase}-${seg}.webm` : `${view.recordBase}.webm`;
+        try {
+            if (!view.recordFiles.includes(file)) {
+                mkdirSync(dirname(file), { recursive: true });
+                view.recordFiles.push(file);
+            }
+            appendFileSync(file, Buffer.from(base64, "base64"));
+        } catch (e) {
+            this.log(`web カメラ: 録画を書けません: ${e instanceof Error ? e.message : String(e)}`);
+        }
     }
 
     /** bot を止めるとき */
@@ -232,6 +350,7 @@ export class BrowserWebcam implements WebcamPort {
             if (view.closed) return;
             const context = await browser.newContext({ viewport: { width: 1280, height: 720 } });
             await context.addInitScript(kInitScript);
+            await context.exposeFunction("__tcCamChunk", (seg: number, base64: string) => this.appendChunk(view, seg, base64));
             const page = await context.newPage();
             view.page = page;
             if (view.closed) return void (await context.close().catch(() => undefined));
@@ -239,6 +358,10 @@ export class BrowserWebcam implements WebcamPort {
             view.status = { state: "open", playing: false };
             while (!view.closed) {
                 this.update(view, (await page.evaluate(kProbeScript)) as Probe);
+                // 録画: 映像が届いている間は、録っているかを毎秒確かめる (映像が入れ替わったら、区切って録り直す)
+                if (view.recordBase !== undefined && view.status.playing && !view.closed) {
+                    await page.evaluate(`window.__tcCam.ensure(${kRecordVideoBps})`).catch(() => undefined);
+                }
                 await new Promise((r) => setTimeout(r, kPollMs));
             }
         } catch (e) {
@@ -268,6 +391,8 @@ export class BrowserWebcam implements WebcamPort {
             packetsLost: p.packetsLost,
             freezes: p.freezes,
             audio,
+            recording: view.recordBase !== undefined,
+            recordFiles: [...view.recordFiles],
         };
     }
 }
